@@ -34,35 +34,50 @@ your desktop's polkit password dialog. The GUI stays unprivileged; only the Rust
 input helper opens the mouse and uinput. The desktop needs polkit (`pkexec`) and
 a running authentication agent. No system service or permissions rule is installed.
 
-- Click a numbered tile to edit its binding. Choose a held keyboard key, a
-  shortcut such as Ctrl+C, or a sequence in the macro editor.
-- **Learn input** pauses remapping and records the next mouse button you press.
-  Main left/right/middle clicks are ignored; press a side button. The input field
-  is read-only. Live input highlights the corresponding tile. Learning times out
-  after 15 seconds. The engine also rejects main mouse buttons as binding inputs.
-- **Save profile** saves drafts; **Apply bindings** validates and activates them.
-- **Reset 12 buttons** restores `1…9, 0, -, =` passthrough and immediately stops
-  remapping. It does not simulate those keys or write mouse firmware.
-- The 12-, 6-, and 2-button plates have separate saved profiles. Select the
-  attached plate manually. The other plates start with no assumed input codes;
-  learn each physical button before assigning it a custom action. Switching
-  plates pauses remapping until Apply is clicked. Resetting another plate keeps
-  learned inputs and removes its remapping.
-- **Stop remapping** returns to normal mouse behavior while retaining your saved
-  setup. Closing to an available system tray keeps the helper running. Tray
-  **Quit**, or closing without a tray, stops it. Closing also saves draft edits.
-- With the app window focused, **Esc** stops remapping and **Ctrl+Q** fully quits
-  (including when closing the window would normally keep it running in the tray).
+Version **0.3.0** adds an experimental **Mouse memory** mode for existing
+onboard profile slots. It is implemented from the Naga V2 Pro protocol, but has
+not yet been tested on a physical mouse. Start with this read-only diagnostic:
 
-Profiles are stored at `~/.config/NagaLibre/profiles.json` (or under
-`$XDG_CONFIG_HOME`). Invalid existing profile files are preserved and never
-silently replaced. Editing does not change active bindings until Apply is used.
-Reconnect/rescan after unplugging or switching the connection method; no automatic
-restart of remapping occurs on reconnect.
+```sh
+sudo ./naga-macros onboard-read
+```
 
-Automatic faceplate detection is **not implemented**. Static disassembly recovered
-a generic Razer layout query, but no verified faceplate ID mapping. See
-[the investigation](inspection/FACEPLATES.md). The app makes no vendor HID writes.
+In **Mouse memory** mode:
+
+- Connect / **Read slots** discovers initialized slots. Select a slot to edit.
+  Reading logs its stored bindings; your local draft stays unchanged.
+- Edit the twelve side buttons, then **Save 12 bindings to mouse**. This writes
+  all twelve displayed draft actions and activates that slot. Standard keys,
+  modifier shortcuts (Ctrl+C), and mouse-button outputs are supported.
+- The app saves a private backup before writing, checks every binding by reading
+  it back, and stops the helper after success. The intended result is bindings
+  that work after quitting the app and reconnecting the mouse.
+- **Reset 12 buttons** writes the factory `1…9, 0, -, =` actions to the selected
+  slot. Primary left/right clicks are never written.
+- **Restore backup…** restores saved side-button records to their original slot
+  on the same mouse and connection type, then activates it. Backups live under
+  `~/.config/NagaLibre/backups/`.
+
+Only existing initialized slots are edited; creation/deletion is unavailable.
+Use the USB cable or 2.4 GHz receiver; Bluetooth is unsupported. Multi-step
+onboard macro storage remains under investigation and is rejected before writes.
+See [protocol evidence and limitations](inspection/ONBOARD.md).
+
+In **Software** mode, keys, shortcuts and macro sequences run through evdev and
+uinput while the background helper is active:
+
+- **Learn input** observes a side button; primary clicks are ignored. Live input
+  highlights tiles. The 6- and 2-button plates require manual input learning.
+- **Apply bindings** activates the draft. **Stop remapping** stops software
+  remapping. The input emitted by firmware passes through again; previously saved
+  onboard settings remain active.
+- Closing to the tray keeps software remapping running. **Ctrl+Q** quits;
+  **Esc** stops software remapping with the window focused.
+
+**Save draft** only saves local edits. Drafts are stored at
+`~/.config/NagaLibre/profiles.json` (or under `$XDG_CONFIG_HOME`). Invalid files
+are preserved. Automatic faceplate detection is not implemented; see
+[the investigation](inspection/FACEPLATES.md).
 
 The Arch download includes the GUI source and the static Rust input engine;
 it uses your system Python and Qt so it follows your Plasma setup. It requires
@@ -105,8 +120,8 @@ Linux evdev input and emits keyboard shortcuts, sequences, delays, and mouse
 button actions through uinput. It works below the Wayland/X11 display layer.
 
 The initial macro engine was confirmed working by the user with a physical
-Naga V2 Pro's 12-button plate. The new Qt interface, held-key mapping, and other
-plates still need device testing. The development machine has neither the mouse
+Naga V2 Pro's 12-button plate. The user also confirmed the 0.2.2 composite-interface fix works. Onboard
+programming, other plates and power-cycle persistence still need device testing. The development machine has neither the mouse
 nor permission to access uinput.
 
 ## First test on your main machine
@@ -229,11 +244,10 @@ input-device access. A later installation can grant narrowly scoped device
 access to a dedicated group rather than running the process as root. No broad
 input permission rules are installed by this project.
 
-Macros execute in this background process. It does **not** write profiles or
-macros to the mouse's onboard memory, change DPI/RGB settings, execute shell
-commands, or install Razer software. Existing onboard settings remain relevant
-to what events the mouse emits. Applications that reject synthetic input may
-not accept these macros.
+Software macros execute in the background process. Mouse-memory mode instead
+writes side-button records to existing onboard slots. Multi-step onboard macros,
+DPI/RGB settings, shell commands and Razer software installation are unsupported.
+Applications that reject synthetic input may not accept software macros.
 
 ## Build and verify
 
@@ -257,8 +271,8 @@ CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
 The Rust and Qt tests exercise key/chord ordering, delays, rejection of invalid
 macros, suppression of trigger edges, shared held-key ownership, configuration
 round trips, learning, reset behavior, profile switching, and helper EOF shutdown.
-The initial CLI macros worked on the user's mouse. The new GUI and held-key
-behavior, other plates, and disconnection cleanup still need physical testing.
+The CLI macros and 0.2.2 GUI fix worked on the user's mouse. The onboard path,
+other plates and disconnection cleanup still need physical testing.
 
 The uploaded installer inspection is documented in
 [inspection/REPORT.md](inspection/REPORT.md). No proprietary DLLs are included in

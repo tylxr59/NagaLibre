@@ -36,6 +36,7 @@ class Backend(QObject):
         self.process.errorOccurred.connect(self.process_error)
         self.buffer = b""
         self.ready = False
+        self.protocol = 0
 
     def start(self):
         if self.process.state() != QProcess.ProcessState.NotRunning:
@@ -76,10 +77,11 @@ class Backend(QObject):
                 self.log.emit("Invalid input-helper response.")
                 continue
             if message.get("type") == "hello":
-                if message.get("protocol") != 1:
+                if message.get("protocol") not in (1, 2):
                     self.log.emit("Input engine version is incompatible. Update both app and engine.")
                     self.process.closeWriteChannel()
                     continue
+                self.protocol = message["protocol"]
                 self.ready = True
                 self.connected.emit(True)
             self.event.emit(message)

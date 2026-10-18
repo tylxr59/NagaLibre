@@ -15,9 +15,10 @@ from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit, QPushButton, QStackedWidget, QSystemTrayIcon, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QKeySequenceEdit,
+    QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QKeySequenceEdit, QFileDialog,
 )
 
+from onboard import hardware_buttons, write_backup
 from backend import Backend, backend_path
 from model import (
     binding_label, config_path, default_button, display_key, key_code, load_profile,
@@ -145,6 +146,11 @@ class Window(QMainWindow):
         self.learning = False
         self.learn_pending = False
         self.pending_config = None
+        self.pending_onboard = None
+        self.hardware_busy = False
+        self.hardware_saved = None
+        self.snapshot = None
+        self.save_after_read = False
         self.applying = False
         self.fault = False
         self.quitting = False
@@ -175,6 +181,25 @@ class Window(QMainWindow):
         self.status.setWordWrap(True)
         self.status.setStyleSheet("padding: 10px; background: #24312f; border-radius: 6px; color: #8ce3cb;")
         layout.addWidget(self.status)
+        storage_row = QHBoxLayout()
+        self.storage = QComboBox()
+        self.storage.addItem("Mouse memory · no background app", "hardware")
+        self.storage.addItem("Software · background helper", "software")
+        self.storage.setCurrentIndex(max(0, self.storage.findData(self.profile.get("storage", "hardware"))))
+        storage_row.addWidget(self.storage, 1)
+        self.slots = QComboBox()
+        self.slots.addItem("Active mouse slot", None)
+        storage_row.addWidget(self.slots)
+        self.read_button = QPushButton("Read slots")
+        self.read_button.clicked.connect(self.read_mouse)
+        storage_row.addWidget(self.read_button)
+        self.restore_button = QPushButton("Restore backup…")
+        self.restore_button.clicked.connect(self.restore_backup)
+        storage_row.addWidget(self.restore_button)
+        layout.addLayout(storage_row)
+        self.memory_hint = QLabel("Mouse memory: saves all 12 side bindings to an existing slot. Keys and shortcuts supported; macro sequences require software mode. Reading slots leaves your draft unchanged.")
+        self.memory_hint.setWordWrap(True)
+        layout.addWidget(self.memory_hint)
         columns = QHBoxLayout()
         left = QGroupBox("Side buttons")
         left_layout = QVBoxLayout(left)
@@ -221,7 +246,7 @@ class Window(QMainWindow):
         form.addRow("Action", self.mode)
         edit_layout.addLayout(form)
         self.stack = QStackedWidget()
-        default_page = QLabel("Use the key this button already sends. No remapping is applied.")
+        default_page = QLabel("Mouse memory: restore this position’s factory key. Software: pass the current input through.")
         default_page.setWordWrap(True)
         self.stack.addWidget(default_page)
         key_page = QWidget()
@@ -265,7 +290,7 @@ class Window(QMainWindow):
         self.stop_button.clicked.connect(self.stop_remapping)
         actions.addWidget(self.stop_button)
         actions.addStretch()
-        save = QPushButton("Save profile")
+        save = QPushButton("Save draft")
         save.clicked.connect(self.save)
         actions.addWidget(save)
         self.apply_button = QPushButton("Apply bindings")
@@ -299,6 +324,8 @@ class Window(QMainWindow):
         self.tray.activated.connect(lambda reason: self.show_window() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.tray.show()
+        self.storage.currentIndexChanged.connect(self.storage_changed)
+        self.storage_changed()
         self.rebuild_grid()
         self.select_button(0, commit=False)
         if self.load_error:
@@ -335,16 +362,87 @@ class Window(QMainWindow):
             self.device_label.setText(f"Input engine unavailable: {error}")
 
     def connect_mouse(self):
+        if self.backend.ready and self.is_hardware():
+            self.read_mouse()
+            return
         try:
             self.status.setText("Connecting… approve the desktop prompt for mouse access.")
             self.backend.start()
         except ValueError as error:
             self.fail(error)
 
+    def is_hardware(self):
+        return self.storage.currentData() == "hardware"
+
+    def set_hardware_busy(self, busy):
+        self.hardware_busy = busy
+        for widget in (self.storage, self.slots, self.read_button, self.restore_button,
+                       self.apply_button, self.plate, self.reset_button, self.stop_button,
+                       self.connect_button):
+            widget.setEnabled(not busy)
+
+    def storage_changed(self):
+        self.profile["storage"] = self.storage.currentData()
+        self.snapshot = None
+        self.hardware_saved = None
+        self.save_after_read = False
+        self.cancel_learning()
+        if self.backend.ready:
+            self.backend.shutdown()
+        hardware = self.is_hardware()
+        for widget in (self.slots, self.read_button, self.restore_button, self.memory_hint):
+            widget.setVisible(hardware)
+        self.learn_button.setEnabled(not hardware)
+        self.apply_button.setText("Save 12 bindings to mouse" if hardware else "Apply bindings")
+        self.status.setText("Mouse memory · read slots, edit your draft, then save to the mouse." if hardware else "Software mode · bindings need the background helper running.")
+
+    def hardware_command(self, command):
+        if self.backend.ready:
+            if self.backend.protocol < 2:
+                raise ValueError("Update naga-macros to version 0.3.0 alongside the app.")
+            self.backend.send(command)
+        else:
+            self.pending_onboard = command
+            self.connect_mouse()
+
+    def read_mouse(self):
+        try:
+            self.snapshot = None
+            self.hardware_saved = None
+            self.set_hardware_busy(True)
+            self.status.setText("Reading onboard profiles… no settings are being changed.")
+            self.hardware_command({"command": "onboard_read", "slot": self.slots.currentData()})
+        except (ValueError, OSError) as error:
+            self.set_hardware_busy(False)
+            self.fail(error)
+
+    def restore_backup(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Restore side bindings from backup", str(self.path.parent / "backups"), "Hardware backups (*.json)")
+        if not path:
+            return
+        try:
+            backup = json.loads(Path(path).read_text())
+            self.set_hardware_busy(True)
+            self.hardware_saved = None
+            self.status.setText("Preparing backup restoration…")
+            self.hardware_command({"command": "onboard_restore", "backup": backup})
+        except (ValueError, OSError) as error:
+            self.set_hardware_busy(False)
+            self.fail(error)
+
     def connection_changed(self, connected):
         self.connect_button.setText("Reconnect / rescan" if connected else "Connect mouse")
         if connected:
-            if self.pending_config is not None:
+            if self.pending_onboard is not None:
+                command, self.pending_onboard = self.pending_onboard, None
+                if self.backend.protocol < 2:
+                    self.set_hardware_busy(False)
+                    self.fail("Update naga-macros to version 0.3.0 alongside the app.")
+                    return
+                self.backend.send(command)
+            elif self.is_hardware():
+                self.read_mouse()
+            elif self.pending_config is not None:
                 self.backend.send({"command": "apply", "config": self.pending_config})
                 self.pending_config = None
             else:
@@ -352,8 +450,14 @@ class Window(QMainWindow):
         else:
             self.applying = False
             self.pending_config = None
+            self.pending_onboard = None
+            self.snapshot = None
+            self.set_hardware_busy(False)
             self.cancel_learning()
-            self.status.setText("Disconnected · original mouse input is restored. See connection details below.")
+            if self.hardware_saved is not None:
+                self.status.setText(f"Saved on mouse · slot {self.hardware_saved} active · helper stopped. You can quit NagaLibre.")
+            elif not self.fault:
+                self.status.setText("Helper disconnected · saved mouse settings remain active.")
 
     def commit_fields(self):
         if self.loading:
@@ -414,7 +518,7 @@ class Window(QMainWindow):
         self.cancel_learning()
         self.profile["plate"] = self.plate.currentData()
         self.selected = 0
-        if self.backend.ready:
+        if self.backend.ready and not self.is_hardware():
             self.backend.send({"command": "monitor"})
         self.rebuild_grid()
         self.select_button(0, commit=False)
@@ -438,8 +542,43 @@ class Window(QMainWindow):
 
     def on_event(self, message):
         kind = message.get("type")
-        if kind == "error":
+        if kind == "onboard_snapshot":
+            self.fault = False
+            self.snapshot = message["snapshot"]
+            snapshot = self.snapshot
+            self.slots.clear()
+            for slot in snapshot["slots"]:
+                self.slots.addItem(f"Slot {slot}" + (" · active" if slot == snapshot["active"] else ""), slot)
+            self.slots.setCurrentIndex(self.slots.findData(snapshot["slot"]))
+            self.set_hardware_busy(False)
+            records = ", ".join(f"{b['button']}:{b['category']:02x}/" + bytes(b['data']).hex() for b in snapshot['buttons'])
+            self.log(f"Read slot {snapshot['slot']} · side records {records}")
+            self.status.setText(f"Read slot {snapshot['slot']} · your draft is unchanged. Save writes all 12 displayed side bindings and activates this slot.")
+            if self.save_after_read:
+                self.save_after_read = False
+                self.apply()
+        elif kind == "onboard_prepared":
+            try:
+                path = write_backup(self.path, message["backup"], message["token"])
+                self.log(f"Hardware backup saved: {path}")
+                self.status.setText("Backup saved. Writing and verifying side bindings…")
+                self.backend.send({"command": "onboard_commit", "token": message["token"]})
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                self.fault = True
+                self.set_hardware_busy(False)
+                self.fail(f"Backup failed; mouse was not changed: {error}")
+                self.backend.shutdown()
+        elif kind == "onboard_saved":
+            self.fault = False
+            self.hardware_saved = message["snapshot"]["slot"]
+            self.save_after_read = False
+            self.set_hardware_busy(False)
+            self.backend.shutdown()
+        elif kind == "error":
             self.fault = True
+            self.snapshot = None
+            self.save_after_read = False
+            self.set_hardware_busy(False)
             self.applying = False
             self.cancel_learning()
             self.fail(message["message"])
@@ -505,7 +644,7 @@ class Window(QMainWindow):
             self.commit_fields()
             self.persist()
             self.rebuild_grid()
-            self.status.setText("Profile saved. Click Apply to activate changes.")
+            self.status.setText("Draft saved locally. Use the apply/save-to-mouse button to activate it.")
         except (ValueError, OSError) as error:
             self.fail(error)
 
@@ -522,6 +661,20 @@ class Window(QMainWindow):
     def apply(self):
         try:
             self.commit_fields()
+            if self.is_hardware():
+                buttons = hardware_buttons(self.profile)
+                self.persist()
+                self.rebuild_grid()
+                self.hardware_saved = None
+                self.fault = False
+                if not self.backend.ready or self.snapshot is None or self.snapshot["slot"] != self.slots.currentData():
+                    self.save_after_read = True
+                    self.read_mouse()
+                    return
+                self.set_hardware_busy(True)
+                self.status.setText("Checking current mouse state before backup…")
+                self.hardware_command({"command": "onboard_prepare", "buttons": buttons})
+                return
             config = self.checked_config()
             self.persist()
             self.rebuild_grid()
@@ -535,9 +688,16 @@ class Window(QMainWindow):
                 self.connect_mouse()
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             self.applying = False
+            self.set_hardware_busy(False)
             self.fail(error)
 
     def stop_remapping(self):
+        if self.hardware_busy:
+            return
+        if self.is_hardware():
+            self.backend.shutdown()
+            self.status.setText("Helper stopped · saved mouse settings remain active.")
+            return
         self.pending_config = None
         self.cancel_learning()
         if self.backend.ready:
@@ -545,7 +705,8 @@ class Window(QMainWindow):
         self.status.setText("Remapping stopped · original mouse buttons active.")
 
     def reset_defaults(self):
-        self.stop_remapping()
+        if not self.is_hardware():
+            self.stop_remapping()
         self.commit_fields()
         reset_plate(self.profile, self.profile["plate"])
         self.rebuild_grid()
@@ -562,6 +723,10 @@ class Window(QMainWindow):
         self.close()
 
     def closeEvent(self, event):
+        if self.hardware_busy:
+            self.status.setText("Finish the hardware operation before closing NagaLibre.")
+            event.ignore()
+            return
         self.commit_fields()
         if not self.load_error:
             try:

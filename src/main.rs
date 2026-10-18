@@ -1,4 +1,5 @@
 mod config;
+mod onboard;
 mod runtime;
 mod session;
 
@@ -27,6 +28,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Read onboard slots and twelve side-button records without changing settings.
+    OnboardRead {
+        #[arg(long)]
+        slot: Option<u8>,
+    },
     /// List event interfaces, including ones requiring elevated permissions.
     List {
         #[arg(long)]
@@ -140,6 +146,10 @@ fn main() -> Result<()> {
     let signal = running.clone();
     ctrlc::set_handler(move || signal.store(false, Ordering::Relaxed))?;
     match cli.command {
+        Command::OnboardRead { slot } => {
+            let snapshot = onboard::hidraw::connect()?.read(slot)?;
+            println!("{}", serde_json::to_string_pretty(&snapshot)?);
+        }
         Command::Session => session::run(running)?,
         Command::List { json } => {
             let devices = candidates()?;

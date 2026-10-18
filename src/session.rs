@@ -1,7 +1,7 @@
 //! The GUI stays unprivileged; the input session receives only data over stdin.
 //! EOF is a lifecycle boundary, including when the GUI is killed or crashes.
-use crate::{config, runtime};
-use anyhow::{Context, Result};
+use crate::{config, onboard, runtime};
+use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -24,6 +24,10 @@ pub fn emit(value: Value) {
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    OnboardRestore { backup: onboard::Snapshot },
+    OnboardRead { slot: Option<u8> },
+    OnboardPrepare { buttons: Vec<onboard::Button> },
+    OnboardCommit { token: String },
     Monitor,
     Apply { config: String },
     Shutdown,
@@ -116,8 +120,11 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         }
         // Dropping tx makes recv detect EOF, even when a worker is active.
     });
-    emit(json!({"type":"hello","protocol":1,"version":env!("CARGO_PKG_VERSION")}));
+    emit(json!({"type":"hello","protocol":2,"version":env!("CARGO_PKG_VERSION")}));
     let mut active: Option<Worker> = None;
+    let mut hardware: Option<onboard::Mouse<onboard::hidraw::Hidraw>> = None;
+    let mut snapshot: Option<onboard::Snapshot> = None;
+    let mut prepared: Option<(String, onboard::Prepared)> = None;
     while running.load(Ordering::Relaxed) {
         let command = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(Ok(command)) => command,
@@ -128,6 +135,81 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         };
+        if matches!(
+            command,
+            Command::OnboardRead { .. }
+                | Command::OnboardRestore { .. }
+                | Command::OnboardPrepare { .. }
+                | Command::OnboardCommit { .. }
+        ) {
+            if let Some(worker) = active.take() {
+                worker.stop();
+            }
+            let result = (|| -> Result<()> {
+                match command {
+                    Command::OnboardRestore { backup } => {
+                        prepared = None;
+                        snapshot = None;
+                        if hardware.is_none() {
+                            hardware = Some(onboard::hidraw::connect()?);
+                        }
+                        let plan = hardware.as_mut().unwrap().prepare_restore(backup)?;
+                        let token = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_nanos()
+                            .to_string();
+                        emit(json!({"type":"onboard_prepared","token":token,"backup":plan.before}));
+                        prepared = Some((token, plan));
+                    }
+                    Command::OnboardRead { slot } => {
+                        prepared = None;
+                        snapshot = None;
+                        hardware = None;
+                        let mut mouse = onboard::hidraw::connect()?;
+                        let read = mouse.read(slot)?;
+                        emit(json!({"type":"onboard_snapshot","snapshot":read}));
+                        snapshot = Some(read);
+                        hardware = Some(mouse);
+                    }
+                    Command::OnboardPrepare { buttons } => {
+                        prepared = None;
+                        let mouse = hardware
+                            .as_mut()
+                            .context("Read mouse slots before saving")?;
+                        let before = snapshot
+                            .as_ref()
+                            .context("Read mouse slots before saving")?;
+                        let plan = mouse.prepare(before, buttons)?;
+                        let token = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_nanos()
+                            .to_string();
+                        emit(json!({"type":"onboard_prepared","token":token,"backup":plan.before}));
+                        prepared = Some((token, plan));
+                    }
+                    Command::OnboardCommit { token } => {
+                        let (expected, plan) =
+                            prepared.take().context("No hardware save is prepared")?;
+                        ensure!(
+                            expected == token,
+                            "Prepared hardware-save token does not match"
+                        );
+                        let mouse = hardware.as_mut().context("Hardware connection lost")?;
+                        snapshot = None;
+                        let after = mouse.commit(plan)?;
+                        emit(json!({"type":"onboard_saved","snapshot":after}));
+                        snapshot = Some(after);
+                    }
+                    _ => unreachable!(),
+                }
+                Ok(())
+            })();
+            if let Err(e) = result {
+                prepared = None;
+                emit(json!({"type":"error","message":format!("{e:#}")}));
+            }
+            continue;
+        }
         let bindings = match command {
             Command::Shutdown => break,
             Command::Monitor => None,
@@ -138,7 +220,11 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                     continue;
                 }
             },
+            _ => unreachable!(),
         };
+        hardware = None;
+        snapshot = None;
+        prepared = None;
         if let Some(worker) = active.take() {
             worker.stop();
         }

@@ -1,35 +1,29 @@
-# Validation of version 0.2.2
+# Validation of version 0.3.0
 
-Build environment: Linux x86-64, Rust 1.99.1. Release target:
-`x86_64-unknown-linux-musl`, linked with `rust-lld`.
+Linux x86-64, Rust 1.99.1; release target x86_64-unknown-linux-musl,
+linked with rust-lld. These are local software checks, not hardware validation.
 
-Passed:
+- Sixteen Rust tests pass. New coverage exercises report framing/checksums,
+  stale reply rejection, HID descriptor parsing, side-only writes, readback,
+  stale-plan rejection, activation/normal mode, device-bound restoration, and
+  rollback of a failed acknowledgement after the device accepted a write.
+  Existing scheduler/config/interface selection regressions also pass.
+- Thirteen Python/Qt tests pass. New checks cover HID key/chord translation,
+  rejection of unsupported macros/plates, private backups, backup-failure commit
+  prevention, helper shutdown on success, and a full read/prepare/commit/shutdown
+  flow through a real QProcess with a fake hardware helper, including reconnect.
+- Clippy passes for all targets with warnings denied; Rust formatting passes.
+- The Qt window was rendered offscreen and visually inspected.
 
-- Nine Rust unit tests covering chord/release order, scheduler timing, trigger event
-  filtering, rejection of invalid configurations, empty defaults, held mappings,
-  reference counting when mappings share a key, and rejection of main-button
-  triggers while allowing clicks as macro outputs, preference for keyboard
-  interfaces over redundant absolute interfaces, and retaining absolute
-  interfaces when a binding needs them.
-- Eight Python/Qt tests: conversion to real Rust configs, default resets,
-  independent plate profiles, persistence, corruption preservation, macro editor
-  round trips/reordering, the edit/apply/learn/reset Qt flow using a mock helper,
-  real JSON-session error/EOF handling, rejection of primary-click bindings,
-  ignored main clicks during learning, and reset of old bad inputs.
-- `cargo clippy --all-targets --locked -- -D warnings`.
-- `cargo fmt --check`.
-- Release binary CLI smoke checks: help, version, example configuration
-  validation, device listing, and expected errors for absent hardware/invalid
-  configurations.
-- ELF inspection identifies the release as a stripped, static PIE executable.
+The user's physical 12-button inputs, initial CLI macros and 0.2.2 composite
+interface fix are confirmed. **The new hidraw transport, firmware profile writes,
+readback, rollback on a real device, and persistence after quitting or reconnecting
+are not hardware-tested.** No Naga is attached to the development machine.
+The new build is a prerelease for controlled hardware testing, not evidence that
+all of Synapse has been reimplemented. Multi-step onboard macros remain absent.
 
-The user confirmed all 12 side-button inputs and the initial CLI copy/paste
-macros work on the physical mouse. The new GUI and held-key output, hot unplug
-cleanup, other plates, and Bluetooth still need testing on that machine.
-The development machine has no attached Naga V2 Pro and its input/uinput nodes
-are not accessible to the development account.
-
-The next device test is to connect from the Qt app on Arch/KDE, observe the
-12-button highlights, apply a shortcut and a held-key binding, and reset to
-defaults. Use Learn input to calibrate the other plates. Automatic physical
-plate detection remains unimplemented; see FACEPLATES.md.
+First test: `sudo ./naga-macros onboard-read` over the USB cable. It requests
+serial, mode, slot inventory, active slot, primary clicks and twelve side records
+without changing settings. Inspect that output before testing a single key save.
+Then quit, reconnect/power-cycle, check all primary controls, test factory reset
+and backup restoration. See ONBOARD.md for protocol provenance and limits.
