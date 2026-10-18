@@ -2,7 +2,7 @@
 
 ## Current state
 
-Version 0.2.1 is an initial Linux input remapper plus a Qt 6 desktop UI.
+Version 0.2.2 is an initial Linux input remapper plus a Qt 6 desktop UI.
 The target mouse is the **Razer Naga V2 Pro**, and the user's main machine runs
 **Arch Linux with KDE Plasma**. The mouse is attached to that machine, not the
 development environment.
@@ -31,6 +31,14 @@ the Rust engine. Mouse clicks remain allowed as macro outputs. Reset clears bad
 learned inputs; Esc stops remapping and Ctrl+Q quits with the GUI focused.
 Immediate recovery for an already-running bad mapping is
 `sudo pkill -x naga-macros`; then quit the old GUI, update, and reset the plate.
+
+The user next hit `event26 exposes absolute axes` when binding button 1 to B.
+The engine matched overlapping advertised key capabilities on the mouse's
+composite interfaces and rejected any interface with absolute axes. Version
+0.2.2 prefers non-absolute keyboard interfaces if they cover all configured
+inputs. If an absolute interface is needed, its axis metadata and ABS events
+are mirrored instead of rejecting the whole configuration. New selection
+regressions pass; applying this fix still needs confirmation on the user's mouse.
 
 ## Architecture
 
@@ -72,7 +80,7 @@ source or release content. The current application uses no proprietary DLLs.
 
 ## Verification and packaging
 
-Last validation: seven Rust tests and eight Python/Qt tests passed; Rust clippy
+Last validation: nine Rust tests and eight Python/Qt tests passed; Rust clippy
 passed with warnings denied; formatting checks passed. Tests cover compilation,
 routing, overlapping key ownership, real engine config validation, profile
 resets/persistence, Qt edit/apply/learn flows through a mock helper, and protocol
@@ -81,6 +89,9 @@ use processEvents rather than a full app event loop.
 Regression coverage rejects primary-click remaps in the engine and profile model,
 checks that primary clicks do not complete learning, and verifies reset clears
 old primary-click inputs without preventing mouse clicks as macro outputs.
+Interface-selection tests cover overlapping ordinary/absolute interfaces and
+retaining a necessary absolute interface. Actual absolute-axis passthrough is
+not hardware-tested in the development environment.
 
 ```sh
 cargo test --locked

@@ -1,14 +1,16 @@
-# Validation of version 0.2.1
+# Validation of version 0.2.2
 
 Build environment: Linux x86-64, Rust 1.99.1. Release target:
 `x86_64-unknown-linux-musl`, linked with `rust-lld`.
 
 Passed:
 
-- Seven Rust unit tests covering chord/release order, scheduler timing, trigger event
+- Nine Rust unit tests covering chord/release order, scheduler timing, trigger event
   filtering, rejection of invalid configurations, empty defaults, held mappings,
   reference counting when mappings share a key, and rejection of main-button
-  triggers while allowing clicks as macro outputs.
+  triggers while allowing clicks as macro outputs, preference for keyboard
+  interfaces over redundant absolute interfaces, and retaining absolute
+  interfaces when a binding needs them.
 - Eight Python/Qt tests: conversion to real Rust configs, default resets,
   independent plate profiles, persistence, corruption preservation, macro editor
   round trips/reordering, the edit/apply/learn/reset Qt flow using a mock helper,

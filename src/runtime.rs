@@ -1,7 +1,8 @@
 use crate::config::{Bindings, Macro};
 use anyhow::{Context, Result, ensure};
 use evdev::{
-    AttributeSet, Device, EventType, InputEvent, KeyCode, RelativeAxisCode, uinput::VirtualDevice,
+    AttributeSet, Device, EventType, InputEvent, KeyCode, RelativeAxisCode, UinputAbsSetup,
+    uinput::VirtualDevice,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -127,19 +128,41 @@ struct Source {
     forwarded: BTreeSet<KeyCode>,
 }
 
+struct InterfaceCapabilities {
+    keys: AttributeSet<KeyCode>,
+    absolute: bool,
+}
+
+fn source_indices(capabilities: &[InterfaceCapabilities], bindings: &Bindings) -> BTreeSet<usize> {
+    // Composite HID interfaces can advertise the same keyboard codes. Prefer
+    // the ordinary keyboard interfaces when they cover all configured inputs.
+    let standard_covers_all = bindings.keys().all(|key| {
+        capabilities
+            .iter()
+            .any(|c| !c.absolute && c.keys.contains(*key))
+    });
+    capabilities
+        .iter()
+        .enumerate()
+        .filter_map(|(index, c)| {
+            (bindings.keys().any(|key| c.keys.contains(*key))
+                && (!standard_covers_all || !c.absolute))
+                .then_some(index)
+        })
+        .collect()
+}
+
 impl Source {
     fn new(path: PathBuf, device: Device) -> Result<Self> {
-        ensure!(
-            device.supported_absolute_axes().is_none(),
-            "{} exposes absolute axes; select the mouse/keyboard event interfaces instead",
-            path.display()
-        );
         let mut builder = VirtualDevice::builder()?.name("naga-macros passthrough");
         if let Some(keys) = device.supported_keys() {
             builder = builder.with_keys(keys)?;
         }
         if let Some(axes) = device.supported_relative_axes() {
             builder = builder.with_relative_axes(axes)?;
+        }
+        for (code, info) in device.get_absinfo()? {
+            builder = builder.with_absolute_axis(&UinputAbsSetup::new(code, info))?;
         }
         builder = builder.with_properties(device.properties())?;
         let mirror = builder.build()?;
@@ -158,7 +181,10 @@ impl Source {
                 self.mirror.emit(&self.frame)?;
                 self.frame.clear();
             }
-        } else if matches!(event.event_type(), EventType::KEY | EventType::RELATIVE) {
+        } else if matches!(
+            event.event_type(),
+            EventType::KEY | EventType::RELATIVE | EventType::ABSOLUTE
+        ) {
             if event.event_type() == EventType::KEY {
                 if event.value() == 0 {
                     self.forwarded.remove(&KeyCode(event.code()));
@@ -253,14 +279,24 @@ fn run_inner(
             "Trigger {key:?} is not supported by any selected interface. Run monitor and update the config."
         );
     }
-    // Leave interfaces with no mapped buttons untouched (especially the pointer).
+    let capabilities: Vec<_> = devices
+        .iter()
+        .map(|(_, device)| InterfaceCapabilities {
+            keys: device
+                .supported_keys()
+                .map(|keys| keys.iter().collect())
+                .unwrap_or_default(),
+            absolute: device
+                .supported_absolute_axes()
+                .is_some_and(|axes| axes.iter().next().is_some()),
+        })
+        .collect();
+    let selected = source_indices(&capabilities, &bindings);
+    // Leave unrelated or redundant composite interfaces untouched.
     let devices: Vec<_> = devices
         .into_iter()
-        .filter(|(_, device)| {
-            device
-                .supported_keys()
-                .is_some_and(|keys| bindings.keys().any(|key| keys.contains(*key)))
-        })
+        .enumerate()
+        .filter_map(|(index, device)| selected.contains(&index).then_some(device))
         .collect();
     // Build every output before grabbing any physical input; failure leaves input usable.
     let mut output = MacroOutput::new(&bindings).context("Creating virtual input devices; /dev/uinput must be available and writable (try sudo for testing)")?;
@@ -377,6 +413,49 @@ fn run_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn side_key_prefers_keyboard_over_composite_absolute_interface() {
+        let bindings = crate::config::parse("[[binding]]\ntrigger='KEY_1'\nkey='KEY_B'").unwrap();
+        let capabilities = vec![
+            InterfaceCapabilities {
+                keys: [KeyCode::BTN_LEFT, KeyCode::BTN_RIGHT]
+                    .into_iter()
+                    .collect(),
+                absolute: false,
+            },
+            InterfaceCapabilities {
+                keys: [KeyCode::KEY_1].into_iter().collect(),
+                absolute: false,
+            },
+            InterfaceCapabilities {
+                keys: [KeyCode::KEY_1].into_iter().collect(),
+                absolute: true,
+            },
+        ];
+        assert_eq!(
+            source_indices(&capabilities, &bindings),
+            BTreeSet::from([1])
+        );
+    }
+
+    #[test]
+    fn absolute_interface_is_retained_when_it_is_needed_for_a_binding() {
+        let bindings = crate::config::parse("[[binding]]\ntrigger='KEY_1'\nkey='KEY_B'\n[[binding]]\ntrigger='BTN_SIDE'\nkey='KEY_C'").unwrap();
+        let capabilities = vec![
+            InterfaceCapabilities {
+                keys: [KeyCode::KEY_1].into_iter().collect(),
+                absolute: false,
+            },
+            InterfaceCapabilities {
+                keys: [KeyCode::BTN_SIDE].into_iter().collect(),
+                absolute: true,
+            },
+        ];
+        assert_eq!(
+            source_indices(&capabilities, &bindings),
+            BTreeSet::from([0, 1])
+        );
+    }
     #[test]
     fn overlapping_bindings_keep_target_held_until_last_release() {
         let mut held = BTreeMap::new();

@@ -8,11 +8,16 @@ NagaLibre is a Qt 6 desktop app backed by the `naga-macros` Rust input engine.
 
 Development status and next steps: [project handoff](HANDOFF.md).
 
-**Use version 0.2.1 or newer.** Version 0.2.0 could accidentally learn a main
+**Use version 0.2.2 or newer.** Version 0.2.0 could accidentally learn a main
 mouse click as a side-button input. If clicking now types a key, switch to a
 terminal using the keyboard and run `sudo pkill -x naga-macros` to restore normal
 input. Quit the old GUI, update, and use **Reset 12 buttons** to clear the bad
 mapping from the saved profile.
+
+Version 0.2.2 also fixes the `exposes absolute axes` failure when applying a
+side-button binding: it prefers the ordinary keyboard interface over redundant
+composite interfaces and preserves absolute-axis data if an interface needs it.
+No manual event-device selection or profile reset is needed for this fix.
 
 ## Desktop app
 
