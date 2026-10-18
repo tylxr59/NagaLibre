@@ -1,17 +1,19 @@
-# Validation of version 0.2.0
+# Validation of version 0.2.1
 
 Build environment: Linux x86-64, Rust 1.99.1. Release target:
 `x86_64-unknown-linux-musl`, linked with `rust-lld`.
 
 Passed:
 
-- Six Rust unit tests covering chord/release order, scheduler timing, trigger event
+- Seven Rust unit tests covering chord/release order, scheduler timing, trigger event
   filtering, rejection of invalid configurations, empty defaults, held mappings,
-  and reference counting when mappings share a key.
-- Seven Python/Qt tests: conversion to real Rust configs, default resets,
+  reference counting when mappings share a key, and rejection of main-button
+  triggers while allowing clicks as macro outputs.
+- Eight Python/Qt tests: conversion to real Rust configs, default resets,
   independent plate profiles, persistence, corruption preservation, macro editor
   round trips/reordering, the edit/apply/learn/reset Qt flow using a mock helper,
-  and real JSON-session error/EOF handling.
+  real JSON-session error/EOF handling, rejection of primary-click bindings,
+  ignored main clicks during learning, and reset of old bad inputs.
 - `cargo clippy --all-targets --locked -- -D warnings`.
 - `cargo fmt --check`.
 - Release binary CLI smoke checks: help, version, example configuration

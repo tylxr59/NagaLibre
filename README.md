@@ -8,6 +8,12 @@ NagaLibre is a Qt 6 desktop app backed by the `naga-macros` Rust input engine.
 
 Development status and next steps: [project handoff](HANDOFF.md).
 
+**Use version 0.2.1 or newer.** Version 0.2.0 could accidentally learn a main
+mouse click as a side-button input. If clicking now types a key, switch to a
+terminal using the keyboard and run `sudo pkill -x naga-macros` to restore normal
+input. Quit the old GUI, update, and use **Reset 12 buttons** to clear the bad
+mapping from the saved profile.
+
 ## Desktop app
 
 Extract `NagaLibre-linux-x86_64.tar.gz`, open the `NagaLibre` folder, and launch:
@@ -26,7 +32,9 @@ a running authentication agent. No system service or permissions rule is install
 - Click a numbered tile to edit its binding. Choose a held keyboard key, a
   shortcut such as Ctrl+C, or a sequence in the macro editor.
 - **Learn input** pauses remapping and records the next mouse button you press.
-  Live input highlights the corresponding tile. Learning times out after 15 seconds.
+  Main left/right/middle clicks are ignored; press a side button. The input field
+  is read-only. Live input highlights the corresponding tile. Learning times out
+  after 15 seconds. The engine also rejects main mouse buttons as binding inputs.
 - **Save profile** saves drafts; **Apply bindings** validates and activates them.
 - **Reset 12 buttons** restores `1…9, 0, -, =` passthrough and immediately stops
   remapping. It does not simulate those keys or write mouse firmware.
@@ -38,6 +46,8 @@ a running authentication agent. No system service or permissions rule is install
 - **Stop remapping** returns to normal mouse behavior while retaining your saved
   setup. Closing to an available system tray keeps the helper running. Tray
   **Quit**, or closing without a tray, stops it. Closing also saves draft edits.
+- With the app window focused, **Esc** stops remapping and **Ctrl+Q** fully quits
+  (including when closing the window would normally keep it running in the tray).
 
 Profiles are stored at `~/.config/NagaLibre/profiles.json` (or under
 `$XDG_CONFIG_HOME`). Invalid existing profile files are preserved and never

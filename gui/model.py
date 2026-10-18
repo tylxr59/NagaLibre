@@ -8,6 +8,7 @@ import re
 import tempfile
 
 DEFAULT_KEYS = [f"KEY_{i}" for i in range(1, 10)] + ["KEY_0", "KEY_MINUS", "KEY_EQUAL"]
+PROTECTED_INPUTS = frozenset(("BTN_LEFT", "BTN_RIGHT", "BTN_MIDDLE", "BTN_MOUSE"))
 SYMBOLS = {"KEY_MINUS": "-", "KEY_EQUAL": "="}
 ALIASES = {
     "CTRL": "LEFTCTRL", "CONTROL": "LEFTCTRL", "ALT": "LEFTALT",
@@ -113,6 +114,8 @@ def runtime_config(profile: dict) -> str:
             seen.add(trigger)
         if button["mode"] == "default":
             continue
+        if trigger in PROTECTED_INPUTS:
+            raise ValueError("Main mouse buttons cannot be side-button inputs. Reset the plate or use Learn input to select a side button.")
         if not trigger:
             raise ValueError(f"Learn the input for button {index + 1} first.")
         binding = f"[[binding]]\ntrigger = {json.dumps(trigger)}\n"
@@ -149,7 +152,7 @@ def reset_plate(profile: dict, plate: str) -> None:
     profile["plates"][plate] = [default_button(i, plate) for i in range(int(plate))]
     if plate != "12":
         for before, after in zip(old, profile["plates"][plate]):
-            after["trigger"] = before["trigger"]
+            after["trigger"] = before["trigger"] if before["trigger"] not in PROTECTED_INPUTS else ""
 
 
 def binding_label(button: dict) -> str:

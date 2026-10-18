@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from backend import Backend, backend_path
 from model import (
     binding_label, config_path, default_button, display_key, key_code, load_profile,
-    new_profile, reset_plate, runtime_config, save_profile, shortcut,
+    new_profile, reset_plate, runtime_config, save_profile, shortcut, PROTECTED_INPUTS,
 )
 
 
@@ -206,6 +206,7 @@ class Window(QMainWindow):
         form = QFormLayout()
         trigger_row = QHBoxLayout()
         self.trigger = QLineEdit()
+        self.trigger.setReadOnly(True)
         self.trigger.setPlaceholderText("Learn this button’s input")
         self.trigger.setToolTip("The key emitted by this physical button, e.g. KEY_1 or BTN_SIDE.")
         trigger_row.addWidget(self.trigger)
@@ -272,6 +273,15 @@ class Window(QMainWindow):
         self.apply_button.clicked.connect(self.apply)
         actions.addWidget(self.apply_button)
         layout.addLayout(actions)
+        stop_action = QAction("Stop remapping", self)
+        stop_action.setShortcut("Escape")
+        stop_action.triggered.connect(self.stop_remapping)
+        self.addAction(stop_action)
+        quit_action = QAction("Quit NagaLibre", self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self.quit)
+        self.addAction(quit_action)
+        layout.addWidget(QLabel("Keyboard controls: Esc stops remapping · Ctrl+Q quits (with this window focused)."))
         self.logs = QPlainTextEdit()
         self.logs.setReadOnly(True)
         self.logs.setMaximumBlockCount(150)
@@ -456,6 +466,9 @@ class Window(QMainWindow):
             code, value = message["key"], message["value"]
             self.last_input.setText(f"Last input: {display_key(code)} · {'pressed' if value else 'released'}")
             if self.learning and value == 1:
+                if code in PROTECTED_INPUTS:
+                    self.status.setText("Main mouse clicks are ignored during learning. Press a side button instead.")
+                    return
                 if any(i != self.selected and b["trigger"] == code for i, b in enumerate(self.buttons())):
                     self.status.setText(f"{code} is already assigned to another physical button. Press a different button.")
                     return
@@ -478,7 +491,8 @@ class Window(QMainWindow):
         self.commit_fields()
         trigger = self.current()["trigger"]
         self.buttons()[self.selected] = default_button(self.selected, self.profile["plate"])
-        self.current()["trigger"] = trigger
+        if self.profile["plate"] != "12" and trigger not in PROTECTED_INPUTS:
+            self.current()["trigger"] = trigger
         self.select_button(self.selected, commit=False)
 
     def persist(self):

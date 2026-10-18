@@ -80,6 +80,13 @@ pub fn parse(text: &str) -> Result<Bindings> {
     for binding in config.binding {
         let trigger = key(&binding.trigger)?;
         ensure!(
+            !matches!(
+                trigger,
+                KeyCode::BTN_LEFT | KeyCode::BTN_RIGHT | KeyCode::BTN_MIDDLE
+            ),
+            "Main mouse buttons cannot be remapped as side-button inputs. Use a side button or reset the plate to defaults."
+        );
+        ensure!(
             binding.key.is_some() != binding.steps.is_some(),
             "{} must have exactly one of key or steps",
             binding.trigger
@@ -197,6 +204,20 @@ pub fn parse(text: &str) -> Result<Bindings> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn primary_mouse_buttons_cannot_be_triggers_but_can_be_outputs() {
+        for trigger in ["BTN_LEFT", "BTN_RIGHT", "BTN_MIDDLE"] {
+            assert!(parse(&format!("[[binding]]\ntrigger='{trigger}'\nkey='KEY_A'")).is_err());
+            assert!(
+                parse(&format!(
+                    "[[binding]]\ntrigger='{trigger}'\nsteps=[{{tap='KEY_A'}}]"
+                ))
+                .is_err()
+            );
+        }
+        assert!(parse("[[binding]]\ntrigger='KEY_1'\nsteps=[{tap='BTN_LEFT'}]").is_ok());
+    }
 
     #[test]
     fn held_key_mapping_and_empty_defaults() {

@@ -57,6 +57,20 @@ class Profiles(unittest.TestCase):
         p["plates"]["12"][0].update(mode="macro", steps=[{"down": "Ctrl"}, {"tap": "C"}, {"up": "Ctrl"}, {"wait_ms": 50}, {"tap": "Enter"}])
         self.validate(p)
 
+    def test_primary_click_cannot_be_bound_and_reset_clears_old_bad_inputs(self):
+        p = new_profile()
+        for trigger in ("BTN_LEFT", "BTN_RIGHT", "BTN_MIDDLE", "BTN_MOUSE"):
+            p["plates"]["12"][0].update(trigger=trigger, mode="key", value="A")
+            with self.assertRaises(ValueError):
+                runtime_config(p)
+        reset_plate(p, "12")
+        self.assertEqual(p["plates"]["12"][0]["trigger"], "KEY_1")
+        p["plate"] = "2"
+        p["plates"]["2"][0].update(trigger="BTN_LEFT", mode="key", value="A")
+        reset_plate(p, "2")
+        self.assertEqual(p["plates"]["2"][0]["trigger"], "")
+        self.validate(p)
+
 
 class Session(unittest.TestCase):
     def test_eof_shuts_down_helper_and_bad_commands_are_reported(self):
@@ -128,6 +142,10 @@ class QtFlow(unittest.TestCase):
                 self.assertEqual(len(window.tiles), 6)
                 window.learn_input()
                 self.spin_until(lambda: window.learning)
+                for code in ("BTN_LEFT", "BTN_RIGHT", "BTN_MIDDLE"):
+                    window.on_event({"type": "input", "key": code, "value": 1})
+                    self.assertEqual(window.current()["trigger"], "")
+                    self.assertTrue(window.learning)
                 window.on_event({"type": "input", "key": "BTN_SIDE", "value": 1})
                 self.assertEqual(window.current()["trigger"], "BTN_SIDE")
                 self.assertFalse(window.learning)
