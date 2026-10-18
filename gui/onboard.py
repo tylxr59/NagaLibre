@@ -77,3 +77,21 @@ def write_backup(profile_path: Path, snapshot: dict, token: str) -> Path:
     finally:
         os.close(fd)
     return path
+
+
+def stored_label(record):
+    """Describe an actual firmware record without guessing unknown categories."""
+    category, data = record.get("category"), record.get("data", [])
+    if category == 0 and not data:
+        return "Disabled"
+    if category == 1 and len(data) == 1:
+        return {1: "Left click", 2: "Right click", 3: "Middle click", 4: "Back", 5: "Forward"}.get(data[0], f"Mouse {data[0]}")
+    if category == 2 and len(data) == 2:
+        from model import display_key
+        names = {1: "Ctrl", 2: "Shift", 4: "Alt", 8: "Super", 16: "Right Ctrl", 32: "Right Shift", 64: "Right Alt", 128: "Right Super"}
+        parts = [name for bit, name in names.items() if data[0] & bit]
+        key = next((key for key, usage in HID_KEYS.items() if usage == data[1]), None)
+        if data[1]:
+            parts.append(display_key(key) if key else f"HID {data[1]:02x}")
+        return "+".join(parts) or "No key"
+    return f"Action {category:02x}: " + bytes(data).hex()

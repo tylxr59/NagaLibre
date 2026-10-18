@@ -145,7 +145,9 @@ impl<T: Transport> Mouse<T> {
         let bytes = self.transport.exchange(5, 0x81, &[0; 6], 0)?;
         ensure!(
             bytes.len() == 6 && bytes[0] <= 5,
-            "Invalid onboard profile inventory"
+            "Unsupported onboard profile inventory: {} bytes, payload {:02x?}. No settings were changed. Run onboard-probe and share its output.",
+            bytes.len(),
+            bytes
         );
         let slots: Vec<_> = bytes[1..1 + usize::from(bytes[0])]
             .iter()

@@ -28,6 +28,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Read raw profile-query payloads for troubleshooting, without changing settings.
+    OnboardProbe,
     /// Read onboard slots and twelve side-button records without changing settings.
     OnboardRead {
         #[arg(long)]
@@ -146,6 +148,29 @@ fn main() -> Result<()> {
     let signal = running.clone();
     ctrlc::set_handler(move || signal.store(false, Ordering::Relaxed))?;
     match cli.command {
+        Command::OnboardProbe => {
+            use onboard::Transport;
+            let mut mouse = onboard::hidraw::connect()?;
+            let mut reads = Vec::new();
+            for (name, class, command, size) in [
+                ("serial", 0, 0x82, 22),
+                ("mode", 0, 0x84, 2),
+                ("inventory", 5, 0x81, 6),
+                ("active", 5, 0x84, 6),
+            ] {
+                let result = mouse.transport.exchange(class, command, &vec![0; size], 0);
+                reads.push(match result {
+                    Ok(bytes) => serde_json::json!({"query":name,"length":bytes.len(),"payload":bytes,"hex":bytes.iter().map(|b|format!("{b:02x}")).collect::<Vec<_>>().join(" ")}),
+                    Err(e) => serde_json::json!({"query":name,"error":format!("{e:#}")}),
+                });
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"device":mouse.transport.identity(),"reads":reads})
+                )?
+            );
+        }
         Command::OnboardRead { slot } => {
             let snapshot = onboard::hidraw::connect()?.read(slot)?;
             println!("{}", serde_json::to_string_pretty(&snapshot)?);

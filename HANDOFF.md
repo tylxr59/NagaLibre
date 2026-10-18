@@ -1,5 +1,32 @@
 # Project handoff
 
+## Latest: 0.3.1 display fix and main-PC handoff
+
+The user tried 0.3.0 on the mouse. `get_slots()` fails with
+`Invalid onboard profile inventory`. Their screenshot shows B in button 1
+but the physical key still emits 1: this is an old local software draft, not
+a successful hardware read. No hardware save has been confirmed.
+
+0.3.1 separates **Stored** and **Draft** on tiles, shows unread after failed
+reads, labels the editor as a draft, and disables hardware saves/reset until
+the selected slot has been read successfully. Unknown firmware actions are
+displayed as raw action data. A verified save retains its displayed snapshot
+after the helper stops; fresh read is required before saving again.
+
+`sudo ./naga-macros onboard-probe` issues only serial, mode, inventory, and
+active-slot getters and prints their raw payloads/errors as JSON. Get inventory
+output BEFORE changing the parser: the previous schema assumes a six-byte
+payload, first byte capacity <=5, followed by slot IDs. The screenshot alone
+does not establish which assumption is wrong. Do not guess a relaxed parser or
+claim the protocol failure is fixed. The error now includes actual bytes.
+
+The user asked whether moving development to their main PC with the mouse
+attached would help: yes. Continue there from GitHub; do not install this VM
+workspace or temporary Rust environment on their PC. On main, inspect hidraw
+descriptors and getter replies first, then verify one binding, app exit,
+power-cycle persistence, primary clicks, reset and backup restoration.
+
+
 ## Current work: 0.3.0 onboard profiles
 
 The user confirmed 0.2.2 works and now explicitly requires persistence without

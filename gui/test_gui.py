@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QDialog
 from PySide6.QtCore import QCoreApplication, QEvent
 from app import Window, MacroDialog
-from onboard import hardware_buttons, write_backup
+from onboard import hardware_buttons, write_backup, stored_label
 from unittest.mock import patch
 from model import DEFAULT_KEYS, load_profile, new_profile, reset_plate, runtime_config, save_profile
 
@@ -87,6 +87,11 @@ class HardwareTranslation(unittest.TestCase):
         p["plate"] = "6"
         with self.assertRaises(ValueError):
             hardware_buttons(p)
+
+    def test_stored_record_labels_use_firmware_data(self):
+        self.assertEqual(stored_label({"category": 2, "data": [0, 0x1e]}), "1")
+        self.assertEqual(stored_label({"category": 2, "data": [3, 5]}), "Ctrl+Shift+B")
+        self.assertEqual(stored_label({"category": 0x12, "data": [7]}), "Action 12: 07")
 
     def test_durable_private_backup(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -248,7 +253,35 @@ class QtFlow(unittest.TestCase):
                 shutdown.assert_called_once()
             window.connection_changed(False)
             self.assertIn("helper stopped", window.status.text())
-            self.assertIsNone(window.snapshot)
+            self.assertEqual(window.snapshot, snapshot)
+
+    def test_stale_draft_is_never_presented_as_stored_binding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profiles.json"
+            profile = new_profile()
+            profile["plates"]["12"][0].update(mode="key", value="B")
+            save_profile(path, profile)
+            window = Window(path)
+            self.assertIn("Stored: unread", window.tiles[0].text())
+            self.assertIn("Draft: B", window.tiles[0].text())
+            self.assertFalse(window.apply_button.isEnabled())
+            snapshot = {"device": {"serial": "TEST"}, "slot": 1, "active": 1, "slots": [1, 2], "buttons": hardware_buttons(new_profile())}
+            window.backend.ready = True
+            window.on_event({"type": "onboard_snapshot", "snapshot": snapshot})
+            self.assertIn("Stored: 1", window.tiles[0].text())
+            self.assertIn("Draft: B", window.tiles[0].text())
+            self.assertIn("(active): 1", window.stored_binding.text())
+            self.assertTrue(window.apply_button.isEnabled())
+            window.slots.setCurrentIndex(window.slots.findData(2))
+            self.assertIn("Stored: unread", window.tiles[0].text())
+            self.assertFalse(window.apply_button.isEnabled())
+            window.slots.setCurrentIndex(window.slots.findData(1))
+            window.on_event({"type": "error", "message": "Invalid onboard profile inventory"})
+            self.assertIn("Stored: unread", window.tiles[0].text())
+            self.assertIn("Draft: B", window.tiles[0].text())
+            self.assertFalse(window.apply_button.isEnabled())
+            self.assertIn("not active bindings", window.status.text())
+            window.backend.ready = False
 
     def test_failed_hardware_backup_never_commits(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,4 +1,4 @@
-# Validation of version 0.3.0
+# Validation of version 0.3.1
 
 Linux x86-64, Rust 1.99.1; release target x86_64-unknown-linux-musl,
 linked with rust-lld. These are local software checks, not hardware validation.
@@ -8,7 +8,7 @@ linked with rust-lld. These are local software checks, not hardware validation.
   stale-plan rejection, activation/normal mode, device-bound restoration, and
   rollback of a failed acknowledgement after the device accepted a write.
   Existing scheduler/config/interface selection regressions also pass.
-- Thirteen Python/Qt tests pass. New checks cover HID key/chord translation,
+- Fifteen Python/Qt tests pass. New checks cover HID key/chord translation,
   rejection of unsupported macros/plates, private backups, backup-failure commit
   prevention, helper shutdown on success, and a full read/prepare/commit/shutdown
   flow through a real QProcess with a fake hardware helper, including reconnect.
@@ -27,3 +27,8 @@ serial, mode, slot inventory, active slot, primary clicks and twelve side record
 without changing settings. Inspect that output before testing a single key save.
 Then quit, reconnect/power-cycle, check all primary controls, test factory reset
 and backup restoration. See ONBOARD.md for protocol provenance and limits.
+
+New regression checks distinguish a stored 1 from a stale draft B, clear stored
+values on read errors/slot changes, and disable saves without a selected-slot
+snapshot. The user encountered an inventory schema failure on hardware; it is
+not fixed by the display changes. onboard-probe gathers the missing raw replies.

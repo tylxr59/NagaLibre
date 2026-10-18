@@ -34,6 +34,18 @@ your desktop's polkit password dialog. The GUI stays unprivileged; only the Rust
 input helper opens the mouse and uinput. The desktop needs polkit (`pkexec`) and
 a running authentication agent. No system service or permissions rule is installed.
 
+Version **0.3.1** distinguishes stored mouse bindings from local drafts. A failed
+read displays **Stored: unread** and disables hardware saves. The old B shown
+in a draft is not evidence that the mouse is mapped to B. If inventory reading
+fails, obtain the raw getter replies with:
+
+```sh
+sudo ./naga-macros onboard-probe
+```
+
+The inventory format failure remains unresolved until actual device output is
+available. The probe changes no settings.
+
 Version **0.3.0** adds an experimental **Mouse memory** mode for existing
 onboard profile slots. It is implemented from the Naga V2 Pro protocol, but has
 not yet been tested on a physical mouse. Start with this read-only diagnostic:
@@ -45,7 +57,7 @@ sudo ./naga-macros onboard-read
 In **Mouse memory** mode:
 
 - Connect / **Read slots** discovers initialized slots. Select a slot to edit.
-  Reading logs its stored bindings; your local draft stays unchanged.
+  Tiles show its stored bindings alongside the draft; your local draft stays unchanged.
 - Edit the twelve side buttons, then **Save 12 bindings to mouse**. This writes
   all twelve displayed draft actions and activates that slot. Standard keys,
   modifier shortcuts (Ctrl+C), and mouse-button outputs are supported.

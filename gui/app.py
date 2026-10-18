@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QKeySequenceEdit, QFileDialog,
 )
 
-from onboard import hardware_buttons, write_backup
+from onboard import hardware_buttons, write_backup, stored_label
 from backend import Backend, backend_path
 from model import (
     binding_label, config_path, default_button, display_key, key_code, load_profile,
@@ -197,7 +197,7 @@ class Window(QMainWindow):
         self.restore_button.clicked.connect(self.restore_backup)
         storage_row.addWidget(self.restore_button)
         layout.addLayout(storage_row)
-        self.memory_hint = QLabel("Mouse memory: saves all 12 side bindings to an existing slot. Keys and shortcuts supported; macro sequences require software mode. Reading slots leaves your draft unchanged.")
+        self.memory_hint = QLabel("Each tile shows the stored mouse binding and your local draft separately. Save writes all 12 draft bindings to the selected slot. Macro sequences require software mode.")
         self.memory_hint.setWordWrap(True)
         layout.addWidget(self.memory_hint)
         columns = QHBoxLayout()
@@ -223,11 +223,14 @@ class Window(QMainWindow):
         self.reset_button.clicked.connect(self.reset_defaults)
         left_layout.addWidget(self.reset_button)
         columns.addWidget(left, 1)
-        editor = QGroupBox("Button binding")
+        editor = QGroupBox("Draft binding · local edits")
         edit_layout = QVBoxLayout(editor)
         self.button_title = QLabel()
         self.button_title.setStyleSheet("font-size: 20px; font-weight: 600;")
         edit_layout.addWidget(self.button_title)
+        self.stored_binding = QLabel()
+        self.stored_binding.setWordWrap(True)
+        edit_layout.addWidget(self.stored_binding)
         form = QFormLayout()
         trigger_row = QHBoxLayout()
         self.trigger = QLineEdit()
@@ -294,7 +297,7 @@ class Window(QMainWindow):
         save.clicked.connect(self.save)
         actions.addWidget(save)
         self.apply_button = QPushButton("Apply bindings")
-        self.apply_button.setStyleSheet("background: #2dc4a2; color: #10201e; font-weight: bold; padding: 10px 18px;")
+        self.apply_button.setStyleSheet("QPushButton {background: #2dc4a2; color: #10201e; font-weight: bold; padding: 10px 18px;} QPushButton:disabled {background: #68716f; color: #c4cac8;}")
         self.apply_button.clicked.connect(self.apply)
         actions.addWidget(self.apply_button)
         layout.addLayout(actions)
@@ -324,6 +327,7 @@ class Window(QMainWindow):
         self.tray.activated.connect(lambda reason: self.show_window() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.tray.show()
+        self.slots.currentIndexChanged.connect(self.refresh_hardware_view)
         self.storage.currentIndexChanged.connect(self.storage_changed)
         self.storage_changed()
         self.rebuild_grid()
@@ -380,6 +384,7 @@ class Window(QMainWindow):
                        self.apply_button, self.plate, self.reset_button, self.stop_button,
                        self.connect_button):
             widget.setEnabled(not busy)
+        self.refresh_hardware_view()
 
     def storage_changed(self):
         self.profile["storage"] = self.storage.currentData()
@@ -395,6 +400,7 @@ class Window(QMainWindow):
         self.learn_button.setEnabled(not hardware)
         self.apply_button.setText("Save 12 bindings to mouse" if hardware else "Apply bindings")
         self.status.setText("Mouse memory · read slots, edit your draft, then save to the mouse." if hardware else "Software mode · bindings need the background helper running.")
+        self.refresh_hardware_view()
 
     def hardware_command(self, command):
         if self.backend.ready:
@@ -451,7 +457,8 @@ class Window(QMainWindow):
             self.applying = False
             self.pending_config = None
             self.pending_onboard = None
-            self.snapshot = None
+            if self.hardware_saved is None:
+                self.snapshot = None
             self.set_hardware_busy(False)
             self.cancel_learning()
             if self.hardware_saved is not None:
@@ -470,6 +477,40 @@ class Window(QMainWindow):
         elif button["mode"] == "shortcut":
             button["value"] = self.shortcut_value.text().strip()
 
+    def current_snapshot(self):
+        if self.snapshot is not None and self.snapshot["slot"] == self.slots.currentData() and self.profile["plate"] == "12":
+            return self.snapshot
+        return None
+
+    def stored_text(self, index):
+        snapshot = self.current_snapshot()
+        if snapshot is None:
+            return "unread"
+        record = next((b for b in snapshot["buttons"] if b["button"] == index + 1), None)
+        return stored_label(record) if record else "unknown"
+
+    def tile_text(self, index):
+        draft = binding_label(self.buttons()[index])
+        if self.is_hardware():
+            return f"{index + 1}\nStored: {self.stored_text(index)}\nDraft: {draft}"
+        return f"{index + 1}\n{draft}"
+
+    def refresh_hardware_view(self, *args):
+        hardware = self.is_hardware()
+        snapshot = self.current_snapshot()
+        self.apply_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
+        self.reset_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
+        if hasattr(self, "stored_binding"):
+            self.stored_binding.setVisible(hardware)
+            if snapshot is None:
+                self.stored_binding.setText("Mouse binding unavailable · read the selected slot successfully first. Fields below are your local draft.")
+            else:
+                active = "active" if snapshot["slot"] == snapshot["active"] else "inactive"
+                driver = " · driver mode; firmware bindings may be bypassed" if snapshot.get("mode") == [3, 0] else ""
+                self.stored_binding.setText(f"Stored in slot {snapshot['slot']} ({active}): {self.stored_text(self.selected)}{driver}")
+        for i, tile in enumerate(getattr(self, "tiles", [])):
+            tile.setText(self.tile_text(i))
+
     def rebuild_grid(self):
         while self.grid.count():
             item = self.grid.takeAt(0)
@@ -479,7 +520,7 @@ class Window(QMainWindow):
         count = len(self.buttons())
         columns = 3 if count in (6, 12) else 2
         for index, button in enumerate(self.buttons()):
-            tile = QPushButton(f"{index + 1}\n{binding_label(button)}")
+            tile = QPushButton(self.tile_text(index))
             tile.setMinimumHeight(64)
             tile.setCheckable(True)
             tile.setChecked(index == self.selected)
@@ -508,7 +549,9 @@ class Window(QMainWindow):
         self.loading = False
         for i, tile in enumerate(self.tiles):
             tile.setChecked(i == index)
-            tile.setText(f"{i + 1}\n{binding_label(self.buttons()[i])}")
+            tile.setText(self.tile_text(i))
+
+        self.refresh_hardware_view()
 
     def mode_changed(self):
         self.stack.setCurrentIndex(self.mode.currentIndex())
@@ -553,7 +596,7 @@ class Window(QMainWindow):
             self.set_hardware_busy(False)
             records = ", ".join(f"{b['button']}:{b['category']:02x}/" + bytes(b['data']).hex() for b in snapshot['buttons'])
             self.log(f"Read slot {snapshot['slot']} · side records {records}")
-            self.status.setText(f"Read slot {snapshot['slot']} · your draft is unchanged. Save writes all 12 displayed side bindings and activates this slot.")
+            self.status.setText(f"Read slot {snapshot['slot']} · tiles show stored bindings and local drafts separately. Save writes all 12 draft bindings and activates this slot.")
             if self.save_after_read:
                 self.save_after_read = False
                 self.apply()
@@ -570,7 +613,8 @@ class Window(QMainWindow):
                 self.backend.shutdown()
         elif kind == "onboard_saved":
             self.fault = False
-            self.hardware_saved = message["snapshot"]["slot"]
+            self.snapshot = message["snapshot"]
+            self.hardware_saved = self.snapshot["slot"]
             self.save_after_read = False
             self.set_hardware_busy(False)
             self.backend.shutdown()
@@ -581,7 +625,7 @@ class Window(QMainWindow):
             self.set_hardware_busy(False)
             self.applying = False
             self.cancel_learning()
-            self.fail(message["message"])
+            self.fail(("Mouse read/save failed. Stored bindings are unavailable; displayed drafts are not active bindings.\n" if self.is_hardware() else "") + message["message"])
         elif kind == "state":
             state = message["state"]
             if state == "monitoring":
