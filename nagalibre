@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -n "${NAGALIBRE_PYTHON:-}" ]; then
+    app_python=$NAGALIBRE_PYTHON
+elif [ -x "$project_dir/.venv/bin/python" ]; then
+    app_python=$project_dir/.venv/bin/python
+elif [ -x /usr/bin/python3 ]; then
+    app_python=/usr/bin/python3
+else
+    app_python=python3
+fi
+if ! "$app_python" -c 'from PySide6 import QtWidgets' 2>/dev/null; then
+    printf '%s\n' 'NagaLibre needs Qt for Python (PySide6).' 'On Arch: sudo pacman -S --needed pyside6' 'For other distributions, see README.md.' >&2
+    exit 1
+fi
+exec "$app_python" "$project_dir/gui/app.py" "$@"

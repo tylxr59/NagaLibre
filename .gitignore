@@ -1,0 +1,9 @@
+/target/
+/inspection/payload/
+/dist/
+/.venv/
+/build/
+__pycache__/
+*.pyc
+/*.spec
+/inspection/layout-query-disassembly.txt

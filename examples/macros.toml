@@ -1,0 +1,19 @@
+# Example only: run `monitor` to learn what YOUR side buttons emit.
+# These names are Linux key codes, not printed button numbers.
+[[binding]]
+trigger = "KEY_1"
+steps = [{ chord = ["KEY_LEFTCTRL", "KEY_C"] }]
+
+[[binding]]
+trigger = "KEY_2"
+steps = [{ chord = ["KEY_LEFTCTRL", "KEY_V"] }]
+
+[[binding]]
+trigger = "KEY_3"
+steps = [
+  { tap = "KEY_LEFTALT" },
+  { wait_ms = 100 },
+  { tap = "KEY_F" },
+  { wait_ms = 100 },
+  { tap = "KEY_I" },
+]

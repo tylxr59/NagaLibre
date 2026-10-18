@@ -1,0 +1,206 @@
+
+7-Zip 26.04 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-10-05
+ 64-bit locale=C.UTF-8 Threads:8 OPEN_MAX:524288
+
+Scanning the drive for archives:
+1 file, 14923464 bytes (15 MiB)
+
+Listing archive: /home/tylxr/.paseo/uploads/upload_41d5b8e8-3a0c-46c6-a06f-072331ddca7e/RazerSynapseInstaller.exe
+
+--
+Path = /home/tylxr/.paseo/uploads/upload_41d5b8e8-3a0c-46c6-a06f-072331ddca7e/RazerSynapseInstaller.exe
+Type = PE
+Physical Size = 14923464
+CPU = x86
+Characteristics = Executable 32-bit
+Created = 2026-06-01 21:31:37
+Headers Size = 1024
+Checksum = 14966765
+Name = Razer Installer.exe
+Image Size = 14934016
+Section Alignment = 4096
+File Alignment = 512
+Code Size = 168960
+Initialized Data Size = 14745600
+Uninitialized Data Size = 0
+Linker Version = 14.42
+OS Version = 6.0
+Image Version = 0.0
+Subsystem Version = 6.0
+Subsystem = Windows GUI
+DLL Characteristics = Relocated NX-Compatible TerminalServerAware
+Stack Reserve = 1048576
+Stack Commit = 4096
+Heap Reserve = 1048576
+Heap Commit = 4096
+Virtual Address = 0x400000
+Comment =
+{
+FileVersion: 2.6.0.890
+ProductVersion: 2.6.0.890
+CompanyName: Razer Inc.
+InternalName: Razer Installer.exe
+LegalCopyright: Copyright © 2026 Razer Inc. All rights reserved.
+OriginalFilename: Razer Installer.exe
+ProductName: Razer Installer
+Data Directories: 16
+{
+index=1 name=IMPORT VA=0x36244 Size=60
+index=2 name=RESOURCE VA=0x3B000 Size=14678464
+index=4 name=SECURITY VA=0xE38800 Size=11976
+index=5 name=BASERELOC VA=0xE3B000 Size=8724
+index=6 name=DEBUG VA=0x336C0 Size=112
+index=10 name=LOAD_CONFIG VA=0x33600 Size=64
+index=12 name=IAT VA=0x2B000 Size=380
+}
+}
+----
+Path = .rsrc/RCDATA/1337
+Size = 14443272
+Packed Size = 14443272
+--
+Path = .rsrc/RCDATA/1337
+Type = PE
+Physical Size = 14443272
+CPU = x86
+Characteristics = Executable 32-bit
+Created = 2026-06-01 21:31:29
+Headers Size = 512
+Checksum = 14506926
+Name = DotNetZip-2026Jun02-013129-fcb36f18-b67b-4f53-ac85-10decee39728.exe
+Image Size = 753664
+Section Alignment = 8192
+File Alignment = 512
+Code Size = 484864
+Initialized Data Size = 238592
+Uninitialized Data Size = 0
+Linker Version = 11.0
+OS Version = 4.0
+Image Version = 0.0
+Subsystem Version = 4.0
+Subsystem = Windows GUI
+DLL Characteristics = Relocated NX-Compatible NoSEH TerminalServerAware
+Stack Reserve = 1048576
+Stack Commit = 4096
+Heap Reserve = 1048576
+Heap Commit = 4096
+Virtual Address = 0x400000
+Comment =
+{
+FileVersion: 2.6.0.890
+ProductVersion: 2.6.0.890
+FileDescription: Razer Installer
+InternalName: DotNetZip-2026Jun02-013129-fcb36f18-b67b-4f53-ac85-10decee39728.exe
+LegalCopyright: Copyright © 2026 Razer Inc. All rights reserved
+OriginalFilename: DotNetZip-2026Jun02-013129-fcb36f18-b67b-4f53-ac85-10decee39728.exe
+ProductName: Razer Installer
+Assembly Version: 1.16.0.0
+Data Directories: 16
+{
+index=1 name=IMPORT VA=0x78448 Size=83
+index=2 name=RESOURCE VA=0x7A000 Size=237792
+index=4 name=SECURITY VA=0xDC3440 Size=11976
+index=5 name=BASERELOC VA=0xB6000 Size=12
+index=12 name=IAT VA=0x2000 Size=8
+index=14 name=COM_DESCRIPTOR VA=0x2008 Size=72
+}
+}
+----
+Path = [0]
+Size = 13707328
+Packed Size = 13707328
+Virtual Size = 13707328
+Offset = 723968
+--
+Path = [0]
+Type = zip
+Offset = -723968
+Physical Size = 14431289
+Tail Size = 7
+Embedded Stub Size = 723968
+
+   Date      Time    Attr         Size   Compressed  Name
+------------------- ----- ------------ ------------  ------------------------
+2026-06-01 21:31:29 ....A          707          162  AllSystems.json
+2026-06-01 21:31:29 ....A      2341200       442574  AWSSDK.Core.dll
+2026-06-01 21:31:29 ....A       175952        59233  AWSSDK.Kinesis.dll
+2026-06-01 21:31:29 ....A        46880        23541  BLEConnect.dll
+2026-06-01 21:31:29 ....A       188208        55105  BLEConnectWrapper.dll
+2026-06-01 21:31:29 ....A        48648        27083  CommunityToolkit.Common.dll
+2026-06-01 21:31:29 ....A       111624        40970  CommunityToolkit.Diagnostics.dll
+2026-06-01 21:31:29 ....A       127496        59233  CommunityToolkit.Mvvm.dll
+2026-06-01 21:31:29 ....A      4618704      1577940  cpprest140_2_10.dll
+2026-06-01 21:31:29 ....A          108           39  dockEID.json
+2026-06-01 21:31:29 ....A          109           42  dongle.json
+2026-06-01 21:31:29 ....A          419           99  dongleV2.json
+2026-06-01 21:31:29 ....A           77           27  dummyProt.json
+2026-06-01 21:31:29 ....A       320848       150227  Humanizer.dll
+2025-09-22 04:22:05 ....A          379          211  InstallerConfiguration.xml
+2026-06-01 21:31:29 ....A        38384        23037  Microsoft.Bcl.AsyncInterfaces.dll
+2026-06-01 21:31:29 ....A        43544        24832  Microsoft.Extensions.Configuration.Abstractions.dll
+2026-06-01 21:31:29 ....A        40448        23572  Microsoft.Extensions.Configuration.CommandLine.dll
+2026-06-01 21:31:29 ....A        59392        31885  Microsoft.Extensions.Configuration.dll
+2026-06-01 21:31:29 ....A        76288        35954  Microsoft.Extensions.DependencyInjection.Abstractions.dll
+2026-06-01 21:31:29 ....A       109552        52348  Microsoft.Extensions.DependencyInjection.dll
+2026-06-01 21:31:29 ....A        95232        45828  Microsoft.Extensions.Http.dll
+2026-06-01 21:31:29 ....A        81392        40624  Microsoft.Extensions.Logging.Abstractions.dll
+2026-06-01 21:31:29 ....A        66560        34913  Microsoft.Extensions.Logging.dll
+2026-06-01 21:31:29 ....A        80896        40143  Microsoft.Extensions.Options.dll
+2026-06-01 21:31:29 ....A        62464        32896  Microsoft.Extensions.Primitives.dll
+2026-06-01 21:31:29 ....A       174456        76055  Microsoft.Toolkit.Uwp.Notifications.dll
+2026-06-01 21:31:29 ....A        38504        20705  Microsoft.Win32.Registry.dll
+2026-06-01 21:31:29 ....A       443712       158942  msvcp140.dll
+2026-06-01 21:31:29 ....A       861968       335342  NLog.dll
+2026-06-01 21:31:29 ....A          131           56  PatchExceptionalEID.json
+2026-06-01 21:31:29 ....A        63272        31487  PInvoke.AdvApi32.dll
+2026-06-01 21:31:29 ....A       124200        55788  PInvoke.Kernel32.dll
+2026-06-01 21:31:29 ....A       123688        57813  PInvoke.User32.dll
+2026-06-01 21:31:29 ....A       284968       104857  PInvoke.Windows.Core.dll
+2026-06-01 21:31:29 ....A        30504        18201  PInvoke.Windows.ShellScalingApi.dll
+2026-06-01 21:31:29 ....A        31528        18854  PInvoke.WtsApi32.dll
+2026-06-01 21:31:29 ....A        44232        23714  Razer.Analytics.dll
+2026-06-01 21:31:29 ....A       111816        49204  Razer.Installer.CompatibleV1.dll
+2026-06-01 21:31:29 ....A       265416       108750  Razer.Installer.Core.dll
+2026-06-01 21:31:29 ....A       113864        42304  Razer.Installer.DetectManagerWrapper.dll
+2026-06-01 21:31:29 ....A        65224        30274  Razer.Installer.Hub.dll
+2026-06-01 21:31:29 ....A         1460          388  Razer.Installer.Hub.dll.config
+2026-06-01 21:31:29 ....A      9846984      7131029  Razer.Installer.UI.dll
+2026-06-01 21:31:29 ....A       508104       109522  RazerInstaller.exe
+2026-06-01 21:31:29 ....A         3902          564  RazerInstaller.exe.config
+2026-06-01 21:31:29 ....A        99016        54999  rzS3detgmr_CWrapper.dll
+2026-06-01 21:31:29 ....A       882376       390743  rzS3detmgr.dll
+2026-06-01 21:31:29 ....A       175304        76907  Serilog.dll
+2026-06-01 21:31:29 ....A        19144        11707  Serilog.Enrichers.Thread.dll
+2026-06-01 21:31:29 ....A        40648        22373  Serilog.Extensions.Logging.dll
+2026-06-01 21:31:29 ....A        52936        25763  Serilog.Sinks.Console.dll
+2026-06-01 21:31:29 ....A        44744        23855  Serilog.Sinks.File.dll
+2026-06-01 21:31:29 ....A        35864        21727  System.Buffers.dll
+2026-06-01 21:31:29 ....A        42480        23046  System.CodeDom.dll
+2026-06-01 21:31:29 ....A        55136        26197  System.ComponentModel.Annotations.dll
+2026-06-01 21:31:29 ....A        33280        19960  System.Composition.AttributedModel.dll
+2026-06-01 21:31:29 ....A        66544        33296  System.Composition.Convention.dll
+2026-06-01 21:31:29 ....A        68592        35629  System.Composition.Hosting.dll
+2026-06-01 21:31:29 ....A        38912        23451  System.Composition.Runtime.dll
+2026-06-01 21:31:29 ....A        78336        39530  System.Composition.TypedParts.dll
+2026-06-01 21:31:29 ....A       211952        94581  System.Diagnostics.DiagnosticSource.dll
+2026-06-01 21:31:29 ....A        40552        21513  System.IO.FileSystem.AccessControl.dll
+2026-06-01 21:31:29 ....A        96792        47442  System.IO.Pipelines.dll
+2026-06-01 21:31:29 ....A       157192        68608  System.Memory.dll
+2026-06-01 21:31:29 ....A        85000        41111  System.Net.Http.Json.dll
+2026-06-01 21:31:29 ....A       167936        73923  System.Net.Http.WinHttpHandler.dll
+2026-06-01 21:31:29 ....A       122352        38553  System.Numerics.Vectors.dll
+2026-06-01 21:31:29 ....A       499696       198757  System.Reflection.Metadata.dll
+2026-06-01 21:31:29 ....A        31232        18965  System.Runtime.CompilerServices.Unsafe.dll
+2026-06-01 21:31:29 ....A        45672        22492  System.Security.AccessControl.dll
+2026-06-01 21:31:29 ....A        30312        17783  System.Security.Principal.Windows.dll
+2026-06-01 21:31:29 ....A        33776        20084  System.ServiceProcess.ServiceController.dll
+2026-06-01 21:31:29 ....A       776560       561531  System.Text.Encoding.CodePages.dll
+2026-06-01 21:31:29 ....A        91672        42552  System.Text.Encodings.Web.dll
+2026-06-01 21:31:29 ....A       738328       264473  System.Text.Json.dll
+2026-06-01 21:31:29 ....A        86000        40372  System.Threading.Channels.dll
+2026-06-01 21:31:29 ....A        39944        23368  System.Threading.Tasks.Extensions.dll
+2026-06-01 21:31:29 ....A        37216        21671  System.ValueTuple.dll
+2026-06-01 21:31:29 ....A          495          126  systems.json
+2026-06-01 21:31:29 ....A        85840        47502  vcruntime140.dll
+------------------- ----- ------------ ------------  ------------------------
+2026-06-01 21:31:29           26985275     13690957  81 files

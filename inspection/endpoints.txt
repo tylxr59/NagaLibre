@@ -1,0 +1,7 @@
+https://discovery3.razerapi.com/
+https://manifest3.razerapi.com
+https://manifest3-staging.razerapi.com
+https://discovery3-staging.razerapi.com/
+https://manifest-assets.razersynapse.com/lwi/
+https://manifest-assets.razersynapse.com/lwi/qa/
+https://manifest-assets-staging.razersynapse.com/lwi/
