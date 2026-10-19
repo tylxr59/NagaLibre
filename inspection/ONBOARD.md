@@ -28,8 +28,9 @@ That project's documentation reports exact Naga V2 Pro hardware verification,
 including persistence across power cycles. These are external observations;
 **NagaLibre's USB serial, mode, inventory and active-slot getters have now
 succeeded on a physical mouse, as have button-record reads for slots 1 and 2;
-slot 1's decoded factory actions match observed physical events. All writes
-remain unverified**.
+slot 1's decoded factory actions match observed physical events. A controlled
+slot-1 button-1 to B write, app exit/power-cycle persistence and exact backup
+restoration have also passed on USB; other write cases remain unverified**.
 NagaLibre implements the protocol independently in Rust.
 
 ## Implemented protocol
@@ -65,7 +66,13 @@ physical events KEY_1..KEY_9, KEY_0, KEY_MINUS, KEY_EQUAL in order. The earlier
 [0] decoding discarded the trailing usage. The source now reads both keyboard
 bytes for category 2 with declared length 1. A fresh physical read verified
 all twelve decoded factory keys and preservation of raw records on buttons
-3–12. No write or persistence tests have occurred.
+3–12. A subsequent controlled button-1 to B write, app exit/power-cycle
+persistence and exact original-backup restoration passed on USB. The user
+confirmed physical B and left/right/middle clicks before restore, then key 1
+after restore; original primary mappings and all twelve wire records were
+verified exactly after restore. No hardware write counter was recorded;
+only-ID-0x40 write behavior is regression-tested, with final unchanged records
+checked on hardware.
 
 Noncanonical records include optional `raw_record` metadata containing category,
 original length, and all five data bytes. Snapshot JSON preserves this for exact
@@ -127,6 +134,9 @@ implementation.
 
 First hardware diagnostic: `sudo ./naga-macros onboard-read`. It only issues
 getters (HID feature SET_REPORT is also the transport used to request a getter).
-Then test one side-button key change, quit the app, and unplug/replug the mouse
-to establish persistence on this firmware. Check primary clicks and reset after
-that test. Do not claim NagaLibre hardware verification until these pass.
+The controlled single-key write, app exit/power-cycle persistence, primary
+controls before restore, and exact backup restoration have passed on one wired
+mouse. Factory reset, physical failure rollback, unknown-action restoration,
+modifier/mouse outputs, inactive-slot activation and receiver operation remain
+untested. Post-restore physical primary clicks were not separately reported.
+No broader hardware support or macro persistence is established by this test.

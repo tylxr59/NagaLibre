@@ -1,79 +1,70 @@
 # Project handoff
 
-## Latest: prevent unnecessary writes before controlled hardware testing
+## Latest: unnecessary-write fix and controlled USB hardware test complete
 
-Reviewed commit `50c43dd`: normal GUI saves compared complete Button structs,
-including raw_record. Canonical factory drafts therefore rewrote ten semantically
-unchanged length-1 keyboard records. Per-write and final verification also used
-complete struct equality.
+Reviewed `50c43dd`: normal GUI saves compared whole Button structs including
+raw_record, rewriting ten unchanged factory keyboard records. Fix `deb2668`
+compares decoded actions, retains original raw records for unchanged actions,
+and verifies those unchanged records exactly. Changed normal actions verify by
+decoded action, allowing equivalent firmware encoding. Explicit backup restore
+and rollback compare/verify exact wire bytes, including unknown actions and
+trailing data. Stale snapshot checks remain strict. Primary writes and slot
+creation/deletion remain absent.
 
-Normal saves now compare button number, category and decoded data, and resolve
-unchanged actions to the original captured record. Changed GUI actions verify
-by decoded action, permitting equivalent firmware encoding; unchanged bindings
-verify exact wire bytes. Explicit backup restoration compares and verifies exact
-wire bytes, even for equivalent actions. Rollback also restores/verifies exact
-bytes, including unknown categories and trailing data. Stale snapshot checks
-remain strict. Primary writes and slot creation/deletion remain absent.
+Passed automated validation: 28 Rust tests, 21 offscreen GUI/backup/controlled
+runner tests, Clippy with warnings denied, formatting and release build. The
+captured-record regressions prove zero button writes for unchanged factory GUI
+bindings, only ID 0x40 for button 1 to B, exact rollback after an accepted write
+with failed acknowledgement (including unknown actions), and exact explicit
+restore even when only encoding differs. Orchestration tests cover state/hash/
+approval gates and durable recovery backup before commit acknowledgement.
 
-Passed: 28 Rust tests, 17 offscreen GUI/backup tests, Clippy with warnings denied,
-formatting checks and release build. New captured-record regressions cover zero
-button writes for an unchanged factory draft, only ID 0x40 for button 1 to B,
-exact rollback after an accepted-but-failed write (including unknown actions),
-and exact encoding restoration. An additional test permits changed-action
-re-encoding during normal saves but rejects it for explicit exact restoration.
+Actual hardware results on USB 1532:00a7, 12-button plate, active slot 1:
 
-Hardware phase: **explicit write/restore approval received; awaiting local apply**.
-The user ran `python3 scripts/backup_onboard.py` locally with sudo authentication.
-The active slot is 1, mode [0, 0], standard primary clicks, and twelve factory
-key actions. The snapshot preserves the ten original length-1 encodings. Its
-reported SHA256 and 0600 file permissions were independently checked on disk.
-The private backup path, checksum, release-engine checksum and exact proposed
-button records are saved in `~/.config/NagaLibre/controlled-hardware-test.json`.
-The user explicitly approved the controlled write and subsequent restoration
-with “Yeah, go ahead”. Approval persists; do not request it again for this plan.
-The plan now has write_approved=true and status=approved. Backup and release
-engine checksums were rechecked when recording approval. It changes only ID 0x40
-from [2, 2, 0, 0x1e, 0, 0, 0] to [2, 2, 0, 0x05, 0, 0, 0]. No mouse
-commands were issued while constructing the plan. Do not commit private plans,
-backups or serial numbers. Recheck fresh hardware state before committing.
+- Fresh active-slot snapshot durably saved with file/directory fsync; its SHA256,
+  0600 permissions and all ten original length-1 encodings checked independently.
+- User explicitly approved only button 1 (ID 0x40) from key 1 to B and subsequent
+  exact restoration. Apply used canonical GUI actions through the real Rust
+  session. Saved and independent full readback verified B, other eleven exact
+  wire records, primary mappings, mode [0, 0] and active slot 1 unchanged.
+- User confirmed physical B output, then fully quitting NagaLibre, reconnecting/
+  power-cycling the mouse, B still working, and normal left/right/middle clicks.
+  A new read-only verify session confirmed the stored B and other records.
+- User ran the approved restore. Save response and independent full readback
+  matched the original snapshot exactly (all twelve wire records, including the
+  ten length-1 encodings, primary mappings, mode and active slot; transient
+  hidraw path excluded). The saved restore receipt and original backup checksum
+  were independently checked afterward. User confirmed button 1 types 1 again.
+- Physical primary clicks passed before restore; original primary mappings were
+  verified after restore, but post-restore physical clicks were not separately
+  reported. No slot creation/deletion, primary mapping writes or factory-reset
+  command was performed. No transport write counter was captured on hardware;
+  the only-0x40 write assertion is established by the regression and code path,
+  with unchanged final records verified on hardware.
 
-Device access still requires user authentication: noninteractive sudo failed
-and an earlier read-only pkexec attempt timed out. The backup script elevates
-only the getter and saves through the existing private, atomic, file-and-directory
-fsynced backup writer. Tests cover raw data/private permissions and failure
-without creating a substitute-slot backup.
+The original backup, its checksum, engine checksum, durable recovery backups,
+latest snapshots and user confirmations remain private under
+`~/.config/NagaLibre/`. The plan is `controlled-hardware-test.json`, status
+restored_exactly_button_1_confirmed. Do not commit private plans, backups or
+serial numbers. Apply cannot be repeated without a new prepared/approved plan;
+no further mouse writes are requested by this completed test.
 
-No hardware writes have been performed with this change. The approved plan is only active-slot button 1
-(ID 0x40) from key 1 to B (HID usage 0x05), leaving mode, selected slot, other
-eleven raw records and primary clicks intact. Verify readback and primary
-records, have the user test clicks and B, quit the app/helper and reconnect,
-then re-read/test persistence. Finally restore the original backup and verify
-all records exactly. Writes, physical click checks, reconnect persistence and
-live backup restoration remain pending; do not describe mock tests as hardware.
+Device access requires local sudo authentication. The user ran the staged
+commands locally because noninteractive sudo requires a password and an earlier
+pkexec getter attempt timed out. `scripts/backup_onboard.py` performs only the
+active-slot getter and durable backup. `scripts/onboard_controlled_test.py`
+provides apply, verify (read-only), and exact restore, using the JSON session
+protocol and stopping the helper after each stage. Physical input and reconnect
+history come from user confirmation, not from the verify script alone.
 
-`scripts/onboard_controlled_test.py` provides apply, verify (read-only), and
-restore stages using the existing JSON session protocol. Run as the desktop
-user; only the Rust helper is elevated with sudo. Apply verifies original backup
-and engine checksums and unchanged live state, submits canonical GUI actions,
-durably saves the prepared recovery snapshot before acknowledging commit, then
-independently re-reads B and verifies all other wire records/primary mappings,
-mode and slot. It exits the helper. It blocks accidental repeated apply attempts.
-The verify stage cannot establish reconnect history or physical clicks on its
-own: the user must confirm those. Restore uses exact onboard_restore and verifies
-the original full snapshot excluding the transient hidraw path. Restore is
-already approved, but should follow user physical/reconnect results.
+Scope: this confirms one ordinary keyboard binding and exact backup restoration
+on one wired mouse/slot. Hardware failure rollback, unknown-action restore,
+modifier/mouse outputs, inactive-slot activation, receiver/Bluetooth, slot 2's
+physical behavior, reset, other plates and multi-step macros remain unverified
+or unsupported as documented. Existing released 0.3.1 binaries predate these
+source fixes; no new release has been published.
 
-Next user command: `python3 scripts/onboard_controlled_test.py apply`. Sudo still
-requires local authentication; no apply has been attempted by the agent. If it
-succeeds, have the user test B and left/right/middle clicks, quit NagaLibre,
-reconnect, and run `python3 scripts/onboard_controlled_test.py verify`. Then
-restore with `python3 scripts/onboard_controlled_test.py restore` and check
-physical key 1/clicks. Additional orchestration tests pass: 21 GUI/backup/test
-runner tests total (plus the same 28 Rust tests). They test apply/verify/restore
-commands and exact snapshots, refusal of changed/tampered/unapproved state or
-repeated apply, and no commit acknowledgement after durable-plan failure.
-
-## Latest: physical probe identifies compact inventory reply
+## Earlier: physical probe identifies compact inventory reply
 
 The USB-connected mouse (`1532:00a7`, control interface `/dev/hidraw6` at
 probe time) was probed with the checksum-verified 0.3.1 release. All four
@@ -135,7 +126,7 @@ Unprivileged access to hidraw6 fails and noninteractive sudo requires a password
 the user ran the diagnostics locally. No settings writes or persistence tests
 have occurred.
 
-## Latest: 0.3.1 display fix and main-PC handoff
+## Earlier: 0.3.1 display fix and main-PC handoff
 
 The user tried 0.3.0 on the mouse. `get_slots()` fails with
 `Invalid onboard profile inventory`. Their screenshot shows B in button 1
@@ -162,7 +153,7 @@ descriptors and getter replies first, then verify one binding, app exit,
 power-cycle persistence, primary clicks, reset and backup restoration.
 
 
-## Current work: 0.3.0 onboard profiles
+## Historical: 0.3.0 implementation before hardware access
 
 The user confirmed 0.2.2 works and now explicitly requires persistence without
 an app/helper. A new experimental hardware path implements existing onboard
@@ -230,8 +221,11 @@ physical read/save/reconnect verification succeeds.
 
 ## Remaining work
 
-1. Get the user's onboard-read output and fix any transport discrepancy.
-2. Verify one B key, quit, reconnect, all primary controls, factory reset and restore.
+1. Completed for USB slot 1: inventory/action decoding, B write, app exit and
+   reconnect persistence, primary clicks before restore, and exact backup restore.
+2. Remaining hardware coverage: reset, failure rollback, unknown-action restore,
+   additional action types, inactive slots and receiver behavior. Post-restore
+   physical primary clicks were not separately confirmed.
 3. Recover native macro wire encoding (allocation, event data, references), then
    test it before offering multi-step onboard storage.
 4. Verify 6/2-button plates, identify faceplate notifications, and add support.

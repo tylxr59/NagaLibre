@@ -52,7 +52,9 @@ and HID usage bytes present. The source now decodes these and preserves original
 bytes in backups; physical monitoring confirmed all twelve factory key outputs
 in active slot 1. A fresh physical read verified the corrected decoding for
 all twelve buttons and preservation of the original nonstandard records.
-Settings writes remain unverified. The probe changes no settings.
+A controlled source-build test verified button 1 to B, persistence after quitting
+and reconnecting/power-cycling, and exact original-backup restoration on USB.
+Other actions and connection types remain unverified. The probe changes no settings.
 
 To inspect complete button getter payloads from an existing slot with a local
 build, use `sudo ./target/release/naga-macros onboard-probe --slot 1`.
@@ -75,7 +77,9 @@ script readback alone does not establish physical clicks or reconnect persistenc
 
 Version **0.3.0** adds an experimental **Mouse memory** mode for existing
 onboard profile slots. Read-only slot discovery and button-record retrieval
-have succeeded on a physical mouse; settings writes remain unverified. Start
+have succeeded on a physical mouse. The current source build also passed a
+single-button USB write/persistence/exact-restore test; broader hardware coverage
+remains unverified. Start
 with this read-only diagnostic:
 
 ```sh
@@ -161,9 +165,12 @@ Linux evdev input and emits keyboard shortcuts, sequences, delays, and mouse
 button actions through uinput. It works below the Wayland/X11 display layer.
 
 The initial macro engine was confirmed working by the user with a physical
-Naga V2 Pro's 12-button plate. The user also confirmed the 0.2.2 composite-interface fix works. Onboard
-programming, other plates and power-cycle persistence still need device testing. The development machine has neither the mouse
-nor permission to access uinput.
+Naga V2 Pro's 12-button plate. The 0.2.2 composite-interface fix also works.
+A current source build passed a controlled USB slot-1 button-1 to B write,
+app exit/power-cycle persistence, and exact original-backup restore. Left/right/
+middle clicks worked during the test, and the original primary mappings read
+back unchanged after restoration. Other actions, plates, connection types and
+hardware failure rollback remain unverified.
 
 ## First test on your main machine
 
@@ -312,8 +319,9 @@ CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
 The Rust and Qt tests exercise key/chord ordering, delays, rejection of invalid
 macros, suppression of trigger edges, shared held-key ownership, configuration
 round trips, learning, reset behavior, profile switching, and helper EOF shutdown.
-The CLI macros and 0.2.2 GUI fix worked on the user's mouse. The onboard path,
-other plates and disconnection cleanup still need physical testing.
+The CLI macros and 0.2.2 GUI fix worked on the user's mouse. The controlled
+USB onboard B-binding/persistence/exact-restore test passed; other plates,
+additional onboard actions and disconnection cleanup remain unverified.
 
 The uploaded installer inspection is documented in
 [inspection/REPORT.md](inspection/REPORT.md). No proprietary DLLs are included in
