@@ -6,6 +6,91 @@ current implementation, evidence, and remaining work. User setup belongs in
 
 ## Current state
 
+TODO section 1 is complete for the requested session scope. The user explicitly
+deferred six-/two-button physical mapping tests; those remain unverified and
+should not block the next active feature, Hypershift research. Receiver software
+remapping and untested action/connection combinations remain outside this evidence.
+
+Verified on the user's Naga V2 Pro with the twelve-button plate:
+
+- DPI-cycle getter returned category 6/data [6] on wired slots 1/2. The user
+  confirmed sensitivity cycling, remapping to B and cycling after exact restore.
+  DPI stage values were not read; no stage table or sensor settings were written.
+- Right tilt -> B and primary clicks physically passed with exact restore. Its
+  original binding was F14; left tilt's original was F13. A reconnect getter
+  failed, so right-tilt B persistence remains unverified. The earlier left-tilt
+  physical B result remains applicable.
+- Scroll-mode cycling, remapping to B, primary clicks, USB reconnect persistence
+  and restored cycling/clicks all passed. Other tracked records/slots stayed exact.
+- Desktop Restore defaults was verified draft-only before saving. All sixteen
+  saved defaults read back correctly, and the user confirmed the grid keys, both
+  horizontal tilt directions, wheel-mode/DPI cycling and primary clicks. Exact
+  original mappings and other slots were restored afterward.
+- Desktop activation of existing slot 2, return to slot 1 and creation of slot 3
+  passed independent readback. Creation left slot 1 active and original slots'
+  mappings exact. New-slot activation, all twelve outputs, primary clicks and
+  persistence after USB unplug/replug were confirmed. Final state is slot 1
+  active, inventory [1, 2, 3]; slot 3 is retained. The desktop authentication
+  prompt succeeded. No existing slots were deleted.
+- Onboard Ctrl+A on grid 1 and right click on grid 2 physically passed over USB,
+  including Ctrl release and primary clicks. Readbacks checked every other
+  tracked record and initialized slot exactly; exact restoration passed.
+- The same output test passed through receiver 00a8: active/all-slot backups,
+  twelve-button detection, GUI save, physical output/primary clicks, persistence
+  after the requested mouse power-off/receiver reconnect sequence, and GUI exact
+  backup restoration. The user confirmed all requested physical steps worked.
+  Private restored readbacks for slots 1/2/3 were independently compared with
+  their originals. Plan and original-backup integrity were checked. Receiver
+  slot creation remains disabled; receiver slot activation and smaller-plate
+  swaps were not tested.
+
+Final hardware state from the receiver restoration: original tracked mappings,
+mode and active slot 1 restored; initialized slots [1, 2, 3]. Local drafts remain
+separate and may still contain the Ctrl+A/right-click experiment. Do not infer
+active firmware state from those drafts. All private captures/backups stay local.
+
+New source test tools:
+
+- `scripts/verify_wheel.py` wraps the existing controlled runner with fresh
+  per-control backups and explicit yes/no/skip physical observations. It checks
+  B readback after reconnect and attempts exact restoration after interruptions
+  or lost commit replies. It displays original binding labels and offers explicit
+  retries only for unmatched-reply read failures; writes/state mismatches are
+  never retried. Restore failure stops the run and preserves recovery evidence.
+- `scripts/check_defaults.py prepare|staged|saved|restored` sends only getters.
+  It durably backs up all slots and a GUI-restorable original snapshot, checking
+  all sixteen defaults or `--test outputs` (Ctrl+A/right click). Unchanged actions
+  retain exact wire bytes; changed actions verify semantically. Output staging
+  validates the persisted GUI draft before the save. Fully quit the GUI first.
+  Readbacks, including failed checks, are saved privately. Explicit
+  `--connection receiver` requires 00a8 and separate receiver evidence paths;
+  normal preparation requires wired 00a7. Later checks stay identity-bound.
+- `scripts/check_slots.py` sends only getters around GUI activation/creation.
+  It permits only planned active/inventory changes and preserves exact original
+  mapping records. New grid/primary defaults and later tracked new-slot records
+  are checked. It has no settings writers or deletion commands.
+
+Two informative failures were recovered. The first output attempt also saved
+factory tilt drafts, changing F13/F14 to horizontal scroll. Its unchanged-record
+check rejected this; exact restore passed. Persisted-draft validation now catches
+that configuration before another GUI save. A mode getter (00/84) failed during
+right-tilt reconnect verification and a button getter (02/8c) failed during slot
+verification. A GUI helper was still running after the latter failure; concurrent
+polling is a possible cause, not a proven diagnosis. Fully quitting the GUI and
+retrying its read-only check passed. Keep CLI getters and GUI polling separate.
+
+Final validation: 52 Rust and 70 Python/Qt tests passed, formatting, Clippy with
+warnings denied, debug/release builds, example config check and diff whitespace
+checks. Regressions cover interrupted observation/accepted-write lost replies,
+read-only retries, strict other-slot/raw-record preservation, incorrect shortcut
+modifiers, unexpected factory drafts, evidence retention, slot-state changes and
+explicit receiver identity binding. No compiled assets are added to distribution.
+
+## Earlier implementation and protocol context
+
+These entries preserve implementation-stage evidence. The completed physical
+checks above supersede earlier statements that those paths were unverified.
+
 Added the second top button, DPI-cycle, as logical 16 -> wire 0x60. The official
 Device167 defaults identify DKM_SB_03 with DPI_CycleUp; managed EMwDKMKeys gives
 DKMID_DKMKEY_SB03 = 82. The native input dispatch at RVA 0x67790 sends 82 to

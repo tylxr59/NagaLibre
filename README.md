@@ -25,11 +25,11 @@ Hardware verification below refers to the Naga V2 Pro.
 | --- | --- |
 | 12-button plate | Main development and testing target |
 | Onboard key bindings | USB save, app exit/reconnect persistence, and exact backup restore tested on one mouse and slot |
-| Onboard shortcuts and mouse-button outputs | Implemented; physical testing still needed |
+| Onboard shortcuts and mouse-button outputs | Ctrl+A, modifier release and right-click output physically tested over USB and receiver, with exact backup restore |
 | Software keys, shortcuts, and macro sequences | Available while the background helper runs |
 | Automatic faceplate detection | USB detection verified for 12-, 6-, and 2-button plates, including swaps |
 | 6- and 2-button bindings | Input learning in software mode; remapping still needs physical testing |
-| 2.4 GHz receiver | Recognized; onboard behavior still needs testing |
+| 2.4 GHz receiver | Twelve-button onboard save, physical shortcut/mouse outputs, power/reconnect persistence and exact restore tested |
 | Bluetooth onboard programming | Unsupported |
 | New onboard slots | Wired Naga V2 Pro, 12-button plate |
 | DPI stage values and RGB settings | Not implemented |
@@ -157,8 +157,9 @@ or mouse-button action and click **Save bindings to mouse**. These controls defa
 to **Keep stored binding**, which preserves their existing firmware behavior.
 **Factory default** and **Use default for this button** restore an individual
 wheel control's standard function in the draft. These bindings are derived from
-the official driver; horizontal scrolling, wheel-mode cycling and DPI cycling still need physical
-verification. Software mode leaves their firmware
+the official driver; horizontal scrolling in both directions, wheel-mode cycling
+and DPI cycling have been physically verified over USB on one mouse and slot,
+with exact original mapping restoration afterward. Software mode leaves their firmware
 behavior intact; onboard macro sequences for these controls are unsupported.
 The DPI binding uses the mouse's existing DPI stages; it does not change their
 values. Device defaults and control definitions live in [devices/models.json](devices/models.json),
@@ -186,7 +187,8 @@ two-button plates. Learning ignores primary mouse clicks.
 
 If detection is unavailable, the app allows manual selection. A detached or
 unrecognized plate blocks Apply until a supported plate is attached. Detection
-has been verified over USB; receiver detection still needs testing.
+has been verified over USB. The twelve-button plate was also detected through
+the receiver; receiver plate swaps and six-/two-button detection remain unverified.
 
 Software mode needs the helper to stay running. Closing to the system tray keeps
 it active; **Quit** stops it. With the window focused, **Esc** stops software

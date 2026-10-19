@@ -32,17 +32,39 @@ Implementation does not imply every hardware path is verified.
       cycling, remapping to B, and cycling again after exact mapping restoration.
       Other tracked records/slots checked unchanged; DPI stage values themselves
       were not read, so unchanged stage-table values remain unverified.
-- [ ] Verify factory horizontal tilt actions on both sides, right-tilt remapping,
+- [x] Verify factory horizontal tilt actions on both sides, right-tilt remapping,
       and the scroll-mode button. Left tilt -> B was physically confirmed and
-      exact original records were restored; other physical behavior is pending.
-- [ ] Exercise Restore defaults as a draft-only operation, then save and verify
+      exact original records were restored. Factory horizontal scroll in both
+      directions was confirmed during the desktop defaults test.
+      Right tilt -> B and primary clicks are now physically confirmed, followed
+      by exact mapping restoration. Reconnect getter failed; persistence remains
+      unverified. Original right tilt was F14, not factory horizontal scroll.
+      Scroll-mode cycling, remapping to B, USB reconnect persistence, restored
+      cycling and primary clicks passed; exact restoration/readback verified.
+- [x] Exercise Restore defaults as a draft-only operation, then save and verify
       the supported defaults with exact restoration afterward. It currently
       restores bindings, not wheel tension, DPI tables or other device settings.
-- [ ] Test standalone slot activation and desktop slot creation, including
+      Draft-only unchanged-state check, all sixteen saved defaults, physical
+      outputs/primary clicks and exact original-slot restoration passed over USB.
+- [x] Test standalone slot activation and desktop slot creation, including
       app exit/reconnect persistence and unchanged original slots. The temporary
       slot-3 allocation/read/removal trial already succeeded.
-- [ ] Verify shortcuts/mouse outputs, six-/two-button software mappings, receiver
-      behavior, and the full Qt/polkit workflow in separate small test sessions.
+      Desktop activation of slot 2, switching back to 1 and creation of slot 3
+      passed independent readback with both original slots' mappings exact.
+      New-slot activation, physical grid/primary clicks before and after USB
+      reconnect, and final return to slot 1 passed. Slot 3 remains initialized.
+- [x] Verify representative onboard shortcuts/mouse outputs and the Qt/polkit
+      workflow. Ctrl+A, modifier release, side-button right click and primary
+      clicks passed over USB, with other records/slots exact and exact restore.
+- [x] Verify receiver onboard operation with the twelve-button plate. Detection,
+      all-slot backup, GUI save, physical shortcut/mouse outputs, power/reconnect
+      persistence and exact restoration passed on 00a8. Slot 1 is active again;
+      initialized slots remain [1, 2, 3]. Receiver software remapping and other
+      plate/slot/action combinations are not established by this test.
+- [ ] Deferred at the user's request: six-/two-button software mapping checks.
+      Existing software-engine evidence remains valid; these physical plate
+      mappings are unverified. Continue with section 2 rather than revisiting
+      this deferred item automatically.
 
 ## 2. Hypershift
 

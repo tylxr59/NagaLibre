@@ -60,7 +60,8 @@ verified IDs `1` = two buttons, `3` = twelve buttons, `4` = six buttons, and
 `0` = detached. Unknown IDs retain their raw value with `buttons: null`.
 `--watch` samples once per second until Ctrl+C. It does not grab input or change
 mouse settings. Stop the watcher before connecting the desktop helper so the
-two processes do not compete for feature replies. Receiver detection is untested.
+two processes do not compete for feature replies. Twelve-button detection also
+succeeded through the receiver; other receiver plate IDs/swaps remain unverified.
 
 The desktop helper uses protocol 4 and publishes `faceplate` events on changes.
 It advertises `slot_creation` for wired V2 Pro devices. The GUI's `onboard_create`
@@ -88,9 +89,18 @@ capability `wheel_controls` allows an optional `controls` array on `onboard_prep
 Only explicit edits are sent; omitted controls retain exact stored records.
 Backups include raw records for these controls. Older snapshots without the field
 still restore their grid bindings while preserving the current wheel controls.
-Wheel/scroll-mode getters have succeeded on the user's wired mouse, and a left
-tilt remap to B was physically confirmed. The DPI getter returned category 6/data
-[6] from wired slots 1 and 2. Other control writes/output remain unverified.
+Wheel/scroll-mode getters have succeeded on the user's wired mouse. Left
+and right tilt remaps to B were physically confirmed and exactly restored.
+The DPI getter returned category 6/data
+[6] from wired slots 1 and 2. Scroll-mode remapping to B, USB reconnect
+persistence, and wheel-mode cycling after exact restoration were physically
+confirmed. Both factory horizontal tilt directions were physically confirmed
+during the desktop defaults test, followed by exact original mapping restoration.
+Ctrl+A, modifier release and side-button right-click output were physically
+confirmed on both USB and receiver, with other tracked records/slots preserved
+and exact original restoration. The receiver test also passed mouse power-off
+and receiver reconnect persistence. This verifies those specific assignments,
+not every supported action or receiver software-remapping behavior.
 
 The desktop Restore defaults button stages grid defaults and factory control
 actions in the local draft, without sending hardware commands. Saving uses the
