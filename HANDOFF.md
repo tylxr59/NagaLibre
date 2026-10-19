@@ -22,15 +22,23 @@ exact rollback after an accepted-but-failed write (including unknown actions),
 and exact encoding restoration. An additional test permits changed-action
 re-encoding during normal saves but rejects it for explicit exact restoration.
 
-Hardware phase: **blocked on fresh read/backup access, before write approval**.
-Noninteractive sudo still needs a password; the read-only pkexec attempt timed
-out after 90 seconds. No fresh backup was created by that attempt. The user
-should run `python3 scripts/backup_onboard.py` as their normal desktop user.
-It elevates only the Rust active-slot getter with sudo, then saves the exact
-snapshot through the existing private, atomic, file-and-directory-fsynced
-backup writer and checks JSON readback. It prints a path/hash and action summary;
-keep private backups and serial numbers out of Git. Tests cover preserved raw
-data/private permissions and failure without creating a substitute-slot backup.
+Hardware phase: **fresh read and durable backup verified; awaiting write approval**.
+The user ran `python3 scripts/backup_onboard.py` locally with sudo authentication.
+The active slot is 1, mode [0, 0], standard primary clicks, and twelve factory
+key actions. The snapshot preserves the ten original length-1 encodings. Its
+reported SHA256 and 0600 file permissions were independently checked on disk.
+The private backup path, checksum, release-engine checksum and exact proposed
+button records are saved in `~/.config/NagaLibre/controlled-hardware-test.json`.
+That plan's status is awaiting_explicit_write_approval. It changes only ID 0x40
+from [2, 2, 0, 0x1e, 0, 0, 0] to [2, 2, 0, 0x05, 0, 0, 0]. No mouse
+commands were issued while constructing the plan. Do not commit private plans,
+backups or serial numbers. Recheck fresh hardware state before committing.
+
+Device access still requires user authentication: noninteractive sudo failed
+and an earlier read-only pkexec attempt timed out. The backup script elevates
+only the getter and saves through the existing private, atomic, file-and-directory
+fsynced backup writer. Tests cover raw data/private permissions and failure
+without creating a substitute-slot backup.
 
 No hardware writes have been performed with this change. Ask for explicit
 approval after the backup and concrete plan are ready: only active-slot button 1
