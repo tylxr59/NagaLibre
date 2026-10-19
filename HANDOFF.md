@@ -226,3 +226,65 @@ writing settings. A regression covers initial read/detection ordering, detach,
 six-button detection, return to twelve buttons, and preserving draft B beside
 stored 1. All 26 Python/Qt tests passed, along with diff whitespace validation.
 The new automatic refresh has not yet been separately confirmed on hardware.
+
+## Experimental multi-model software support (2026-10-19)
+
+At the user's request, inspected available Razer binaries without additional
+hardware. `inspection/MODELS.md` records seven official CDN packages, hashes,
+USB identities, layout evidence and candidate Pro/Trinity hardware-module
+getters. Do not equate static evidence with hardware-verified support.
+
+Added the shared `devices/models.json` registry and `models` CLI. Discovery now
+recognizes Naga Pro/Trinity/X/Left-Handed/Chroma/V2 HyperSpeed and Viper V2 Pro USB
+variants. New models use Software mode with learned inputs; their GUI memory
+option is disabled and the helper rejects vendor/onboard operations independently.
+V2 Pro HID transport/writers remain unchanged. Bluetooth and unknown receivers
+are not included. Multiple physical mice are rejected for automatic selection;
+composite interfaces are grouped by USB ancestor. Session workers pin model and
+physical path to prevent applying a stale draft after changing models.
+
+The protocol-3 hello adds device metadata. The GUI selects the model's layouts
+(including Trinity's seven-button plate), labels unverified models, and keeps
+separate per-model draft files and an in-memory draft cache. Existing V2 Pro
+profiles retain their path/schema. New models begin with empty triggers, and
+reset preserves learned inputs instead of inventing factory outputs.
+
+Validation: 31 Rust tests and 29 Python/Qt tests passed, plus Clippy with warnings
+denied. Regressions cover unique IDs/capabilities, composite vs multiple mice,
+experimental profile roundtrips/reset, model/draft isolation, and a real QProcess
+session learning/applying on a simulated Trinity without any vendor commands.
+No live writes or new model hardware tests were performed in this session.
+
+## Device-support issue workflow (2026-10-19)
+
+Added `.github/ISSUE_TEMPLATE/device-support.yml` and chooser config with a
+structured GitHub form for new models, detection problems, and experimental
+hardware results. It asks for exact model/connection, source revision, passive
+inventory, layouts, optional faceplate/input observations, and follow-up testing.
+`docs/DEVICE_SUPPORT.md` and a README section link directly to the form. GitHub
+will expose it after these files reach the repository's default branch; no issue
+was created or submitted during development.
+
+Added `diagnose`: passive sysfs input/HID inventories for all Razer products,
+including unknown/unsupported connections, capability masks, HID descriptors,
+OS ID/version and kernel release. No device nodes, vendor requests, input capture,
+serial/unique IDs, physical paths, hostname, drafts or backups are included.
+Missing inventories/descriptors are reported. The default JSON filename is ignored.
+`list --all-razer --json` includes unknown Razer products without enabling them.
+
+The GUI always offers Request device support and highlights unknown/experimental
+Razer devices. The link only prefills registry names and numeric USB IDs; raw
+names, logs, profiles and serials are never put in the URL. Opening it requires
+the user's click and submission stays in the browser. Unknown Razer interfaces
+are described as devices rather than assumed to be mice.
+
+The form and guide only recommend faceplate polling for the enabled V2 Pro.
+Other models provide passive metadata and optional explicit input monitoring;
+no arbitrary vendor probes, onboard saves, resets, backups or restoration are
+requested. Physical observations are distinguished from getter results.
+
+Validation: 32 Rust tests and 31 Python/Qt tests passed, plus Clippy and formatting.
+Regressions cover unknown-device inclusion and private/unrelated data exclusion,
+encoded issue URLs, duplicate interfaces, contextual UI hints and click-only
+browser opening. YAML was parsed and checked locally against the used GitHub
+issue-form fields; live GitHub rendering awaits publication to the default branch.

@@ -10,12 +10,16 @@ NagaLibre is a free and open-source reimplementation of the Razer Naga side-butt
 system for Linux. It lets you bind the thumb buttons to keys, shortcuts, and
 macros through a Qt desktop app, with a Rust engine handling the mouse.
 
-The current focus is the **Razer Naga V2 Pro**. You can save supported bindings to
-the mouse's onboard memory so they keep working after you close the app, or use
-software mode for macro sequences. NagaLibre works independently of Synapse and
+The verified target is the **Razer Naga V2 Pro**. Experimental software support
+also recognizes the Naga Pro, Trinity, X, Left-Handed, Chroma, V2 HyperSpeed,
+and Viper V2 Pro. On the V2 Pro, you can save supported bindings to the mouse’s
+onboard memory so they keep working after you close the app. Software mode
+supports macro sequences and experimental models. NagaLibre works independently of Synapse and
 OpenRazer. It is an independent project, unaffiliated with Razer.
 
 ## What works today
+
+Hardware verification below refers to the Naga V2 Pro.
 
 | Feature | Support |
 | --- | --- |
@@ -32,6 +36,25 @@ OpenRazer. It is an independent project, unaffiliated with Razer.
 
 This is a project under active development. Start with the USB cable and the
 12-button plate for the best-tested setup.
+
+## Experimental mouse models
+
+The additional models are identified from Razer's device packages and have not
+been tested on physical hardware. Connect one supported mouse and choose
+**Software**. The app selects the model's layouts; use **Learn input** for each
+side button before applying custom bindings. Trinity includes a seven-button
+layout; fixed-layout mice select their layout automatically. Naga Pro and Trinity
+plate selection is manual for now. Mouse-memory access and vendor faceplate
+queries are disabled for these experimental models.
+
+Each model keeps separate drafts. Your V2 Pro draft stays in its existing file;
+other models use `~/.config/NagaLibre/devices/<model-id>/profiles.json` (or the
+corresponding XDG config directory). Connect one mouse at a time for automatic
+selection. Bluetooth and alternate receiver variants are unverified and excluded.
+
+Run `./target/release/naga-macros models` to see the exact identities and
+capabilities. The [model research notes](inspection/MODELS.md) record package
+sources, USB IDs and evidence limits.
 
 ## Required software
 
@@ -140,6 +163,26 @@ onboard bindings in place.
 **Save draft** saves your edits locally without applying them to the mouse.
 Drafts and backups normally live in `~/.config/NagaLibre/`, or under
 `$XDG_CONFIG_HOME/NagaLibre/` if configured.
+
+## Request device support
+
+Have an unrecognized mouse, a faceplate detection problem, or an experimental
+model to test? Open the [device support issue form](https://github.com/tylxr59/NagaLibre/issues/new?template=device-support.yml).
+It includes diagnostic commands and asks for the model, connection, layouts,
+and observed results. The same form appears under **New issue** on GitHub and
+**Request device support…** in the app. Unrecognized and experimental devices
+get a hint beside that button.
+
+Start with this passive report, which also includes unknown Razer devices:
+
+```sh
+./target/release/naga-macros diagnose > nagalibre-diagnostics.json
+```
+
+Review the file, then attach it to the issue. It omits serial numbers and reads
+metadata without sending vendor commands or capturing button presses. The app
+does not upload it automatically. See the [diagnostics guide](docs/DEVICE_SUPPORT.md)
+for optional faceplate and input checks and what information to include.
 
 ## Troubleshooting
 

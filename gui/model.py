@@ -8,6 +8,7 @@ import re
 import tempfile
 
 DEFAULT_KEYS = [f"KEY_{i}" for i in range(1, 10)] + ["KEY_0", "KEY_MINUS", "KEY_EQUAL"]
+DEVICE_MODELS = {m["id"]: m for m in json.loads((Path(__file__).resolve().parent.parent / "devices/models.json").read_text())}
 PROTECTED_INPUTS = frozenset(("BTN_LEFT", "BTN_RIGHT", "BTN_MIDDLE", "BTN_MOUSE"))
 SYMBOLS = {"KEY_MINUS": "-", "KEY_EQUAL": "="}
 ALIASES = {
@@ -49,23 +50,33 @@ def default_button(index: int, plate: str) -> dict:
     return {"trigger": DEFAULT_KEYS[index] if plate == "12" else "", "mode": "default", "value": "", "steps": []}
 
 
-def new_profile() -> dict:
-    return {"version": 1, "plate": "12", "plates": {p: [default_button(i, p) for i in range(int(p))] for p in ("12", "6", "2")}}
+def new_profile(device="naga_v2_pro") -> dict:
+    layouts = DEVICE_MODELS[device]["plates"]
+    profile = {"version": 1, "plate": layouts[0], "plates": {p: [default_button(i, p) for i in range(int(p))] for p in layouts}}
+    if device != "naga_v2_pro":
+        profile.update(device=device, storage="software")
+        for buttons in profile["plates"].values():
+            for button in buttons:
+                button["trigger"] = ""
+    return profile
 
 
 def config_path() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "NagaLibre" / "profiles.json"
 
 
-def load_profile(path: Path) -> dict:
+def load_profile(path: Path, device="naga_v2_pro") -> dict:
     if not path.exists():
-        return new_profile()
+        return new_profile(device)
     value = json.loads(path.read_text())
     if not isinstance(value, dict):
         raise ValueError("Profile must contain an object.")
-    if value.get("version") != 1 or value.get("plate") not in ("12", "6", "2"):
+    if value.get("device", "naga_v2_pro") != device:
+        raise ValueError("This profile belongs to another mouse model.")
+    layouts = DEVICE_MODELS[device]["plates"]
+    if value.get("version") != 1 or value.get("plate") not in layouts:
         raise ValueError("Unsupported profile format; the file was left untouched.")
-    for plate in ("12", "6", "2"):
+    for plate in layouts:
         buttons = value["plates"][plate]
         if len(buttons) != int(plate):
             raise ValueError(f"Invalid {plate}-button profile.")
@@ -150,7 +161,7 @@ def reset_plate(profile: dict, plate: str) -> None:
     # Preserve learned inputs on the unverified plates, but remove all remapping.
     old = profile["plates"][plate]
     profile["plates"][plate] = [default_button(i, plate) for i in range(int(plate))]
-    if plate != "12":
+    if plate != "12" or profile.get("device", "naga_v2_pro") != "naga_v2_pro":
         for before, after in zip(old, profile["plates"][plate]):
             after["trigger"] = before["trigger"] if before["trigger"] not in PROTECTED_INPUTS else ""
 

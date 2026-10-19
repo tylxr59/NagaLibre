@@ -14,12 +14,32 @@ from app import Window, MacroDialog
 import backend
 from onboard import hardware_buttons, write_backup, stored_label
 from unittest.mock import patch
-from model import DEFAULT_KEYS, load_profile, new_profile, reset_plate, runtime_config, save_profile
+from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
+from support import device_issue_url
+from model import DEFAULT_KEYS, DEVICE_MODELS, load_profile, new_profile, reset_plate, runtime_config, save_profile
 
 ENGINE = Path(os.environ.get("NAGALIBRE_TEST_BACKEND", "target/debug/naga-macros")).resolve()
 
 
 class SourceBuildLookup(unittest.TestCase):
+    def test_support_link_prefills_only_public_ids_and_registry_names(self):
+        devices = [
+            {"vendor": 0x1532, "product": 0xa7},
+            {"vendor": 0x1532, "product": 0x67, "name": "PRIVATE_SERIAL"},
+            {"vendor": 0x1532, "product": 0xffff, "name": "PRIVATE_NAME&body=secret"},
+            {"vendor": 0x1532, "product": 0xffff},
+            {"vendor": 0x1234, "product": 1, "name": "PRIVATE_KEYBOARD"},
+        ]
+        url = device_issue_url(devices)
+        fields = parse_qs(urlparse(url).query)
+        self.assertEqual(urlparse(url).netloc, "github.com")
+        self.assertEqual(fields["template"], ["device-support.yml"])
+        self.assertTrue(fields["title"][0].startswith("[Device support]: Unrecognized"))
+        self.assertEqual(fields["model"][0].count("1532:ffff"), 1)
+        self.assertNotIn("PRIVATE", url)
+        self.assertNotIn("body", fields)
+        self.assertEqual(parse_qs(urlparse(device_issue_url()).query), {"template": ["device-support.yml"]})
     def test_source_build_takes_precedence_over_legacy_preview_binaries(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -43,6 +63,25 @@ class SourceBuildLookup(unittest.TestCase):
 
 
 class Profiles(unittest.TestCase):
+    def test_experimental_profiles_require_learning_and_keep_layouts_on_disk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for device in DEVICE_MODELS:
+                if device == "naga_v2_pro":
+                    continue
+                p = new_profile(device)
+                self.assertEqual(list(p["plates"]), DEVICE_MODELS[device]["plates"])
+                self.assertTrue(all(not b["trigger"] for buttons in p["plates"].values() for b in buttons))
+                self.validate(p)
+                p["plates"][p["plate"]][0].update(trigger="BTN_SIDE", mode="key", value="F13")
+                self.validate(p)
+                path = Path(directory) / f"{device}.json"
+                save_profile(path, p)
+                self.assertEqual(load_profile(path, device), p)
+                with self.assertRaises(ValueError):
+                    load_profile(path)
+                reset_plate(p, p["plate"])
+                self.assertEqual(p["plates"][p["plate"]][0]["trigger"], "BTN_SIDE")
+
     def validate(self, profile):
         text = runtime_config(profile)
         with tempfile.NamedTemporaryFile(mode="w") as file:
@@ -139,7 +178,7 @@ class Session(unittest.TestCase):
 
 MOCK = '''#!/usr/bin/env python3
 import sys,json
-if sys.argv[1:]==["list","--json"]:
+if sys.argv[1]=="list":
  print(json.dumps([{"path":"/dev/input/event23","name":"Test Naga"}]))
 elif sys.argv[1]=="check":
  sys.exit(0)
@@ -174,6 +213,110 @@ class QtFlow(unittest.TestCase):
             self.app.processEvents()
             time.sleep(0.005)
         self.assertTrue(predicate())
+
+    def test_unknown_and_experimental_devices_offer_user_opened_support_form(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            unknown = {"vendor": 0x1532, "product": 0xffff, "name": "Razer unknown", "model": None}
+            def scan(devices):
+                result = SimpleNamespace(returncode=0, stdout=json.dumps(devices), stderr="")
+                with patch("app.subprocess.run", return_value=result) as run:
+                    window.scan_devices()
+                self.assertIn("--all-razer", run.call_args.args[0])
+            with patch("app.QDesktopServices.openUrl") as open_url:
+                scan([unknown])
+                self.assertIn("Unrecognized", window.support_hint.text())
+                open_url.assert_not_called()
+                window.support_button.click()
+                self.assertIn("1532%3Affff", open_url.call_args.args[0].toString())
+                experimental = dict(unknown, product=0x67, model=DEVICE_MODELS["naga_trinity"])
+                scan([experimental])
+                self.assertIn("Experimental", window.support_hint.text())
+                scan([])
+                self.assertEqual(window.support_hint.text(), "")
+                self.assertEqual(window.support_devices, [])
+
+    def test_model_switch_isolates_drafts_and_excludes_vendor_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            window.mode.setCurrentIndex(window.mode.findData("key"))
+            window.key_value.setText("B")
+            window.pending_onboard = {"command": "onboard_read"}
+            window.backend.device = DEVICE_MODELS["naga_trinity"]
+            window.backend.protocol = 3
+            window.backend.ready = True
+            with patch.object(window.backend, "send") as send:
+                window.connection_changed(True)
+                self.assertFalse(window.is_hardware())
+                self.assertEqual([window.plate.itemData(i) for i in range(window.plate.count())], ["12", "7", "2"])
+                self.assertFalse(window.storage.model().item(0).isEnabled())
+                self.assertIn("unverified", window.device_label.text())
+                self.assertEqual(send.call_args.args[0], {"command": "monitor"})
+                self.assertEqual(send.call_count, 1)
+                window.plate.setCurrentIndex(window.plate.findData("7"))
+                self.assertEqual(len(window.tiles), 7)
+                window.current().update(trigger="BTN_SIDE", mode="key", value="F13")
+                window.select_button(0, commit=False)
+                window.persist()
+                trinity_path = window.path
+                self.assertIn("naga_trinity", str(trinity_path))
+                self.assertEqual(load_profile(trinity_path, "naga_trinity")["plate"], "7")
+                with self.assertRaises(ValueError):
+                    window.hardware_command({"command": "onboard_read"})
+                window.backend.device = DEVICE_MODELS["naga_v2_pro"]
+                window.connection_changed(True)
+                self.assertEqual(window.path, window.base_profile_path)
+                self.assertEqual(window.key_value.text(), "B")
+                self.assertTrue(window.storage.model().item(0).isEnabled())
+                window.backend.device = DEVICE_MODELS["naga_trinity"]
+                window.connection_changed(True)
+                self.assertEqual(window.path, trinity_path)
+                self.assertEqual(window.key_value.text(), "F13")
+                window.backend.device = DEVICE_MODELS["viper_v2_pro"]
+                window.connection_changed(True)
+                self.assertEqual(len(window.tiles), 2)
+                self.assertFalse(window.plate.isEnabled())
+            window.backend.ready = False
+
+    def test_experimental_model_through_real_process_stays_in_software_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            trace = root / "commands.jsonl"
+            mock = root / "engine"
+            mock.write_text("#!/usr/bin/env python3\n" + "\n".join([
+                "import sys,json,pathlib",
+                "if sys.argv[1]=='list': print('[]');sys.exit(0)",
+                "if sys.argv[1]=='check': sys.exit(0)",
+                f"print(json.dumps({dict(type='hello', protocol=3, device=DEVICE_MODELS['naga_trinity'])!r}),flush=True)",
+                f"trace=pathlib.Path({str(trace)!r})",
+                "for line in sys.stdin:",
+                " m=json.loads(line)",
+                " with trace.open('a') as f:f.write(line)",
+                " c=m['command']",
+                " if c=='shutdown':break",
+                " assert c in ('monitor','apply'),c",
+                " print(json.dumps({'type':'state','state':'running' if c=='apply' else 'monitoring'}),flush=True)",
+            ]))
+            mock.chmod(0o755)
+            with patch.dict(os.environ, {"NAGALIBRE_BACKEND": str(mock), "NAGALIBRE_NO_PKEXEC": "1"}):
+                window = Window(root / "profiles.json")
+                window.connect_mouse()
+                self.spin_until(lambda: window.backend.ready and "Connected" in window.status.text())
+                self.assertEqual(window.device_model["id"], "naga_trinity")
+                self.assertFalse(window.is_hardware())
+                window.learn_input()
+                self.spin_until(lambda: window.learning)
+                window.on_event({"type": "input", "key": "BTN_SIDE", "value": 1})
+                window.mode.setCurrentIndex(window.mode.findData("key"))
+                window.key_value.setText("F13")
+                window.apply()
+                self.spin_until(lambda: window.status.text().startswith("Active"))
+                window.backend.shutdown()
+                commands = [json.loads(line) for line in trace.read_text().splitlines()]
+                self.assertTrue(all(m["command"] in ("monitor", "apply", "shutdown") for m in commands))
+                apply = next(m for m in commands if m["command"] == "apply")
+                self.assertNotIn("module_id", apply)
+                self.assertIn("BTN_SIDE", apply["config"])
 
     def test_edit_apply_learn_switch_plate_and_reset(self):
         with tempfile.TemporaryDirectory() as directory:

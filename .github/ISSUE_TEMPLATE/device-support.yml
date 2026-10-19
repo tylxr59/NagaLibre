@@ -1,0 +1,125 @@
+name: Device support or hardware verification
+description: Request a new Razer mouse, report detection problems, or help verify an experimental model.
+title: "[Device support]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping expand NagaLibre's device support. Unknown and experimental mice are welcome.
+        Start with the passive diagnostics below. Additional tests are optional; paste errors too.
+        Review output before posting. Do not attach mouse-memory backups, serial numbers, private profiles, or proprietary Razer binaries.
+        Full instructions: [Device support diagnostics](https://github.com/tylxr59/NagaLibre/blob/main/docs/DEVICE_SUPPORT.md).
+  - type: input
+    id: model
+    attributes:
+      label: Mouse model and USB IDs
+      description: Exact model name and revision from the label or packaging, plus VID:PID if available. For unknown devices, replace the prefilled generic name.
+      placeholder: Razer Naga Trinity, 1532:0067
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection used for this report
+      options:
+        - USB cable
+        - 2.4 GHz receiver
+        - Bluetooth
+        - Other or unsure
+    validations:
+      required: true
+  - type: textarea
+    id: request
+    attributes:
+      label: What works, and what is missing?
+      description: Include the expected behavior, actual behavior, and steps to reproduce. Say whether NagaLibre recognizes the mouse and whether this is a support request or a successful hardware test.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        From your source checkout, run:
+        ```sh
+        git rev-parse --short HEAD
+        ./target/release/naga-macros --version
+        ```
+  - type: textarea
+    id: version
+    attributes:
+      label: Source revision and engine version
+      description: Paste the command output. Include any local changes affecting the result, or say if this is a source archive without Git history.
+      placeholder: |
+        Git revision:
+        Engine version:
+        Local changes:
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        ### Passive diagnostics — works for unknown models
+        From the repository root after building the current source:
+        ```sh
+        ./target/release/naga-macros diagnose > nagalibre-diagnostics.json
+        ```
+        This reads sysfs metadata and HID report descriptors. It does not open input/hidraw devices, send vendor requests, grab input, or capture button presses. It omits serial/unique IDs, hardware locations, hostname and unrelated devices. Check device names and any error text before posting.
+        Paste the JSON below or attach the reviewed file. If a descriptor is unreadable, include the error; do not change device permissions just for this report.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Passive diagnostic report or command error
+      description: Paste the report in a code block, attach the reviewed JSON file, or paste the error if collection failed.
+    validations:
+      required: true
+  - type: textarea
+    id: faceplates
+    attributes:
+      label: Faceplates or fixed button layout
+      description: List the physical side-button counts. For each plate, say what you attached, what the app displayed, whether detach/reattach was detected, and how long detection took. For fixed layouts, say so.
+      placeholder: "12 buttons attached → app shows 12; removed → no plate; 6 buttons attached → app shows 6."
+  - type: markdown
+    attributes:
+      value: |
+        ### Optional faceplate query — Naga V2 Pro only
+        Fully quit NagaLibre and other mouse controllers first. Connect one mouse. Only if the diagnostic report identifies `naga_v2_pro` and its `faceplate` capability is `true`, run:
+        ```sh
+        sudo ./target/release/naga-macros faceplate --watch
+        ```
+        Leave each plate attached for several seconds, note the physical count beside the returned module ID, and include a detach/reattach transition. Stop with Ctrl+C before reopening NagaLibre. This uses the enabled getter without changing settings. Other models: skip this command and describe the layout above; experimental vendor queries are disabled.
+  - type: textarea
+    id: plate-results
+    attributes:
+      label: Optional faceplate query results
+      description: Include observed physical plate → module ID pairs, detached results, connection type, and any errors. Say skipped if not applicable.
+      render: text
+  - type: markdown
+    attributes:
+      value: |
+        ### Optional side-button input check
+        Fully quit NagaLibre and other remappers. For a recognized model, with one supported mouse connected:
+        ```sh
+        sudo ./target/release/naga-macros monitor
+        ```
+        For an unknown model, select only the mouse event paths listed in the passive report (repeat `--device` for its interfaces):
+        ```sh
+        sudo ./target/release/naga-macros monitor --device /dev/input/eventN
+        ```
+        Replace `eventN`; do not use your regular keyboard. This does not grab input, so test in an empty scratch document, not a terminal or an application with destructive shortcuts. Press each numbered side button once, record its key code and press/release values, then stop with Ctrl+C. Do not type passwords or unrelated text during capture. Skip this test if the interface identity is unclear.
+  - type: textarea
+    id: button-results
+    attributes:
+      label: Optional side-button mapping and software results
+      description: Map physical button position → Linux key/button code for each plate/connection tested. If you tested software bindings, describe the binding and observed output separately. Getter success alone does not verify physical output or persistence.
+      render: text
+  - type: textarea
+    id: references
+    attributes:
+      label: Optional firmware, vendor references, or existing capture
+      description: Firmware version if already known; public Razer support/download URLs; or whether you can collect a focused Windows USB capture. Do not upload installers/DLLs or a broad USB capture containing unrelated keyboard traffic. No onboard writes, resets, or restoration are requested by this form.
+  - type: checkboxes
+    id: followup
+    attributes:
+      label: Follow-up testing
+      options:
+        - label: I have this mouse available and can help test read-only diagnostics.
+        - label: I reviewed the attached output for personal information.

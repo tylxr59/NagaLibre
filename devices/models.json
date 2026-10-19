@@ -1,0 +1,115 @@
+[
+  {
+    "id": "naga_v2_pro",
+    "name": "Razer Naga V2 Pro",
+    "products": [
+      167,
+      168
+    ],
+    "plates": [
+      "12",
+      "6",
+      "2"
+    ],
+    "onboard": true,
+    "faceplate": true,
+    "verified": true
+  },
+  {
+    "id": "naga_pro",
+    "name": "Razer Naga Pro",
+    "products": [
+      143,
+      144
+    ],
+    "plates": [
+      "12",
+      "6",
+      "2"
+    ],
+    "onboard": false,
+    "faceplate": false,
+    "verified": false
+  },
+  {
+    "id": "naga_trinity",
+    "name": "Razer Naga Trinity",
+    "products": [
+      103
+    ],
+    "plates": [
+      "12",
+      "7",
+      "2"
+    ],
+    "onboard": false,
+    "faceplate": false,
+    "verified": false
+  },
+  {
+    "id": "naga_x",
+    "name": "Razer Naga X",
+    "products": [
+      150
+    ],
+    "plates": [
+      "12"
+    ],
+    "onboard": false,
+    "faceplate": false,
+    "verified": false
+  },
+  {
+    "id": "naga_left_handed",
+    "name": "Razer Naga Left-Handed",
+    "products": [
+      141
+    ],
+    "plates": [
+      "12"
+    ],
+    "onboard": false,
+    "faceplate": false,
+    "verified": false
+  },
+  {
+    "id": "naga_chroma",
+    "name": "Razer Naga Chroma",
+    "products": [
+      83
+    ],
+    "plates": [
+      "12"
+    ],
+    "onboard": false,
+    "faceplate": false,
+    "verified": false
+  },
+  {
+    "id": "naga_v2_hyperspeed",
+    "name": "Razer Naga V2 HyperSpeed",
+    "products": [
+      180
+    ],
+    "plates": [
+      "12"
+    ],
+    "onboard": false,
+    "faceplate": false,
+    "verified": false
+  },
+  {
+    "id": "viper_v2_pro",
+    "name": "Razer Viper V2 Pro",
+    "products": [
+      165,
+      166
+    ],
+    "plates": [
+      "2"
+    ],
+    "onboard": false,
+    "faceplate": false,
+    "verified": false
+  }
+]

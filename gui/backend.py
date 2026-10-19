@@ -33,6 +33,7 @@ class Backend(QObject):
         self.buffer = b""
         self.ready = False
         self.protocol = 0
+        self.device = None
 
     def start(self):
         if self.process.state() != QProcess.ProcessState.NotRunning:
@@ -78,6 +79,7 @@ class Backend(QObject):
                     self.process.closeWriteChannel()
                     continue
                 self.protocol = message["protocol"]
+                self.device = message.get("device")
                 self.ready = True
                 self.connected.emit(True)
             self.event.emit(message)

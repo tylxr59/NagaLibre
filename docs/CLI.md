@@ -7,6 +7,7 @@ below the Wayland/X11 display layer and can be used without the desktop app.
 ## Find and monitor the mouse
 
 ```sh
+./target/release/naga-macros models
 ./target/release/naga-macros list
 sudo ./target/release/naga-macros monitor
 ```
@@ -14,7 +15,12 @@ sudo ./target/release/naga-macros monitor
 Monitor prints input events without grabbing or changing the mouse. Values are
 `1` for press, `0` for release, and `2` for repeat. Ctrl+C stops it.
 
-Automatic discovery selects Naga V2 Pro interfaces. To select specific nodes:
+Automatic discovery selects recognized models from the built-in registry.
+Experimental models support software remapping with learned inputs; only the
+V2 Pro has vendor/onboard access enabled. Composite event interfaces are grouped
+by physical USB device, and automatic selection requires exactly one mouse.
+`models` prints the registry; `list --json` includes model capabilities.
+To select specific nodes:
 
 ```sh
 sudo ./target/release/naga-macros monitor --device /dev/input/event12 --device /dev/input/event13
@@ -24,6 +30,23 @@ Use the paths reported on your own machine; event numbers can change. Stable
 `/dev/input/by-id/` links are useful when available. Do not select your regular
 keyboard. A physical button must emit an input event to be a software trigger;
 firmware-only DPI or profile actions cannot be captured this way.
+
+## Collect support diagnostics
+
+```sh
+./target/release/naga-macros diagnose > nagalibre-diagnostics.json
+./target/release/naga-macros list --all-razer --json
+```
+
+`diagnose` reads passive sysfs metadata and report descriptors for all Razer
+products, including unknown models. It omits serial/unique IDs and does not open
+device nodes, capture input or send vendor reports. Review device names and
+errors before sharing. `--all-razer` includes unknown Razer input interfaces in
+the JSON list; it does not enable their remapping or any vendor commands.
+
+Use the [support guide](DEVICE_SUPPORT.md) and
+[device support form](https://github.com/tylxr59/NagaLibre/issues/new?template=device-support.yml)
+to submit results. Faceplate queries below apply only to the enabled V2 Pro.
 
 ## Detect the attached faceplate
 

@@ -9,8 +9,8 @@ import subprocess
 import sys
 import tempfile
 
-from PySide6.QtCore import Qt, QTimer, QLockFile, QStandardPaths
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import Qt, QTimer, QLockFile, QStandardPaths, QUrl
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
@@ -20,9 +20,10 @@ from PySide6.QtWidgets import (
 
 from onboard import hardware_buttons, write_backup, stored_label
 from backend import Backend, backend_path
+from support import device_issue_url
 from model import (
     binding_label, config_path, default_button, display_key, key_code, load_profile,
-    new_profile, reset_plate, runtime_config, save_profile, shortcut, PROTECTED_INPUTS,
+    new_profile, reset_plate, runtime_config, save_profile, shortcut, PROTECTED_INPUTS, DEVICE_MODELS,
 )
 
 
@@ -135,6 +136,10 @@ class Window(QMainWindow):
     def __init__(self, profile_path=None):
         super().__init__()
         self.path = profile_path or config_path()
+        self.base_profile_path = self.path
+        self.device_model = DEVICE_MODELS["naga_v2_pro"]
+        self.model_drafts = {}
+        self.support_devices = []
         self.load_error = None
         try:
             self.profile = load_profile(self.path)
@@ -172,13 +177,22 @@ class Window(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(QLabel("Your Naga. Your buttons. Linux native."))
         connection = QHBoxLayout()
-        self.device_label = QLabel("Looking for a Razer Naga V2 Pro…")
+        self.device_label = QLabel("Looking for a supported Razer mouse…")
         self.device_label.setWordWrap(True)
         connection.addWidget(self.device_label, 1)
         self.connect_button = QPushButton("Connect mouse")
         self.connect_button.clicked.connect(self.connect_mouse)
         connection.addWidget(self.connect_button)
         layout.addLayout(connection)
+        support_row = QHBoxLayout()
+        self.support_hint = QLabel()
+        self.support_hint.setWordWrap(True)
+        support_row.addWidget(self.support_hint, 1)
+        self.support_button = QPushButton("Request device support…")
+        self.support_button.setToolTip("Open a GitHub form with diagnostic instructions. Review and submit it yourself.")
+        self.support_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(device_issue_url(self.support_devices))))
+        support_row.addWidget(self.support_button)
+        layout.addLayout(support_row)
         self.status = QLabel("Offline · edit bindings, then connect to test.")
         self.status.setWordWrap(True)
         self.status.setStyleSheet("padding: 10px; background: #24312f; border-radius: 6px; color: #8ce3cb;")
@@ -359,18 +373,34 @@ class Window(QMainWindow):
 
     def scan_devices(self):
         try:
-            result = subprocess.run([str(backend_path()), "list", "--json"], capture_output=True, text=True, timeout=1)
+            result = subprocess.run([str(backend_path()), "list", "--json", "--all-razer"], capture_output=True, text=True, timeout=1)
             if result.returncode:
                 raise ValueError(result.stderr.strip())
             devices = json.loads(result.stdout)
-            self.device_label.setText("Razer Naga V2 Pro · " + ", ".join(d["path"].rsplit("/", 1)[-1] for d in devices) if devices else "No Naga V2 Pro connected")
+            if not isinstance(devices, list) or any(not isinstance(d, dict) for d in devices):
+                raise ValueError("Invalid device inventory from input engine; rebuild the engine and app together.")
+            self.support_devices = devices
+            names = sorted({(d.get("model") or {}).get("name", d.get("name", "Razer mouse")) for d in devices})
+            description = ", ".join(names) if devices else "No supported Razer mouse connected"
+            if any(d.get("model") and not d["model"]["verified"] for d in devices):
+                description += " · experimental, hardware unverified"
+            self.device_label.setText(description)
+            if any(d.get("model") is None for d in devices):
+                self.support_hint.setText("Unrecognized Razer device detected. Request support with its diagnostics.")
+            elif any(not d["model"]["verified"] for d in devices):
+                self.support_hint.setText("Experimental model: report your results to help verify support.")
+            else:
+                self.support_hint.clear()
         except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            self.support_devices = []
+            self.support_hint.setText("Need help? Open a device support request with diagnostic output.")
             self.device_label.setText(f"Input engine unavailable: {error}")
 
     def connect_mouse(self):
-        if self.backend.ready and self.is_hardware():
-            self.read_mouse()
-            return
+        if self.backend.ready:
+            # Reconnect obtains fresh model metadata rather than retaining a
+            # session pinned to a mouse that may have been replaced.
+            self.backend.shutdown()
         try:
             self.status.setText("Connecting… approve the desktop prompt for mouse access.")
             self.backend.start()
@@ -396,6 +426,9 @@ class Window(QMainWindow):
         self.cancel_learning()
         if self.backend.ready:
             self.backend.shutdown()
+        self.update_storage_view()
+
+    def update_storage_view(self):
         hardware = self.is_hardware()
         for widget in (self.slots, self.read_button, self.restore_button, self.memory_hint):
             widget.setVisible(hardware)
@@ -405,6 +438,8 @@ class Window(QMainWindow):
         self.refresh_hardware_view()
 
     def hardware_command(self, command):
+        if not self.device_model["onboard"]:
+            raise ValueError("Mouse memory is not enabled for this model. Use Software mode and Learn input.")
         if self.backend.ready:
             if self.backend.protocol < 2:
                 raise ValueError("Update naga-macros to version 0.3.0 alongside the app.")
@@ -441,7 +476,9 @@ class Window(QMainWindow):
     def connection_changed(self, connected):
         self.connect_button.setText("Reconnect / rescan" if connected else "Connect mouse")
         if connected:
-            if self.backend.protocol >= 3:
+            if self.backend.device is not None:
+                self.select_device_model(self.backend.device["id"])
+            if self.backend.protocol >= 3 and self.device_model["faceplate"]:
                 self.detected_module = None
                 self.plate_detection = "pending"
                 self.plate_hint.setText("Detecting attached faceplate…")
@@ -451,7 +488,11 @@ class Window(QMainWindow):
                 self.pending_config = None
                 self.applying = False
             else:
-                self.plate_hint.setText("This helper requires manual plate selection. Rebuild the engine for automatic detection.")
+                if self.device_model["faceplate"]:
+                    self.plate_hint.setText("This helper requires manual plate selection. Rebuild the engine for automatic detection.")
+                else:
+                    self.plate_detection = "manual"
+                    self.plate_hint.setText("Experimental model · select the layout and use Learn input. Hardware behavior is unverified.")
             if self.pending_onboard is not None:
                 command, self.pending_onboard = self.pending_onboard, None
                 if self.backend.protocol < 2:
@@ -469,7 +510,7 @@ class Window(QMainWindow):
         else:
             self.detected_module = None
             self.plate_detection = "offline"
-            self.plate_hint.setText("Connect mouse to detect the attached plate automatically.")
+            self.plate_hint.setText("Connect mouse to detect the attached plate automatically." if self.device_model["faceplate"] else "Select the layout and use Learn input · experimental model.")
             self.applying = False
             self.pending_config = None
             self.pending_onboard = None
@@ -481,6 +522,45 @@ class Window(QMainWindow):
                 self.status.setText(f"Saved on mouse · slot {self.hardware_saved} active · helper stopped. You can quit NagaLibre.")
             elif not self.fault:
                 self.status.setText("Helper disconnected · saved mouse settings remain active.")
+
+    def select_device_model(self, device_id):
+        model = DEVICE_MODELS[device_id]
+        if model["id"] != self.device_model["id"]:
+            self.commit_fields()
+            self.model_drafts[self.device_model["id"]] = (self.profile, self.load_error)
+            self.path = self.base_profile_path if device_id == "naga_v2_pro" else self.base_profile_path.parent / "devices" / device_id / self.base_profile_path.name
+            if device_id in self.model_drafts:
+                self.profile, self.load_error = self.model_drafts[device_id]
+            else:
+                self.load_error = None
+                try:
+                    self.profile = load_profile(self.path, device_id)
+                except (ValueError, KeyError, TypeError, OSError) as error:
+                    self.profile = new_profile(device_id)
+                    self.load_error = str(error)
+                    self.log(f"Saved profile could not be loaded: {error}. Saving is disabled to preserve it.")
+            self.device_model = model
+            self.pending_config = self.pending_onboard = None
+            self.snapshot = self.hardware_saved = None
+            self.save_after_read = False
+            self.cancel_learning()
+            self.detected_module = None
+            self.plate_detection = "offline"
+            self.selected = 0
+            self.storage.blockSignals(True)
+            self.storage.setCurrentIndex(self.storage.findData(self.profile.get("storage", "hardware") if model["onboard"] else "software"))
+            self.storage.blockSignals(False)
+            self.plate.blockSignals(True)
+            self.plate.clear()
+            for plate in model["plates"]:
+                self.plate.addItem(f"{plate}-button layout", plate)
+            self.plate.setCurrentIndex(self.plate.findData(self.profile["plate"]))
+            self.plate.blockSignals(False)
+            self.rebuild_grid()
+            self.select_button(0, commit=False)
+            self.update_storage_view()
+        self.storage.model().item(self.storage.findData("hardware")).setEnabled(model["onboard"])
+        self.device_label.setText(model["name"] + (" · experimental, hardware unverified" if not model["verified"] else ""))
 
     def commit_fields(self):
         if self.loading:
@@ -516,7 +596,7 @@ class Window(QMainWindow):
         snapshot = self.current_snapshot()
         self.apply_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
         self.reset_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
-        self.plate.setEnabled(not self.hardware_busy and self.plate_detection in ("offline", "unavailable"))
+        self.plate.setEnabled(not self.hardware_busy and self.plate_detection in ("offline", "unavailable", "manual") and len(self.device_model["plates"]) > 1)
         if self.plate_detection in ("pending", "unknown"):
             self.apply_button.setEnabled(False)
             self.reset_button.setEnabled(False)
@@ -547,7 +627,7 @@ class Window(QMainWindow):
             tile.clicked.connect(lambda checked=False, i=index: self.select_button(i))
             self.grid.addWidget(tile, index // columns, index % columns)
             self.tiles.append(tile)
-        self.reset_button.setText("Reset 12 buttons → 1…9, 0, -, =" if count == 12 else "Reset plate to defaults")
+        self.reset_button.setText("Reset 12 buttons → 1…9, 0, -, =" if count == 12 and self.device_model["verified"] else "Reset layout bindings")
 
     def select_button(self, index, commit=True):
         if commit:

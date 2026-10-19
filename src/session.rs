@@ -57,12 +57,22 @@ impl Worker {
     }
 }
 
-fn worker(bindings: Option<config::Bindings>) -> Worker {
+fn worker(
+    bindings: Option<config::Bindings>,
+    physical_id: Option<String>,
+    model_id: Option<&'static str>,
+) -> Worker {
     let running = Arc::new(AtomicBool::new(true));
     let signal = running.clone();
     let thread = thread::spawn(move || {
         let result = (|| -> Result<()> {
-            let mut devices = crate::open_devices(Vec::new())?;
+            let current = crate::selected_device()?;
+            ensure!(
+                Some(&current[0].physical_id) == physical_id.as_ref()
+                    && current[0].model.map(|m| m.id.as_str()) == model_id,
+                "Mouse changed; reconnect before using bindings"
+            );
+            let mut devices = crate::open_devices(current.into_iter().map(|d| d.path).collect())?;
             emit(
                 json!({"type":"devices", "devices": devices.iter().map(|(path, d)| json!({"path":path,"name":d.name()})).collect::<Vec<_>>()}),
             );
@@ -141,7 +151,13 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         }
         // Dropping tx makes recv detect EOF, even when a worker is active.
     });
-    emit(json!({"type":"hello","protocol":3,"version":env!("CARGO_PKG_VERSION")}));
+    let selection = crate::selected_device();
+    let device = selection.as_ref().ok().and_then(|d| d[0].model);
+    let physical_id = selection.as_ref().ok().map(|d| d[0].physical_id.clone());
+    emit(
+        json!({"type":"hello","protocol":3,"version":env!("CARGO_PKG_VERSION"), "device":device,
+        "device_error":selection.as_ref().err().map(|e| format!("{e:#}"))}),
+    );
     let mut active: Option<Worker> = None;
     let mut hardware: Option<onboard::Mouse<onboard::hidraw::Hidraw>> = None;
     let mut snapshot: Option<onboard::Snapshot> = None;
@@ -182,6 +198,12 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         };
         if matches!(command, Command::Faceplate) {
+            if !device.is_some_and(|d| d.faceplate) {
+                emit(
+                    json!({"type":"faceplate", "module_id":null, "buttons":null, "message":"Automatic faceplate queries are not enabled for this model"}),
+                );
+                continue;
+            }
             watching_plate = true;
             next_plate = Instant::now();
             continue;
@@ -193,6 +215,12 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                 | Command::OnboardPrepare { .. }
                 | Command::OnboardCommit { .. }
         ) {
+            if !device.is_some_and(|d| d.onboard) {
+                emit(
+                    json!({"type":"error", "message":"Onboard access is not enabled for this model. Use Software mode and Learn input."}),
+                );
+                continue;
+            }
             if let Some(worker) = active.take() {
                 worker.stop();
             }
@@ -281,6 +309,10 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                 module_id,
             } => match config::parse(&text).and_then(|bindings| {
                 if let Some(expected) = module_id {
+                    ensure!(
+                        device.is_some_and(|d| d.faceplate),
+                        "Faceplate queries are not enabled for this model"
+                    );
                     let plate = read_plate(&mut hardware)?;
                     ensure!(
                         plate.module_id == expected && plate.buttons.is_some(),
@@ -305,7 +337,11 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         if let Some(worker) = active.take() {
             worker.stop();
         }
-        active = Some(worker(bindings));
+        active = Some(worker(
+            bindings,
+            physical_id.clone(),
+            device.map(|d| d.id.as_str()),
+        ));
     }
     if let Some(worker) = active {
         worker.stop();

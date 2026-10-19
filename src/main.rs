@@ -1,4 +1,6 @@
 mod config;
+mod devices;
+mod diagnostics;
 mod faceplate;
 mod onboard;
 mod runtime;
@@ -29,6 +31,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Collect passive Razer diagnostics, including unknown devices; no vendor requests.
+    Diagnose,
+    /// List model definitions and verified/experimental capabilities.
+    Models,
     /// Read the attached hardware-module ID without changing mouse settings.
     Faceplate {
         /// Print one reading per second until Ctrl+C.
@@ -50,6 +56,9 @@ enum Command {
     List {
         #[arg(long)]
         json: bool,
+        /// Include unknown Razer products and unsupported connections in JSON output.
+        #[arg(long)]
+        all_razer: bool,
     },
     /// JSON-line session for the desktop app; exits when its stdin closes.
     Session,
@@ -76,13 +85,13 @@ struct Candidate {
     name: String,
     vendor: u16,
     product: u16,
+    physical_id: String,
+    model: Option<&'static devices::Model>,
 }
 
 impl Candidate {
-    fn is_naga(&self) -> bool {
-        self.vendor == 0x1532
-            && (matches!(self.product, 0x00a7 | 0x00a8)
-                || self.name.to_ascii_lowercase().contains("naga v2 pro"))
+    fn is_supported(&self) -> bool {
+        self.model.is_some()
     }
 }
 
@@ -101,22 +110,59 @@ fn candidates() -> Result<Vec<Candidate>> {
                 .trim()
                 .to_owned()
         };
+        let vendor = u16::from_str_radix(&read("id/vendor"), 16).unwrap_or(0);
+        let product = u16::from_str_radix(&read("id/product"), 16).unwrap_or(0);
+        let mut physical = fs::canonicalize(&base)?;
+        // Group composite event nodes by their USB device, not event number or
+        // model ID. Two mice of the same model must remain distinct.
+        let physical_id = loop {
+            if physical.join("idVendor").exists() || !physical.pop() {
+                break physical.display().to_string();
+            }
+        };
         result.push(Candidate {
             path: PathBuf::from("/dev/input").join(name),
             name: read("name"),
-            vendor: u16::from_str_radix(&read("id/vendor"), 16).unwrap_or(0),
-            product: u16::from_str_radix(&read("id/product"), 16).unwrap_or(0),
+            vendor,
+            product,
+            physical_id,
+            model: if read("id/bustype") == "0003" {
+                devices::lookup(vendor, product)
+            } else {
+                None
+            },
         });
     }
     result.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(result)
 }
 
+fn selected_device() -> Result<Vec<Candidate>> {
+    select_candidates(candidates()?)
+}
+
+fn select_candidates(candidates: Vec<Candidate>) -> Result<Vec<Candidate>> {
+    let devices: Vec<_> = candidates
+        .into_iter()
+        .filter(Candidate::is_supported)
+        .collect();
+    let physical: std::collections::BTreeSet<_> = devices.iter().map(|d| &d.physical_id).collect();
+    anyhow::ensure!(
+        !physical.is_empty(),
+        "No supported Razer mouse found. Connect one mouse by USB or its supported receiver."
+    );
+    anyhow::ensure!(
+        physical.len() == 1,
+        "Multiple supported mice connected. Connect one mouse for automatic selection, or use explicit --device paths in the CLI."
+    );
+    Ok(devices)
+}
+
 fn open_devices(paths: Vec<PathBuf>) -> Result<Vec<(PathBuf, Device)>> {
     let paths = if paths.is_empty() {
-        candidates()?
+        selected_device()?
             .into_iter()
-            .filter(Candidate::is_naga)
+            .filter(Candidate::is_supported)
             .map(|c| c.path)
             .collect()
     } else {
@@ -124,7 +170,7 @@ fn open_devices(paths: Vec<PathBuf>) -> Result<Vec<(PathBuf, Device)>> {
     };
     if paths.is_empty() {
         bail!(
-            "No Naga V2 Pro input devices found. Connect the mouse and run `naga-macros list`. You can select an interface with --device /dev/input/eventN."
+            "No supported Razer mouse input devices found. Connect the mouse and run `naga-macros list`. You can select an interface with --device /dev/input/eventN."
         );
     }
     let mut seen = std::collections::BTreeSet::new();
@@ -159,6 +205,11 @@ fn main() -> Result<()> {
     let signal = running.clone();
     ctrlc::set_handler(move || signal.store(false, Ordering::Relaxed))?;
     match cli.command {
+        Command::Diagnose => println!(
+            "{}",
+            serde_json::to_string_pretty(&diagnostics::collect(std::path::Path::new("/")))?
+        ),
+        Command::Models => println!("{}", serde_json::to_string_pretty(devices::models())?),
         Command::Faceplate { watch } => {
             let mut mouse = onboard::hidraw::connect()?;
             loop {
@@ -212,7 +263,7 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&snapshot)?);
         }
         Command::Session => session::run(running)?,
-        Command::List { json } => {
+        Command::List { json, all_razer } => {
             let devices = candidates()?;
             if json {
                 println!(
@@ -220,13 +271,13 @@ fn main() -> Result<()> {
                     serde_json::to_string(
                         &devices
                             .into_iter()
-                            .filter(Candidate::is_naga)
+                            .filter(|d| d.is_supported() || (all_razer && d.vendor == 0x1532))
                             .collect::<Vec<_>>()
                     )?
                 );
                 return Ok(());
             }
-            let found = devices.iter().any(Candidate::is_naga);
+            let found = devices.iter().any(Candidate::is_supported);
             for dev in devices {
                 println!(
                     "{} {:04x}:{:04x} {}{}",
@@ -234,11 +285,15 @@ fn main() -> Result<()> {
                     dev.vendor,
                     dev.product,
                     dev.name,
-                    if dev.is_naga() { " [Naga V2 Pro]" } else { "" }
+                    if dev.is_supported() {
+                        " [supported model]"
+                    } else {
+                        ""
+                    }
                 );
             }
             if !found {
-                eprintln!("No Naga V2 Pro detected on this machine.");
+                eprintln!("No supported Razer mouse detected on this machine.");
             }
         }
         Command::Check { config } => {
@@ -296,4 +351,37 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod device_selection_tests {
+    use super::*;
+
+    fn candidate(product: u16, physical_id: &str) -> Candidate {
+        Candidate {
+            path: PathBuf::from("/dev/input/event-test"),
+            name: "test".into(),
+            vendor: 0x1532,
+            product,
+            physical_id: physical_id.into(),
+            model: devices::lookup(0x1532, product),
+        }
+    }
+
+    #[test]
+    fn composite_interfaces_are_one_mouse_but_multiple_units_are_rejected() {
+        assert_eq!(
+            select_candidates(vec![candidate(0xa7, "usb-a"), candidate(0xa7, "usb-a")])
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(
+            select_candidates(vec![candidate(0xa7, "usb-a"), candidate(0xa7, "usb-b")]).is_err()
+        );
+        assert!(
+            select_candidates(vec![candidate(0xa7, "usb-a"), candidate(0x67, "usb-b")]).is_err()
+        );
+        assert!(select_candidates(vec![candidate(0xffff, "unknown")]).is_err());
+    }
 }
