@@ -7,3 +7,11 @@ __pycache__/
 *.pyc
 /*.spec
 /inspection/layout-query-disassembly.txt
+
+# Legacy local executables and private hardware evidence
+/naga-macros
+/backups/
+/controlled-hardware-test.json
+*.exe
+*.dll
+/macros.toml

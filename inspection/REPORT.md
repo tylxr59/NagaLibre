@@ -27,9 +27,10 @@ Findings:
   inspection, not exhaustive disassembly of every component. No claim is made
   that a mouse protocol has been recovered or that onboard macros are impossible.
 
-The Rust implementation is independently written against Linux's evdev/uinput
-interfaces. It does not use the extracted Razer DLLs or issue vendor HID writes.
+This report records the initial installer inspection. The current implementation
+is independent of the extracted Razer DLLs. Later onboard HID work and its
+evidence are documented in [ONBOARD.md](ONBOARD.md).
 
 `archive-listing.txt` records the full 7-Zip inventory; `endpoints.txt` records
 selected endpoint strings. Extracted proprietary files are local inspection
-material and excluded from the release.
+material and excluded from the repository.

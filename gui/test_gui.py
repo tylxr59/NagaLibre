@@ -11,11 +11,35 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication, QDialog
 from PySide6.QtCore import QCoreApplication, QEvent
 from app import Window, MacroDialog
+import backend
 from onboard import hardware_buttons, write_backup, stored_label
 from unittest.mock import patch
 from model import DEFAULT_KEYS, load_profile, new_profile, reset_plate, runtime_config, save_profile
 
 ENGINE = Path(os.environ.get("NAGALIBRE_TEST_BACKEND", "target/debug/naga-macros")).resolve()
+
+
+class SourceBuildLookup(unittest.TestCase):
+    def test_source_build_takes_precedence_over_legacy_preview_binaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "gui").mkdir()
+            (root / "dist").mkdir()
+            (root / "naga-macros").touch()
+            (root / "dist/naga-macros").touch()
+            with patch.object(backend, "__file__", str(root / "gui/backend.py")), patch.dict(os.environ, {"NAGALIBRE_BACKEND": ""}):
+                # Even with no build yet, report the source build path rather
+                # than silently executing an obsolete preview.
+                self.assertEqual(backend.backend_path(), root / "target/release/naga-macros")
+                (root / "target/release").mkdir(parents=True)
+                (root / "target/release/naga-macros").touch()
+                self.assertEqual(backend.backend_path(), root / "target/release/naga-macros")
+
+    def test_explicit_backend_override_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = Path(directory) / "custom-engine"
+            with patch.dict(os.environ, {"NAGALIBRE_BACKEND": str(engine)}):
+                self.assertEqual(backend.backend_path(), engine.resolve())
 
 
 class Profiles(unittest.TestCase):

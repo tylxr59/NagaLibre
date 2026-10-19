@@ -5,7 +5,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import sys
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
 
@@ -14,11 +13,8 @@ def backend_path() -> Path:
     override = os.environ.get("NAGALIBRE_BACKEND")
     if override:
         return Path(override).expanduser().resolve()
-    root = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
-    for path in (root / "naga-macros", root / "dist/naga-macros", root / "target/release/naga-macros"):
-        if path.is_file():
-            return path.resolve()
-    return root / "naga-macros"
+    root = Path(__file__).resolve().parent.parent
+    return root / "target/release/naga-macros"
 
 
 class Backend(QObject):
@@ -45,10 +41,10 @@ class Backend(QObject):
             return
         path = backend_path()
         if not path.is_file():
-            raise ValueError(f"Input engine missing: {path}. Keep naga-macros beside the app.")
+            raise ValueError(f"Input engine missing: {path}. Run cargo build --release --locked from the NagaLibre checkout.")
         self.buffer = b""
         environment = QProcessEnvironment.systemEnvironment()
-        # PyInstaller alters this for its bundled Qt; do not pass it to pkexec.
+        # Keep inherited private library paths out of the elevated helper.
         original = environment.value("LD_LIBRARY_PATH_ORIG")
         if original:
             environment.insert("LD_LIBRARY_PATH", original)

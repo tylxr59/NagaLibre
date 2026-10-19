@@ -118,7 +118,7 @@ mouse macro data still exists.
 
 ## Limits and next evidence
 
-This release edits existing slots only. Creating an empty slot could leave
+The implementation edits existing slots only. Creating an empty slot could leave
 primary buttons unbound, so create/delete/erase commands are absent. The GUI
 keeps a local draft; reading mouse slots displays the raw records in its log and
 does not import them into or replace the draft. Saving compares all twelve draft
@@ -132,7 +132,7 @@ available in the separate software mode. Other plates remain manual/software.
 DPI, RGB, firmware updates and arbitrary vendor command probes are outside this
 implementation.
 
-First hardware diagnostic: `sudo ./naga-macros onboard-read`. It only issues
+First hardware diagnostic: `sudo ./target/release/naga-macros onboard-read`. It only issues
 getters (HID feature SET_REPORT is also the transport used to request a getter).
 The controlled single-key write, app exit/power-cycle persistence, primary
 controls before restore, and exact backup restoration have passed on one wired
