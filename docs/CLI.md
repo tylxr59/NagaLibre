@@ -132,14 +132,18 @@ macro sequences to the mouse.
 ## Read onboard settings
 
 ```sh
+sudo ./target/release/naga-macros onboard-slots
 sudo ./target/release/naga-macros onboard-read
 sudo ./target/release/naga-macros onboard-read --slot 1
 sudo ./target/release/naga-macros onboard-probe --slot 1
 ```
 
-These are read-only settings queries. `onboard-read` prints a decoded snapshot;
+These are read-only settings queries for the enabled onboard implementation.
+`onboard-slots` prints the device-reported `capacity`, `initialized` slot IDs and
+`active` slot, without reading bindings or serial numbers. It can enumerate an
+empty inventory without creating slots. `onboard-read` prints a decoded snapshot;
 `onboard-probe` prints raw getter payloads for diagnosis. The optional probe slot
-adds primary and twelve side-button queries. Serial numbers appear in output;
+adds primary and twelve side-button queries. Serial numbers appear in read/probe output;
 redact them before sharing publicly.
 
 To save a durable private backup of the active slot:

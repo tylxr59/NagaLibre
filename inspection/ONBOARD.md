@@ -54,7 +54,7 @@ Busy replies are polled without resending writes.
 The physical USB probe returned mode `00 00`, inventory `05 01 02` with
 reported payload length 3, and active slot `01 00 00 00 00 00`. Inventory's
 first byte is capacity, not a count of returned entries. The source parser
-accepts compact and padded lists bounded by capacity; this fix builds and passes
+accepts compact and six-byte padded lists with initialized IDs bounded by capacity; this fix builds and passes
 automated tests and both slots now read successfully on the physical mouse.
 It does not alter transport framing.
 
@@ -142,3 +142,23 @@ mouse. Factory reset, physical failure rollback, unknown-action restoration,
 modifier/mouse outputs, inactive-slot activation and receiver operation remain
 untested. Post-restore physical primary clicks were not separately reported.
 No broader hardware support or macro persistence is established by this test.
+
+## Slot capacity enumeration (2026-10-19)
+
+The inventory getter's first byte is now retained as `slot_capacity` in snapshots,
+separate from the initialized `slots` IDs. New reads always supply this metadata;
+older backups deserialize with unknown capacity rather than assuming five.
+Fresh-snapshot comparison includes capacity, so a capacity change invalidates a
+prepared save. Legacy backup restoration still uses fresh device state.
+
+`onboard-slots` uses the existing mode/slot-inventory/active getters, returning
+`capacity`, `initialized` and `active` without serial or button reads. It supports
+empty inventories and does not create profiles. The V2 Pro protocol decoder
+supports capacities 1–5 with compact or six-byte padded replies, rejecting invalid
+IDs, duplicate entries, unsupported capacity and active IDs outside capacity.
+This does not authorize other models' onboard protocols.
+
+The GUI shows the reported number of slots, disables uninitialized entries, and
+displays initialized count versus capacity. Older helper snapshots only show
+known initialized IDs with capacity explicitly unavailable. No slot-creation,
+activation or mapping-write command was added by this change.

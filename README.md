@@ -140,7 +140,9 @@ NagaLibre running.
 **Reset 12 buttons** restores `1…9, 0, -, =` in the selected slot.
 **Restore backup…** restores saved side-button records on the same mouse and
 connection type, then activates their slot. Primary left/right click mappings
-are never rewritten. Only existing slots can be edited.
+are never rewritten. The slot list shows the device-reported capacity and distinguishes initialized
+slots from disabled, uninitialized entries—for example, “2 of 5 slots initialized.”
+Only initialized slots can be edited; slot creation is not implemented.
 
 ### Run software macros
 

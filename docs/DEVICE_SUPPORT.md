@@ -109,7 +109,23 @@ This is optional and changes only software remapping while its helper runs.
 Stop remapping after the check. No onboard saves, resets or restoration are
 needed for this report.
 
-## 4. Further protocol evidence
+## 4. Optional slot inventory
+
+If the passive report identifies an enabled onboard implementation (`onboard: true`,
+currently the V2 Pro), fully quit controllers and read its slot inventory:
+
+```sh
+sudo ./target/release/naga-macros onboard-slots
+```
+
+This uses existing getters and returns `capacity`, `initialized` IDs and `active`.
+It does not read serial numbers or bindings, initialize slots or change settings.
+A capacity of five with initialized IDs `[1, 2]` means two populated slots out of
+five available. The app shows other entries as uninitialized and disables them.
+Older helpers may not report capacity; do not infer it from the initialized count.
+Other models should skip this query until onboard access is enabled for them.
+
+## 5. Further protocol evidence
 
 A public Razer support/download URL or firmware version can help locate the
 correct controller package. Do not upload proprietary installers or DLLs.

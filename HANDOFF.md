@@ -288,3 +288,30 @@ Regressions cover unknown-device inclusion and private/unrelated data exclusion,
 encoded issue URLs, duplicate interfaces, contextual UI hints and click-only
 browser opening. YAML was parsed and checked locally against the used GitHub
 issue-form fields; live GitHub rendering awaits publication to the default branch.
+
+## Device-reported onboard capacity (2026-10-19)
+
+At the user's request, preserve inventory capacity separately from initialized
+IDs. The captured V2 Pro `05 01 02` reply now yields `slot_capacity: 5` and
+`slots: [1, 2]` in snapshots. Old backups default the optional capacity field to
+unknown and still restore through fresh snapshots. Capacity changes participate
+in strict stale-state checks.
+
+The new read-only `onboard-slots` CLI returns capacity, initialized IDs and active
+slot without serial/button reads, including an empty inventory. Existing V2 Pro
+mode/inventory/active getters are used; other models stay disabled. Compact and
+six-byte padded inventories support capacities 1–5, with invalid/duplicate IDs
+and active IDs outside capacity rejected. No profiles are created or activated.
+
+The dropdown shows all slots within reported capacity and disables uninitialized
+entries. A summary says e.g. “2 of 5 slots initialized”; older helper snapshots
+retain initialized-only lists and explicitly unknown capacity. Read failures
+invalidate the summary. Slot creation remains unimplemented. README, CLI/support
+guides and issue form explain the distinction and optional serial-free inventory.
+
+Validation covers captured capacity 5/IDs 1,2, sparse IDs, smaller capacities,
+padded replies, empty inventories, getter-only transport calls, stale-capacity
+save rejection, legacy restores and disabled UI entries. New capacity display
+has not yet been separately confirmed by the user on hardware.
+All 34 Rust and 32 Python/Qt tests passed, along with formatting, Clippy with
+warnings denied, debug/release builds, whitespace and support-form YAML checks.

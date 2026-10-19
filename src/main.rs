@@ -31,6 +31,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Read slot capacity, initialized IDs and active slot without reading bindings or serials.
+    OnboardSlots,
     /// Collect passive Razer diagnostics, including unknown devices; no vendor requests.
     Diagnose,
     /// List model definitions and verified/experimental capabilities.
@@ -205,6 +207,10 @@ fn main() -> Result<()> {
     let signal = running.clone();
     ctrlc::set_handler(move || signal.store(false, Ordering::Relaxed))?;
     match cli.command {
+        Command::OnboardSlots => println!(
+            "{}",
+            serde_json::to_string_pretty(&onboard::hidraw::connect()?.slot_inventory()?)?
+        ),
         Command::Diagnose => println!(
             "{}",
             serde_json::to_string_pretty(&diagnostics::collect(std::path::Path::new("/")))?

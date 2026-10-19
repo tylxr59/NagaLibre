@@ -510,6 +510,37 @@ class QtFlow(unittest.TestCase):
             self.assertIn("helper stopped", window.status.text())
             self.assertEqual(window.snapshot, snapshot)
 
+    def test_slot_capacity_shows_uninitialized_entries_without_enabling_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            window.backend.ready = True
+            snapshot = {"slot": 1, "active": 1, "slots": [1, 2], "slot_capacity": 5,
+                        "buttons": hardware_buttons(new_profile())}
+            with patch.object(window.backend, "send") as send:
+                window.on_event({"type": "onboard_snapshot", "snapshot": snapshot})
+                self.assertEqual(window.slots.count(), 5)
+                self.assertIn("2 of 5 slots initialized", window.slot_summary.text())
+                self.assertEqual(window.slots.currentData(), 1)
+                for i in range(5):
+                    self.assertEqual(window.slots.model().item(i).isEnabled(), i < 2)
+                self.assertIn("uninitialized", window.slots.itemText(2))
+                self.assertTrue(window.apply_button.isEnabled())
+                send.assert_not_called()
+                # Capacity is device data, not a fixed five-entry UI assumption.
+                smaller = dict(snapshot, slot_capacity=1, slots=[1])
+                window.on_event({"type": "onboard_snapshot", "snapshot": smaller})
+                self.assertEqual(window.slots.count(), 1)
+                self.assertIn("1 of 1 slots initialized", window.slot_summary.text())
+                # Older helpers/backups retain initialized IDs without guessing capacity.
+                older = dict(snapshot)
+                older.pop("slot_capacity")
+                window.on_event({"type": "onboard_snapshot", "snapshot": older})
+                self.assertEqual(window.slots.count(), 2)
+                self.assertIn("capacity unavailable", window.slot_summary.text())
+                window.on_event({"type": "error", "message": "Read failed"})
+                self.assertEqual(window.slot_summary.text(), "Slot capacity: unread")
+            window.backend.ready = False
+
     def test_stale_draft_is_never_presented_as_stored_binding(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "profiles.json"

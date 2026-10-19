@@ -111,6 +111,21 @@ body:
       label: Optional side-button mapping and software results
       description: Map physical button position → Linux key/button code for each plate/connection tested. If you tested software bindings, describe the binding and observed output separately. Getter success alone does not verify physical output or persistence.
       render: text
+  - type: markdown
+    attributes:
+      value: |
+        ### Optional onboard slot inventory — enabled models only
+        If the passive report has `onboard: true` (currently V2 Pro), fully quit controllers and run:
+        ```sh
+        sudo ./target/release/naga-macros onboard-slots
+        ```
+        This reads capacity, initialized IDs and active slot without serial numbers or button records. It does not create slots or change settings. Other models: skip this query.
+  - type: textarea
+    id: slot-results
+    attributes:
+      label: Optional slot inventory results
+      description: Paste capacity, initialized IDs, active slot, or the command error. Do not infer total capacity from the number of initialized IDs.
+      render: text
   - type: textarea
     id: references
     attributes:

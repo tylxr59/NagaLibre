@@ -213,6 +213,9 @@ class Window(QMainWindow):
         self.restore_button.clicked.connect(self.restore_backup)
         storage_row.addWidget(self.restore_button)
         layout.addLayout(storage_row)
+        self.slot_summary = QLabel("Slot capacity: unread")
+        self.slot_summary.setWordWrap(True)
+        layout.addWidget(self.slot_summary)
         self.memory_hint = QLabel("Each tile shows the stored mouse binding and your local draft separately. Save writes all 12 draft bindings to the selected slot. Macro sequences require software mode.")
         self.memory_hint.setWordWrap(True)
         layout.addWidget(self.memory_hint)
@@ -430,7 +433,7 @@ class Window(QMainWindow):
 
     def update_storage_view(self):
         hardware = self.is_hardware()
-        for widget in (self.slots, self.read_button, self.restore_button, self.memory_hint):
+        for widget in (self.slots, self.slot_summary, self.read_button, self.restore_button, self.memory_hint):
             widget.setVisible(hardware)
         self.learn_button.setEnabled(not hardware)
         self.apply_button.setText("Save 12 bindings to mouse" if hardware else "Apply bindings")
@@ -594,6 +597,12 @@ class Window(QMainWindow):
     def refresh_hardware_view(self, *args):
         hardware = self.is_hardware()
         snapshot = self.current_snapshot()
+        if self.snapshot is None:
+            self.slot_summary.setText("Slot capacity: unread")
+        elif self.snapshot.get("slot_capacity") is not None:
+            self.slot_summary.setText(f"{len(self.snapshot['slots'])} of {self.snapshot['slot_capacity']} slots initialized · creating slots is not supported yet.")
+        else:
+            self.slot_summary.setText(f"{len(self.snapshot['slots'])} slots initialized · total capacity unavailable from this read.")
         self.apply_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
         self.reset_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
         self.plate.setEnabled(not self.hardware_busy and self.plate_detection in ("offline", "unavailable", "manual") and len(self.device_model["plates"]) > 1)
@@ -732,8 +741,15 @@ class Window(QMainWindow):
             self.snapshot = message["snapshot"]
             snapshot = self.snapshot
             self.slots.clear()
-            for slot in snapshot["slots"]:
-                self.slots.addItem(f"Slot {slot}" + (" · active" if slot == snapshot["active"] else ""), slot)
+            capacity = snapshot.get("slot_capacity")
+            for slot in range(1, capacity + 1) if capacity is not None else snapshot["slots"]:
+                initialized = slot in snapshot["slots"]
+                suffix = " · uninitialized" if not initialized else (" · active" if slot == snapshot["active"] else "")
+                self.slots.addItem(f"Slot {slot}{suffix}", slot)
+                item = self.slots.model().item(self.slots.count() - 1)
+                item.setEnabled(initialized)
+                if not initialized:
+                    item.setToolTip("The device reports this capacity, but the slot is not initialized. Slot creation is not supported yet.")
             self.slots.setCurrentIndex(self.slots.findData(snapshot["slot"]))
             self.set_hardware_busy(False)
             records = ", ".join(f"{b['button']}:{b['category']:02x}/" + bytes(b['data']).hex() for b in snapshot['buttons'])

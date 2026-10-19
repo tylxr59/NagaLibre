@@ -74,11 +74,22 @@ pub struct Snapshot {
     pub format: u8,
     pub device: Identity,
     pub slots: Vec<u8>,
+    /// Reported capacity, independent of the initialized slot list. Old backups
+    /// omit this field; absence must not be interpreted as a guessed capacity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot_capacity: Option<u8>,
     pub active: u8,
     pub slot: u8,
     pub mode: Vec<u8>,
     pub primary: Vec<Button>,
     pub buttons: Vec<Button>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SlotInventory {
+    pub capacity: u8,
+    pub initialized: Vec<u8>,
+    pub active: u8,
 }
 
 pub trait Transport {
@@ -211,10 +222,10 @@ impl<T: Transport> Mouse<T> {
         Ok(bytes)
     }
 
-    fn get_slots(&mut self) -> Result<Vec<u8>> {
+    pub fn slot_inventory(&mut self) -> Result<SlotInventory> {
         let bytes = self.transport.exchange(5, 0x81, &[0; 6], 0)?;
         ensure!(
-            !bytes.is_empty() && bytes[0] <= 5 && bytes.len() <= 1 + usize::from(bytes[0]),
+            !bytes.is_empty() && (1..=5).contains(&bytes[0]) && bytes.len() <= 6,
             "Unsupported onboard profile inventory: {} bytes, payload {:02x?}. No settings were changed. Run onboard-probe and share its output.",
             bytes.len(),
             bytes
@@ -227,16 +238,19 @@ impl<T: Transport> Mouse<T> {
             .copied()
             .filter(|slot| *slot != 0)
             .collect();
-        ensure!(
-            !slots.is_empty(),
-            "No initialized onboard profiles found. Profile creation is not supported yet; no changes were made."
-        );
         let mut seen = BTreeSet::new();
         for slot in &slots {
             slot_valid(*slot)?;
+            ensure!(*slot <= bytes[0], "Onboard slot exceeds reported capacity");
             ensure!(seen.insert(*slot), "Duplicate onboard slot");
         }
-        Ok(slots)
+        let active = self.get_active()?;
+        ensure!(active <= bytes[0], "Active slot exceeds reported capacity");
+        Ok(SlotInventory {
+            capacity: bytes[0],
+            initialized: slots,
+            active,
+        })
     }
 
     fn get_active(&mut self) -> Result<u8> {
@@ -314,8 +328,13 @@ impl<T: Transport> Mouse<T> {
             "Mouse did not return a serial number; refusing persistent writes without device identity"
         );
         let mode = self.get_mode()?;
-        let slots = self.get_slots()?;
-        let active = self.get_active()?;
+        let inventory = self.slot_inventory()?;
+        let slots = inventory.initialized;
+        let active = inventory.active;
+        ensure!(
+            !slots.is_empty(),
+            "No initialized onboard profiles found. Profile creation is not supported yet; no changes were made."
+        );
         let slot = slot.unwrap_or_else(|| {
             if slots.contains(&active) {
                 active
@@ -336,6 +355,7 @@ impl<T: Transport> Mouse<T> {
             format: 1,
             device,
             slots,
+            slot_capacity: Some(inventory.capacity),
             active,
             slot,
             mode,
@@ -466,6 +486,7 @@ mod tests {
         inventory: Vec<u8>,
         wire_writes: Vec<(u8, [u8; 7])>,
         reencode_once: bool,
+        requests: Vec<(u8, u8)>,
     }
     impl Fake {
         fn new() -> Self {
@@ -490,6 +511,7 @@ mod tests {
                 inventory: vec![5, 1, 2, 0, 0, 0],
                 wire_writes: vec![],
                 reencode_once: false,
+                requests: Vec::new(),
             }
         }
 
@@ -530,6 +552,7 @@ mod tests {
             }
         }
         fn exchange(&mut self, class: u8, cmd: u8, p: &[u8], _: usize) -> Result<Vec<u8>> {
+            self.requests.push((class, cmd));
             Ok(match (class, cmd) {
                 (0, 0x82) => {
                     let mut s = vec![0; 22];
@@ -794,10 +817,65 @@ mod tests {
         };
         mouse.transport.inventory = vec![5, 1, 2];
         let snapshot = mouse.read(None).unwrap();
+        assert_eq!(snapshot.slot_capacity, Some(5));
         assert_eq!(snapshot.slots, vec![1, 2]);
         assert_eq!(snapshot.slot, 1);
         assert_eq!(mouse.read(Some(2)).unwrap().slot, 2);
         assert!(mouse.read(Some(3)).is_err());
+        assert!(mouse.transport.writes.is_empty());
+    }
+
+    #[test]
+    fn slot_inventory_reports_capacity_separately_and_only_uses_getters() {
+        for (payload, capacity, initialized, active) in [
+            (vec![5, 1, 2], 5, vec![1, 2], 1),
+            (vec![5, 1, 4, 0, 0, 0], 5, vec![1, 4], 4),
+            (vec![2, 1, 2], 2, vec![1, 2], 2),
+            (vec![1, 1, 0, 0, 0, 0], 1, vec![1], 1),
+            (vec![3, 0, 0, 0, 0, 0], 3, vec![], 0),
+        ] {
+            let mut mouse = Mouse {
+                transport: Fake::new(),
+            };
+            mouse.transport.inventory = payload;
+            mouse.transport.active = active;
+            assert_eq!(
+                mouse.slot_inventory().unwrap(),
+                SlotInventory {
+                    capacity,
+                    initialized,
+                    active
+                }
+            );
+            assert_eq!(mouse.transport.requests, vec![(5, 0x81), (5, 0x84)]);
+            assert!(mouse.transport.writes.is_empty());
+        }
+        for payload in [vec![2, 3], vec![5, 1, 0, 0, 0, 0, 0]] {
+            let mut mouse = Mouse {
+                transport: Fake::new(),
+            };
+            mouse.transport.inventory = payload;
+            assert!(mouse.slot_inventory().is_err());
+        }
+    }
+
+    #[test]
+    fn capacity_changes_invalidate_saves_and_legacy_backups_still_restore() {
+        let mut mouse = Mouse {
+            transport: Fake::new(),
+        };
+        let before = mouse.read(None).unwrap();
+        mouse.transport.inventory = vec![4, 1, 2];
+        assert!(mouse.prepare(&before, before.buttons.clone()).is_err());
+        assert!(mouse.transport.writes.is_empty());
+        mouse.transport.inventory = vec![5, 1, 2];
+        let mut legacy = serde_json::to_value(&before).unwrap();
+        legacy.as_object_mut().unwrap().remove("slot_capacity");
+        let legacy: Snapshot = serde_json::from_value(legacy).unwrap();
+        assert_eq!(legacy.slot_capacity, None);
+        let plan = mouse.prepare_restore(legacy).unwrap();
+        let after = mouse.commit(plan).unwrap();
+        assert_eq!(after.slot_capacity, Some(5));
         assert!(mouse.transport.writes.is_empty());
     }
 
