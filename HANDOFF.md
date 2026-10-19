@@ -12,7 +12,23 @@ DKMID_DKMKEY_SB03 = 82. The native input dispatch at RVA 0x67790 sends 82 to
 0x67809 -> 0x60. DPI action category 6/data [6] decodes at 0x55084 to abstract
 action 11, mapped through table 0x6003c to 0x5f6a1 (DPI/CycleUp). The default
 cycles the existing DPI stage table; no stage values, primary clicks or sensor
-configuration are written. Read/write/output for this new ID remains unverified.
+configuration are written. The fresh control-16 trial preparation read category
+6/data [6] from both initialized wired slots (1 and 2), with slot 1 active and
+the twelve-button plate attached. The user ran the sudo preparation; the private
+plan checksum and unchanged engine were independently checked. The plan remains
+prepared without settings writes. The user confirmed that pressing the DPI
+button cycles pointer sensitivity through different speeds and back to the
+starting speed. The user then ran the apply stage and reported that it works:
+physical DPI-button output as B is confirmed. The private status is applied and
+its saved readback has category 2/data [0, 5]; the runner checked other tracked
+records and slots unchanged. The restore stage subsequently completed: plan
+integrity was checked, status is restored, and the saved final snapshot matches
+the original exactly (excluding the transient device path), including DPI category
+6/data [6]. The runner also checked other initialized slots unchanged. The user
+confirmed physical DPI cycling works again after restoration. Reconnect persistence
+and primary-click behavior were not separately reported for this trial.
+This mapping backup does not read DPI stage values,
+so it cannot establish that the stage table is unchanged.
 
 Per-device `defaults` now live in devices/models.json: plate trigger keys and
 verified onboard bindings, extra-control labels/IDs/addresses/default actions.

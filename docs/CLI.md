@@ -89,8 +89,8 @@ Only explicit edits are sent; omitted controls retain exact stored records.
 Backups include raw records for these controls. Older snapshots without the field
 still restore their grid bindings while preserving the current wheel controls.
 Wheel/scroll-mode getters have succeeded on the user's wired mouse, and a left
-tilt remap to B was physically confirmed. Other control writes/output and DPI
-readback remain unverified.
+tilt remap to B was physically confirmed. The DPI getter returned category 6/data
+[6] from wired slots 1 and 2. Other control writes/output remain unverified.
 
 The desktop Restore defaults button stages grid defaults and factory control
 actions in the local draft, without sending hardware commands. Saving uses the
@@ -101,8 +101,12 @@ firmware actions remain unsupported. Keep stored binding continues to omit that
 control from the save request. Restoring an old hardware backup remains separate.
 Defaults and control IDs come from `devices/models.json`; three-control local
 drafts migrate by preserving their edits and appending a pass-through DPI control.
-The DPI button has not yet had live read/write/output verification. It uses the
-existing DPI stages and does not change their values.
+The user confirmed physical DPI cycling with the stored factory binding;
+DPI remapping to B and cycling after exact mapping restoration were also
+physically confirmed on the wired mouse.
+Its binding uses the
+existing DPI stages; the mapping writer does not edit their values. Mapping
+snapshots do not include the DPI stage table.
 
 The GUI automatically selects the corresponding draft and stops remapping on
 a change; Apply rechecks the module ID before starting software bindings.

@@ -27,8 +27,11 @@ Implementation does not imply every hardware path is verified.
 
 ## 1. Finish existing controls and slot verification
 
-- [ ] Read and physically verify the DPI-cycle button (logical 16, wire 0x60).
-      Confirm it cycles existing DPI stages without changing their values.
+- [x] Read and physically verify the DPI-cycle button (logical 16, wire 0x60).
+      Wired slots 1/2 read category 6/data [6]. User confirmed physical sensitivity
+      cycling, remapping to B, and cycling again after exact mapping restoration.
+      Other tracked records/slots checked unchanged; DPI stage values themselves
+      were not read, so unchanged stage-table values remain unverified.
 - [ ] Verify factory horizontal tilt actions on both sides, right-tilt remapping,
       and the scroll-mode button. Left tilt -> B was physically confirmed and
       exact original records were restored; other physical behavior is pending.
