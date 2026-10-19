@@ -1,4 +1,4 @@
-"""Approval and one-shot gates for the hardware trial (no mouse access)."""
+"""Integrity and one-shot gates for the hardware trial (no mouse access)."""
 import importlib.util
 import json
 from pathlib import Path
@@ -33,22 +33,20 @@ class SlotTrialTests(unittest.TestCase):
             manifest = json.loads((directory / "manifest.json").read_text())
             self.assertEqual(manifest["status"], "prepared")
 
-    def test_invalid_approval_changed_engine_and_repeat_never_launch(self):
-        for case in ("approval", "engine", "repeat", "plan", "runner"):
+    def test_changed_plan_engine_runner_and_repeat_never_launch(self):
+        for case in ("engine", "repeat", "plan", "runner"):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
                 base = Path(temporary)
                 engine = base / "engine"
                 engine.write_bytes(b"engine")
                 plan = base / "plan.json"
                 trial.durable(plan, {"format": 1, "target": 3, "snapshots": []})
-                approval = trial.digest(plan)
+                plan_hash = trial.digest(plan)
                 manifest = {"status": "prepared", "engine": str(engine),
                             "engine_sha256": trial.digest(engine),
                             "runner_sha256": trial.digest(Path(trial.__file__)),
-                            "plan_sha256": approval}
-                if case == "approval":
-                    approval = None
-                elif case == "engine":
+                            "plan_sha256": plan_hash}
+                if case == "engine":
                     engine.write_bytes(b"changed")
                 elif case == "repeat":
                     manifest["status"] = "attempted"
@@ -59,7 +57,7 @@ class SlotTrialTests(unittest.TestCase):
                 trial.durable(base / "manifest.json", manifest)
                 with patch.object(trial.subprocess, "run") as launch:
                     with self.assertRaises(ValueError):
-                        trial.run(base, approval)
+                        trial.run(base)
                     launch.assert_not_called()
 
 

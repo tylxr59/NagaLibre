@@ -1,4 +1,4 @@
-//! Naga V2 Pro hardware profiles. Only the twelve thumb-grid records are writable.
+//! Naga V2 Pro profiles. Writers allow only the grid and explicit auxiliary controls.
 pub mod activation;
 pub mod creation;
 pub mod hidraw;
@@ -86,6 +86,22 @@ pub struct Snapshot {
     pub mode: Vec<u8>,
     pub primary: Vec<Button>,
     pub buttons: Vec<Button>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub controls: Vec<Button>,
+}
+
+// Logical positions 13..15 are separate from the interchangeable thumb grid.
+fn control_id(button: u8) -> Result<u8> {
+    match button {
+        1..=12 => Ok(0x3f + button),
+        13..=16 => crate::devices::naga_defaults()
+            .controls
+            .iter()
+            .find(|c| c.button == button && [0x34, 0x35, 0x6d, 0x60].contains(&c.wire_id))
+            .map(|c| c.wire_id)
+            .ok_or_else(|| anyhow::anyhow!("Unrecognized auxiliary control")),
+        _ => bail!("Only grid and registered auxiliary controls can be written"),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -147,16 +163,22 @@ pub fn validate_buttons(buttons: &[Button]) -> Result<()> {
             (1..=12).contains(&button.button) && seen.insert(button.button),
             "Invalid or duplicate physical side-button number"
         );
-        match (button.category, button.data.as_slice()) {
-            (0, []) => {}
-            (1, [mouse]) if (1..=5).contains(mouse) => {}
-            (2, [modifiers, usage])
-                if (4..=0xa4).contains(usage) || (*usage == 0 && *modifiers != 0) => {}
-            _ => bail!(
-                "Unsupported onboard action for button {}; use a key or shortcut",
-                button.button
-            ),
-        }
+        validate_action(button)?;
+    }
+    Ok(())
+}
+
+fn validate_action(button: &Button) -> Result<()> {
+    button.record()?;
+    match (button.category, button.data.as_slice()) {
+        (0, []) => {}
+        (1, [mouse]) if (1..=5).contains(mouse) => {}
+        (2, [modifiers, usage])
+            if (4..=0xa4).contains(usage) || (*usage == 0 && *modifiers != 0) => {}
+        _ => bail!(
+            "Unsupported onboard action for button {}; use a key or shortcut",
+            button.button
+        ),
     }
     Ok(())
 }
@@ -205,6 +227,16 @@ impl<T: Transport> Mouse<T> {
                 "Invalid side-button backup record"
             );
         }
+        let mut desired = backup.buttons.clone();
+        let mut controls = BTreeSet::new();
+        for b in &backup.controls {
+            ensure!(
+                (13..=16).contains(&b.button) && controls.insert(b.button),
+                "Invalid control backup"
+            );
+            b.record()?;
+            desired.push(b.clone());
+        }
         let fresh = self.read(Some(backup.slot))?;
         ensure!(
             !backup.device.serial.is_empty()
@@ -215,7 +247,7 @@ impl<T: Transport> Mouse<T> {
         Self::writable_snapshot(&fresh)?;
         Ok(Prepared {
             before: fresh,
-            desired: backup.buttons,
+            desired,
             verification: Verification::Wire,
         })
     }
@@ -280,13 +312,10 @@ impl<T: Transport> Mouse<T> {
     fn set_button(&mut self, slot: u8, button: &Button, verification: Verification) -> Result<()> {
         // This is the only mapping writer: no caller can address primary clicks.
         slot_valid(slot)?;
-        ensure!(
-            (1..=12).contains(&button.button) && button.data.len() <= 5,
-            "Only thumb-grid records can be written"
-        );
+        ensure!(button.data.len() <= 5, "Button action too long");
         let mut payload = [0; 10];
         payload[0] = slot;
-        payload[1] = 0x3f + button.button;
+        payload[1] = control_id(button.button)?;
         payload[3..10].copy_from_slice(&button.record()?);
         self.transport.exchange(2, 0x0c, &payload, 0)?;
         let actual = self.get_button(slot, payload[1], button.button)?;
@@ -354,6 +383,11 @@ impl<T: Transport> Mouse<T> {
         let buttons = (1..=12)
             .map(|n| self.get_button(slot, 0x3f + n, n))
             .collect::<Result<Vec<_>>>()?;
+        let controls = crate::devices::naga_defaults()
+            .controls
+            .iter()
+            .map(|c| self.get_button(slot, control_id(c.button)?, c.button))
+            .collect::<Result<Vec<_>>>()?;
         Ok(Snapshot {
             format: 1,
             device,
@@ -364,6 +398,7 @@ impl<T: Transport> Mouse<T> {
             mode,
             primary,
             buttons,
+            controls,
         })
     }
 
@@ -390,6 +425,46 @@ impl<T: Transport> Mouse<T> {
         })
     }
 
+    pub fn prepare_controls(
+        &mut self,
+        before: &Snapshot,
+        desired: Vec<Button>,
+        controls: Vec<Button>,
+    ) -> Result<Prepared> {
+        let mut seen = BTreeSet::new();
+        for button in &controls {
+            ensure!(
+                (13..=16).contains(&button.button) && seen.insert(button.button),
+                "Invalid or duplicate wheel control"
+            );
+            // Device167 factory control functions are accepted only at their
+            // explicitly mapped physical positions, not as arbitrary actions.
+            let factory = crate::devices::naga_defaults().controls.iter().any(|c| {
+                c.button == button.button
+                    && c.binding.category == button.category
+                    && c.binding.data == button.data
+            });
+            if factory {
+                button.record()?;
+            } else {
+                validate_action(button)?;
+            }
+        }
+        let mut plan = self.prepare(before, desired)?;
+        for mut button in controls {
+            let original = before
+                .controls
+                .iter()
+                .find(|b| b.button == button.button)
+                .ok_or_else(|| anyhow::anyhow!("Read wheel controls before saving"))?;
+            if original.same_action(&button) {
+                button = original.clone();
+            }
+            plan.desired.push(button);
+        }
+        Ok(plan)
+    }
+
     /// Called only after the GUI has durably saved the prepared backup and acknowledged it.
     pub fn commit(&mut self, prepared: Prepared) -> Result<Snapshot> {
         let before = prepared.before;
@@ -406,6 +481,7 @@ impl<T: Transport> Mouse<T> {
                 let original = before
                     .buttons
                     .iter()
+                    .chain(before.controls.iter())
                     .find(|b| b.button == button.button)
                     .unwrap();
                 if !prepared.verification.matches(original, button)? {
@@ -427,11 +503,13 @@ impl<T: Transport> Mouse<T> {
                 let original = before
                     .buttons
                     .iter()
+                    .chain(before.controls.iter())
                     .find(|b| b.button == desired.button)
                     .unwrap();
                 let actual = after
                     .buttons
                     .iter()
+                    .chain(after.controls.iter())
                     .find(|b| b.button == desired.button)
                     .unwrap();
                 // Changed GUI actions may be encoded differently by firmware.
@@ -445,6 +523,14 @@ impl<T: Transport> Mouse<T> {
                     verification.matches(actual, desired)?,
                     "Final button read-back mismatch"
                 );
+            }
+            for original in &before.controls {
+                if !prepared.desired.iter().any(|b| b.button == original.button) {
+                    ensure!(
+                        after.controls.iter().any(|b| b == original),
+                        "Untouched wheel control changed"
+                    );
+                }
             }
             Ok(after)
         })();
@@ -482,6 +568,7 @@ mod tests {
 
     struct Fake {
         buttons: BTreeMap<u8, Button>,
+        controls: BTreeMap<u8, Button>,
         writes: Vec<u8>,
         fail_once: Option<u8>,
         mode: Vec<u8>,
@@ -500,6 +587,20 @@ mod tests {
     impl Fake {
         fn new() -> Self {
             Self {
+                controls: [(13, 0x34), (14, 0x35), (15, 0x6d), (16, 0x60)]
+                    .into_iter()
+                    .map(|(button, id)| {
+                        (
+                            id,
+                            Button {
+                                button,
+                                category: 0,
+                                data: vec![],
+                                raw_record: None,
+                            },
+                        )
+                    })
+                    .collect(),
                 buttons: (1..=12)
                     .map(|n| {
                         (
@@ -624,6 +725,8 @@ mod tests {
                             data: vec![p[1]],
                             raw_record: None,
                         }
+                    } else if let Some(control) = self.controls.get(&p[1]) {
+                        control.clone()
                     } else {
                         self.buttons[&p[1]].clone()
                     };
@@ -632,7 +735,10 @@ mod tests {
                     r
                 }
                 (2, 0x0c) => {
-                    assert!((0x40..=0x4b).contains(&p[1]), "primary write attempted");
+                    assert!(
+                        (0x40..=0x4b).contains(&p[1]) || [0x34, 0x35, 0x6d, 0x60].contains(&p[1]),
+                        "primary write attempted"
+                    );
                     self.writes.push(p[1]);
                     let mut record: [u8; 7] = p[3..10].try_into().unwrap();
                     self.wire_writes.push((p[1], record));
@@ -640,8 +746,12 @@ mod tests {
                         self.reencode_once = false;
                         record[1] = 1;
                     }
-                    self.buttons
-                        .insert(p[1], Button::from_record(p[1] - 0x3f, record)?);
+                    if let Some(control) = self.controls.get_mut(&p[1]) {
+                        *control = Button::from_record(control.button, record)?;
+                    } else {
+                        self.buttons
+                            .insert(p[1], Button::from_record(p[1] - 0x3f, record)?);
+                    }
                     if self.fail_once == Some(p[1]) {
                         self.fail_once = None;
                         bail!("Injected failure after device accepted write");
@@ -837,6 +947,240 @@ mod tests {
                 2
             );
         }
+    }
+
+    #[test]
+    fn captured_wheel_controls_survive_grid_save_and_explicit_backup_restore() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        for (button, id, category, data) in [(13, 0x34, 1, 4), (14, 0x35, 1, 5), (15, 0x6d, 18, 4)]
+        {
+            mouse.transport.controls.insert(
+                id,
+                Button {
+                    button,
+                    category,
+                    data: vec![data],
+                    raw_record: None,
+                },
+            );
+        }
+        let before = mouse.read(None).unwrap();
+        let mut grid = before.buttons.clone();
+        grid[0] = Button {
+            button: 1,
+            category: 2,
+            data: vec![0, 5],
+            raw_record: None,
+        };
+        let plan = mouse.prepare_controls(&before, grid, vec![]).unwrap();
+        assert_eq!(mouse.commit(plan).unwrap().controls, before.controls);
+        assert_eq!(mouse.transport.writes, vec![0x40]);
+        // Restore the actual captured firmware action without treating its
+        // unimplemented category as a user-editable action.
+        mouse.transport.controls.get_mut(&0x6d).unwrap().category = 0;
+        mouse
+            .transport
+            .controls
+            .get_mut(&0x6d)
+            .unwrap()
+            .data
+            .clear();
+        let plan = mouse.prepare_restore(before.clone()).unwrap();
+        assert_eq!(mouse.commit(plan).unwrap().controls, before.controls);
+        assert_eq!(
+            mouse.transport.controls[&0x6d].record().unwrap(),
+            [18, 1, 4, 0, 0, 0, 0]
+        );
+    }
+
+    #[test]
+    fn wheel_controls_have_explicit_addresses_and_preserve_other_records() {
+        for (button, id) in [(13, 0x34), (14, 0x35), (15, 0x6d)] {
+            let mut mouse = Mouse {
+                transport: Fake::captured_factory(),
+            };
+            let before = mouse.read(None).unwrap();
+            let desired = Button {
+                button,
+                category: 2,
+                data: vec![0, 5],
+                raw_record: None,
+            };
+            let plan = mouse
+                .prepare_controls(&before, before.buttons.clone(), vec![desired.clone()])
+                .unwrap();
+            let after = mouse.commit(plan).unwrap();
+            assert_eq!(mouse.transport.writes, vec![id]);
+            assert_eq!(after.buttons, before.buttons);
+            assert_eq!(after.primary, before.primary);
+            assert_eq!(
+                after.controls.iter().find(|b| b.button == button).unwrap(),
+                &desired
+            );
+            for original in before.controls.iter().filter(|b| b.button != button) {
+                assert!(after.controls.contains(original));
+            }
+        }
+        for button in [0, 17, 0x34, 0xff] {
+            assert!(control_id(button).is_err());
+        }
+    }
+
+    #[test]
+    fn lost_wheel_write_ack_restores_unknown_raw_control_record_exactly() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let raw = [0x91, 1, 2, 3, 4, 5, 6];
+        mouse
+            .transport
+            .controls
+            .insert(0x6d, Button::from_record(15, raw).unwrap());
+        let before = mouse.read(None).unwrap();
+        let desired = Button {
+            button: 15,
+            category: 2,
+            data: vec![0, 5],
+            raw_record: None,
+        };
+        let plan = mouse
+            .prepare_controls(&before, before.buttons.clone(), vec![desired])
+            .unwrap();
+        mouse.transport.fail_once = Some(0x6d);
+        assert!(mouse.commit(plan).is_err());
+        assert_eq!(mouse.read(None).unwrap(), before);
+        assert_eq!(mouse.transport.writes, vec![0x6d, 0x6d]);
+        assert_eq!(mouse.transport.wire_writes.last().unwrap().1, raw);
+    }
+
+    #[test]
+    fn legacy_backups_preserve_controls_and_new_backups_restore_them() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let backup = mouse.read(None).unwrap();
+        let mut legacy = serde_json::to_value(&backup).unwrap();
+        legacy.as_object_mut().unwrap().remove("controls");
+        let legacy: Snapshot = serde_json::from_value(legacy).unwrap();
+        mouse.transport.controls.get_mut(&0x34).unwrap().category = 0x90;
+        let changed = mouse.read(None).unwrap().controls;
+        let plan = mouse.prepare_restore(legacy).unwrap();
+        assert_eq!(mouse.commit(plan).unwrap().controls, changed);
+        let plan = mouse.prepare_restore(backup.clone()).unwrap();
+        assert_eq!(mouse.commit(plan).unwrap().controls, backup.controls);
+    }
+
+    #[test]
+    fn factory_control_presets_are_scoped_and_rollback_restores_originals() {
+        let defaults: Vec<_> = [(13, 1, 0x68), (14, 1, 0x69), (15, 18, 4), (16, 6, 6)]
+            .into_iter()
+            .map(|(button, category, data)| Button {
+                button,
+                category,
+                data: vec![data],
+                raw_record: None,
+            })
+            .collect();
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let before = mouse.read(None).unwrap();
+        let plan = mouse
+            .prepare_controls(&before, before.buttons.clone(), defaults.clone())
+            .unwrap();
+        mouse.transport.fail_once = Some(0x6d);
+        assert!(mouse.commit(plan).is_err());
+        assert_eq!(mouse.read(None).unwrap(), before);
+        mouse.transport.writes.clear();
+        let plan = mouse
+            .prepare_controls(&before, before.buttons.clone(), defaults)
+            .unwrap();
+        let after = mouse.commit(plan).unwrap();
+        assert_eq!(
+            after
+                .controls
+                .iter()
+                .map(|b| (b.category, b.data.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, vec![0x68]),
+                (1, vec![0x69]),
+                (18, vec![4]),
+                (6, vec![6])
+            ]
+        );
+        assert_eq!(mouse.transport.writes, vec![0x34, 0x35, 0x6d, 0x60]);
+        for (button, category, data) in [
+            (13, 18, 4),
+            (15, 18, 5),
+            (14, 1, 0x68),
+            (13, 1, 9),
+            (14, 1, 10),
+            (16, 6, 7),
+            (13, 6, 6),
+        ] {
+            let bad = Button {
+                button,
+                category,
+                data: vec![data],
+                raw_record: None,
+            };
+            assert!(
+                mouse
+                    .prepare_controls(&after, after.buttons.clone(), vec![bad])
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn dpi_button_changes_only_its_record_and_legacy_backups_preserve_it() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let raw = [0x90, 1, 7, 8, 9, 10, 11];
+        mouse
+            .transport
+            .controls
+            .insert(0x60, Button::from_record(16, raw).unwrap());
+        let before = mouse.read(None).unwrap();
+        let key = Button {
+            button: 16,
+            category: 2,
+            data: vec![0, 5],
+            raw_record: None,
+        };
+        let plan = mouse
+            .prepare_controls(&before, before.buttons.clone(), vec![key.clone()])
+            .unwrap();
+        mouse.transport.fail_once = Some(0x60);
+        assert!(mouse.commit(plan).is_err());
+        assert_eq!(mouse.read(None).unwrap(), before);
+        mouse.transport.writes.clear();
+        let plan = mouse
+            .prepare_controls(&before, before.buttons.clone(), vec![key.clone()])
+            .unwrap();
+        let after = mouse.commit(plan).unwrap();
+        assert_eq!(mouse.transport.writes, vec![0x60]);
+        assert_eq!(after.controls.last().unwrap(), &key);
+        assert_eq!(after.controls[..3], before.controls[..3]);
+        assert_eq!(after.primary, before.primary);
+        assert_eq!(after.buttons, before.buttons);
+        let mut legacy = before.clone();
+        legacy.controls.retain(|c| c.button != 16);
+        let plan = mouse.prepare_restore(legacy).unwrap();
+        assert_eq!(mouse.commit(plan).unwrap().controls.last().unwrap(), &key);
+        let plan = mouse.prepare_restore(before.clone()).unwrap();
+        assert_eq!(mouse.commit(plan).unwrap(), before);
+        assert!(
+            !mouse
+                .transport
+                .requests
+                .iter()
+                .any(|(class, cmd)| *class == 4 && *cmd < 0x80)
+        );
     }
 
     fn trial_plan(mouse: &mut Mouse<Fake>) -> slot_trial::Plan {

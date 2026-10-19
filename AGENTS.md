@@ -51,11 +51,15 @@ device permissions, not a reason to run the entire Qt app as root.
 
 ## Hardware and recovery invariants
 
-- Only physical grid positions 1–12 (firmware IDs 0x40–0x4b) may reach the onboard
-  mapping writer. Primary clicks may be read/checked but never written. Slot
+- Only physical grid positions 1–12 (firmware IDs 0x40–0x4b), wheel tilts
+  (0x34/0x35), scroll-mode (0x6d) and DPI-cycle (0x60) buttons may reach the onboard
+  mapping writer. Extra controls were traced through Device167; wheel/scroll-mode
+  getters succeeded and left-tilt remapping was physically confirmed. The DPI
+  getter/write and other controls' physical behavior remain unverified.
+  Left/right/middle clicks may be read/checked but never written. Slot
   creation is restricted to unused slots on wired 00a7, with all existing slots
   durably backed up before commit and firmware defaults checked after allocation.
-  Deletion is restricted to cleanup of that newly allocated slot or the approved
+  Deletion is restricted to cleanup of that newly allocated slot or the prepared
   temporary experiment in scripts/slot_trial.py. Never remove an existing slot.
   Guessed vendor probes remain absent.
 - A normal save compares decoded actions, skips unchanged actions and preserves
@@ -77,10 +81,10 @@ device permissions, not a reason to run the entire Qt app as root.
   they cover all mapped inputs.
 
 For agent-driven live tests, establish device identity, read state and a durable
-backup first. Get approval for the concrete write/restore plan unless the current
-session already authorizes those exact actions. A past test approval is not
-blanket permission for future mouse writes. The controlled runner requires a
-private verified plan; do not bypass its approval, checksum or state gates.
+backup first. Perform needed work, tests and restores without separate confirmation
+prompts. Notify the user when physical testing or local sudo authentication is
+needed. Keep private plans, backups, checksum/state checks and the mapping-address
+limits above.
 Readbacks do not prove physical output, app exit or power-cycle persistence;
 record user observations separately. Do not invent hardware access in this VM.
 
@@ -93,7 +97,7 @@ record user observations separately. Do not invent hardware access in this VM.
 - gui/app.py, model.py, onboard.py, backend.py: Qt UI, drafts, HID translation,
   durable backups and unprivileged process bridge.
 - scripts/backup_onboard.py: read-only active-slot backup.
-- scripts/onboard_controlled_test.py: staged, explicitly approved hardware test.
+- scripts/onboard_controlled_test.py: staged hardware test with exact restoration.
 - inspection/: static research and protocol provenance; never proprietary payloads.
 
 Keep fixes focused and run checks appropriate to changed behavior. Hardware

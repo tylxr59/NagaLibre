@@ -18,12 +18,12 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QKeySequenceEdit, QFileDialog,
 )
 
-from onboard import hardware_buttons, write_backup, write_creation_backup, stored_label
+from onboard import hardware_buttons, hardware_controls, write_backup, write_creation_backup, stored_label, FACTORY_CONTROL_LABELS
 from backend import Backend, backend_path
 from support import device_issue_url
 from model import (
     binding_label, config_path, default_button, display_key, key_code, load_profile,
-    new_profile, reset_plate, runtime_config, save_profile, shortcut, PROTECTED_INPUTS, DEVICE_MODELS,
+    new_profile, reset_plate, runtime_config, save_profile, shortcut, PROTECTED_INPUTS, DEVICE_MODELS, CONTROL_NAMES, default_control,
 )
 
 
@@ -224,11 +224,11 @@ class Window(QMainWindow):
         self.slot_summary = QLabel("Slot capacity: unread")
         self.slot_summary.setWordWrap(True)
         layout.addWidget(self.slot_summary)
-        self.memory_hint = QLabel("Each tile shows the stored mouse binding and your local draft separately. Save writes all 12 draft bindings to the selected slot. Macro sequences require software mode.")
+        self.memory_hint = QLabel("Each tile shows the stored binding and local draft. Save applies the 12 side-button drafts and explicitly edited wheel controls. Keep stored binding preserves a wheel control. Onboard macro sequences are unsupported.")
         self.memory_hint.setWordWrap(True)
         layout.addWidget(self.memory_hint)
         columns = QHBoxLayout()
-        left = QGroupBox("Side buttons")
+        left = QGroupBox("Mouse buttons")
         left_layout = QVBoxLayout(left)
         self.plate = QComboBox()
         for p in ("12", "6", "2"):
@@ -277,6 +277,7 @@ class Window(QMainWindow):
         edit_layout.addLayout(form)
         self.stack = QStackedWidget()
         default_page = QLabel("Mouse memory: restore this position’s factory key. Software: pass the current input through.")
+        self.default_page = default_page
         default_page.setWordWrap(True)
         self.stack.addWidget(default_page)
         key_page = QWidget()
@@ -308,6 +309,10 @@ class Window(QMainWindow):
         macro_button.clicked.connect(self.edit_macro)
         macro_layout.addWidget(macro_button)
         self.stack.addWidget(macro_page)
+        self.mode.addItem("Factory default", "factory")
+        factory_page = QLabel("Restore this control's default function. Click Save bindings to mouse to apply.")
+        factory_page.setWordWrap(True)
+        self.stack.addWidget(factory_page)
         edit_layout.addWidget(self.stack)
         edit_layout.addStretch()
         per_button_reset = QPushButton("Use default for this button")
@@ -370,7 +375,14 @@ class Window(QMainWindow):
         self.learn_timer.timeout.connect(self.cancel_learning)
 
     def buttons(self):
-        return self.profile["plates"][self.profile["plate"]]
+        buttons = self.profile["plates"][self.profile["plate"]]
+        if self.is_hardware() and self.profile["plate"] == "12" and self.device_model["id"] == "naga_v2_pro":
+            if not self.profile.get("controls"):
+                self.profile["controls"] = [default_control() for _ in CONTROL_NAMES]
+            elif len(self.profile["controls"]) < len(CONTROL_NAMES):
+                self.profile["controls"].extend(default_control() for _ in range(len(CONTROL_NAMES) - len(self.profile["controls"])))
+            return buttons + self.profile["controls"]
+        return buttons
 
     def current(self):
         return self.buttons()[self.selected]
@@ -413,7 +425,7 @@ class Window(QMainWindow):
             # session pinned to a mouse that may have been replaced.
             self.backend.shutdown()
         try:
-            self.status.setText("Connecting… approve the desktop prompt for mouse access.")
+            self.status.setText("Connecting… authenticate in the desktop prompt for mouse access.")
             self.backend.start()
         except ValueError as error:
             self.fail(error)
@@ -430,6 +442,8 @@ class Window(QMainWindow):
         self.refresh_hardware_view()
 
     def storage_changed(self):
+        if hasattr(self, "editing_button"):
+            self.commit_fields()
         self.profile["storage"] = self.storage.currentData()
         self.snapshot = None
         self.hardware_saved = None
@@ -437,6 +451,9 @@ class Window(QMainWindow):
         self.cancel_learning()
         if self.backend.ready:
             self.backend.shutdown()
+        self.selected = 0
+        self.rebuild_grid()
+        self.select_button(0, commit=False)
         self.update_storage_view()
 
     def update_storage_view(self):
@@ -444,7 +461,7 @@ class Window(QMainWindow):
         for widget in (self.slots, self.slot_summary, self.read_button, self.activate_button, self.create_button, self.restore_button, self.memory_hint):
             widget.setVisible(hardware)
         self.learn_button.setEnabled(not hardware)
-        self.apply_button.setText("Save 12 bindings to mouse" if hardware else "Apply bindings")
+        self.apply_button.setText("Save bindings to mouse" if hardware else "Apply bindings")
         self.status.setText("Mouse memory · read slots, edit your draft, then save to the mouse." if hardware else "Software mode · bindings need the background helper running.")
         self.refresh_hardware_view()
 
@@ -610,7 +627,7 @@ class Window(QMainWindow):
     def commit_fields(self):
         if self.loading:
             return
-        button = self.current()
+        button = self.editing_button if hasattr(self, "editing_button") else self.current()
         button["trigger"] = self.trigger.text().strip()
         button["mode"] = self.mode.currentData()
         if button["mode"] == "key":
@@ -627,13 +644,18 @@ class Window(QMainWindow):
         snapshot = self.current_snapshot()
         if snapshot is None:
             return "unread"
-        record = next((b for b in snapshot["buttons"] if b["button"] == index + 1), None)
+        record = next((b for b in snapshot["buttons"] + snapshot.get("controls", []) if b["button"] == index + 1), None)
         return stored_label(record) if record else "unknown"
 
     def tile_text(self, index):
         draft = binding_label(self.buttons()[index])
         if self.is_hardware():
-            return f"{index + 1}\nStored: {self.stored_text(index)}\nDraft: {draft}"
+            name = CONTROL_NAMES[index - 12] if index >= 12 else str(index + 1)
+            if index >= 12 and self.buttons()[index]["mode"] == "default":
+                draft = "Keep stored binding"
+            elif index >= 12 and self.buttons()[index]["mode"] == "factory":
+                draft = FACTORY_CONTROL_LABELS[index - 12]
+            return f"{name}\nStored: {self.stored_text(index)}\nDraft: {draft}"
         return f"{index + 1}\n{draft}"
 
     def refresh_hardware_view(self, *args):
@@ -656,7 +678,7 @@ class Window(QMainWindow):
         self.create_button.setEnabled(hardware and not self.hardware_busy and self.backend.ready
                                       and self.backend.slot_creation and target is not None
                                       and self.profile["plate"] == "12" and self.detected_module == 3)
-        self.reset_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
+        self.reset_button.setEnabled(not self.hardware_busy)
         self.plate.setEnabled(not self.hardware_busy and self.plate_detection in ("offline", "unavailable", "manual") and len(self.device_model["plates"]) > 1)
         if self.plate_detection in ("pending", "unknown"):
             self.apply_button.setEnabled(False)
@@ -670,7 +692,8 @@ class Window(QMainWindow):
                 driver = " · driver mode; firmware bindings may be bypassed" if snapshot.get("mode") == [3, 0] else ""
                 self.stored_binding.setText(f"Stored in slot {snapshot['slot']} ({active}): {self.stored_text(self.selected)}{driver}")
         for i, tile in enumerate(getattr(self, "tiles", [])):
-            tile.setText(self.tile_text(i))
+            if i < len(self.buttons()):
+                tile.setText(self.tile_text(i))
 
     def rebuild_grid(self):
         while self.grid.count():
@@ -679,7 +702,7 @@ class Window(QMainWindow):
                 item.widget().deleteLater()
         self.tiles = []
         count = len(self.buttons())
-        columns = 3 if count in (6, 12) else 2
+        columns = 3 if count in (6, 12) or count > 12 else 2
         for index, button in enumerate(self.buttons()):
             tile = QPushButton(self.tile_text(index))
             tile.setMinimumHeight(64)
@@ -688,7 +711,8 @@ class Window(QMainWindow):
             tile.clicked.connect(lambda checked=False, i=index: self.select_button(i))
             self.grid.addWidget(tile, index // columns, index % columns)
             self.tiles.append(tile)
-        self.reset_button.setText("Reset 12 buttons → 1…9, 0, -, =" if count == 12 and self.device_model["verified"] else "Reset layout bindings")
+        self.reset_button.setText("Restore defaults")
+        self.reset_button.setToolTip("Restore this layout's draft defaults, including wheel and DPI button bindings. Save applies the draft to mouse memory.")
 
     def select_button(self, index, commit=True):
         if commit:
@@ -697,7 +721,11 @@ class Window(QMainWindow):
         self.selected = index
         self.loading = True
         button = self.current()
-        self.button_title.setText(f"Button {index + 1}")
+        self.editing_button = button
+        self.button_title.setText(CONTROL_NAMES[index - 12] if index >= 12 else f"Button {index + 1}")
+        self.mode.setItemText(0, "Keep stored binding" if index >= 12 else "Default / pass through")
+        self.default_page.setText("Preserve this control's currently stored binding. Choose Factory default to restore its standard function." if index >= 12 else "Mouse memory: restore this position’s factory key. Software: pass the current input through.")
+        self.mode.model().item(self.mode.findData("factory")).setEnabled(index >= 12)
         self.trigger.setText(button["trigger"])
         self.mode.setCurrentIndex(self.mode.findData(button["mode"]))
         self.stack.setCurrentIndex(self.mode.currentIndex())
@@ -806,7 +834,7 @@ class Window(QMainWindow):
             self.set_hardware_busy(False)
             records = ", ".join(f"{b['button']}:{b['category']:02x}/" + bytes(b['data']).hex() for b in snapshot['buttons'])
             self.log(f"Read slot {snapshot['slot']} · side records {records}")
-            self.status.setText(f"Read slot {snapshot['slot']} · tiles show stored bindings and local drafts separately. Save writes all 12 draft bindings and activates this slot.")
+            self.status.setText(f"Read slot {snapshot['slot']} · tiles show stored bindings and local drafts separately. Save applies your draft and activates this slot.")
             if kind == "onboard_created":
                 self.status.setText(f"Created slot {snapshot['slot']} with factory bindings · slot {snapshot['active']} remains active. Save your draft to use the new slot.")
             elif kind == "onboard_activated":
@@ -894,7 +922,10 @@ class Window(QMainWindow):
     def reset_selected(self):
         self.commit_fields()
         trigger = self.current()["trigger"]
-        self.buttons()[self.selected] = default_button(self.selected, self.profile["plate"])
+        if self.selected >= 12:
+            self.profile["controls"][self.selected - 12] = default_control(factory=True)
+        else:
+            self.profile["plates"][self.profile["plate"]][self.selected] = default_button(self.selected, self.profile["plate"], self.device_model["id"])
         if self.profile["plate"] != "12" and trigger not in PROTECTED_INPUTS:
             self.current()["trigger"] = trigger
         self.select_button(self.selected, commit=False)
@@ -940,7 +971,13 @@ class Window(QMainWindow):
                     return
                 self.set_hardware_busy(True)
                 self.status.setText("Checking current mouse state before backup…")
-                self.hardware_command({"command": "onboard_prepare", "buttons": buttons})
+                command = {"command": "onboard_prepare", "buttons": buttons}
+                controls = hardware_controls(self.profile)
+                if controls:
+                    if not self.backend.wheel_controls:
+                        raise ValueError("Rebuild the engine for wheel and scroll-mode bindings.")
+                    command["controls"] = controls
+                self.hardware_command(command)
                 return
             config = self.checked_config()
             self.persist()
@@ -979,9 +1016,14 @@ class Window(QMainWindow):
             self.stop_remapping()
         self.commit_fields()
         reset_plate(self.profile, self.profile["plate"])
+        if self.is_hardware() and self.profile["plate"] == "12" and self.device_model["id"] == "naga_v2_pro":
+            self.profile["controls"] = [default_control(factory=True) for _ in CONTROL_NAMES]
         self.rebuild_grid()
         self.select_button(self.selected, commit=False)
-        self.apply()
+        if self.is_hardware():
+            self.status.setText("Defaults restored in your draft. Click Save bindings to mouse to apply.")
+        else:
+            self.apply()
 
     def show_window(self):
         self.showNormal()

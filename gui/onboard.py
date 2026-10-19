@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import re
 
-from model import DEFAULT_KEYS, key_code, shortcut, save_profile
+from model import DEVICE_MODELS, key_code, shortcut, save_profile
 
 MODIFIERS = dict(zip(
     ("KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT", "KEY_LEFTMETA", "KEY_RIGHTCTRL", "KEY_RIGHTSHIFT", "KEY_RIGHTALT", "KEY_RIGHTMETA"),
@@ -24,6 +24,7 @@ HID_KEYS.update(dict(zip(
 HID_KEYS.update({f"KEY_KP{i}": 0x58+i for i in range(1, 10)})
 HID_KEYS.update({"KEY_KP0": 0x62, "KEY_KPDOT": 0x63, "KEY_102ND": 0x64, "KEY_COMPOSE": 0x65, "KEY_KPEQUAL": 0x67})
 MOUSE_KEYS = {"BTN_LEFT": 1, "BTN_RIGHT": 2, "BTN_MIDDLE": 3, "BTN_SIDE": 4, "BTN_BACK": 4, "BTN_EXTRA": 5, "BTN_FORWARD": 5}
+FACTORY_CONTROL_LABELS = tuple(c["default_label"] for c in DEVICE_MODELS["naga_v2_pro"]["defaults"]["controls"])
 
 
 def keyboard_action(keys):
@@ -53,7 +54,10 @@ def hardware_buttons(profile):
     for i, button in enumerate(buttons):
         mode = button["mode"]
         if mode == "default":
-            action = keyboard_action([DEFAULT_KEYS[i]])
+            defaults = DEVICE_MODELS[profile.get("device", "naga_v2_pro")]["defaults"]["plates"]["12"]["bindings"]
+            if len(defaults) != 12:
+                raise ValueError("No verified onboard defaults for this model.")
+            action = {"category": defaults[i]["category"], "data": list(defaults[i]["data"])}
         elif mode == "key":
             code = key_code(button["value"])
             action = {"category": 1, "data": [MOUSE_KEYS[code]]} if code in MOUSE_KEYS else keyboard_action([code])
@@ -62,6 +66,27 @@ def hardware_buttons(profile):
         else:
             raise ValueError(f"Button {i+1} is a macro sequence. Onboard macro storage is still being reverse engineered; no mouse-memory changes were made.")
         result.append({"button": i+1, **action})
+    return result
+
+
+def hardware_controls(profile):
+    result = []
+    definitions = DEVICE_MODELS[profile.get("device", "naga_v2_pro")]["defaults"]["controls"]
+    for index, button in enumerate(profile.get("controls", [])):
+        mode = button["mode"]
+        if mode == "default":
+            continue  # Preserve exact stored action, including firmware functions.
+        if mode == "factory":
+            binding = definitions[index]["binding"]
+            action = {"category": binding["category"], "data": list(binding["data"])}
+        elif mode == "key":
+            code = key_code(button["value"])
+            action = {"category": 1, "data": [MOUSE_KEYS[code]]} if code in MOUSE_KEYS else keyboard_action([code])
+        elif mode == "shortcut":
+            action = keyboard_action(shortcut(button["value"]))
+        else:
+            raise ValueError("Wheel and scroll-mode macros require onboard macro support, which is not implemented.")
+        result.append({"button": definitions[index]["button"], **action})
     return result
 
 
@@ -102,7 +127,11 @@ def stored_label(record):
     if category == 0 and not data:
         return "Disabled"
     if category == 1 and len(data) == 1:
-        return {1: "Left click", 2: "Right click", 3: "Middle click", 4: "Back", 5: "Forward"}.get(data[0], f"Mouse {data[0]}")
+        return {1: "Left click", 2: "Right click", 3: "Middle click", 4: "Back", 5: "Forward", 9: "Scroll up", 10: "Scroll down", 0x68: "Scroll left", 0x69: "Scroll right"}.get(data[0], f"Mouse {data[0]}")
+    if category == 18 and data == [4]:
+        return "Cycle wheel modes"
+    if category == 6 and data == [6]:
+        return "Cycle DPI stages"
     if category == 2 and len(data) == 2:
         from model import display_key
         names = {1: "Ctrl", 2: "Shift", 4: "Alt", 8: "Super", 16: "Right Ctrl", 32: "Right Shift", 64: "Right Alt", 128: "Right Super"}

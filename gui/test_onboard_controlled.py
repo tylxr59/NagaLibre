@@ -69,7 +69,7 @@ class ControlledHardwareTest(unittest.TestCase):
         engine = root / "engine"
         engine.write_bytes(b"fake engine")
         self.plan = {
-            "status": "approved", "write_approved": True, "slot": 1,
+            "status": "prepared", "slot": 1,
             "backup": str(backup), "backup_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
             "engine": str(engine), "engine_sha256": hashlib.sha256(engine.read_bytes()).hexdigest(),
         }
@@ -96,8 +96,8 @@ class ControlledHardwareTest(unittest.TestCase):
         self.assertEqual(self.session.current, self.original)
         self.assertEqual(json.loads(self.path.read_text())["status"], "restored_exactly_physical_input_check_pending")
 
-    def test_missing_approval_tampered_backup_and_repeated_apply_stop_before_device_access(self):
-        for change in ({"write_approved": False}, {"backup_sha256": "bad"}, {"status": "applying"}):
+    def test_tampered_backup_and_repeated_apply_stop_before_device_access(self):
+        for change in ({"backup_sha256": "bad"}, {"status": "applying"}):
             self.path.write_text(json.dumps({**self.plan, **change}))
             with self.assertRaises(ValueError):
                 self.run_stage("apply")

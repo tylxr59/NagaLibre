@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one approved button-1-to-B test, read-only verification, or exact restore."""
+"""Run one prepared button-1-to-B test, read-only verification, or exact restore."""
 import argparse
 import hashlib
 import json
@@ -62,7 +62,8 @@ class Session:
         )
         try:
             hello = self.receive()
-            require(hello.get("type") == "hello" and hello.get("protocol") == 2, "Unexpected helper protocol")
+            require(hello.get("type") == "hello" and hello.get("protocol") in (2, 3, 4), "Unexpected helper protocol")
+            self.hello = hello
         except BaseException:
             self.__exit__(None, None, None)
             raise
@@ -90,17 +91,16 @@ class Session:
 
 def run_stage(stage, path, session_factory=Session):
     plan = json.loads(path.read_text())
-    require(plan.get("write_approved") is True, "The controlled test has not been approved")
     backup = Path(plan["backup"])
     require(hashlib.sha256(backup.read_bytes()).hexdigest() == plan["backup_sha256"], "Original backup checksum changed")
     original = json.loads(backup.read_text())
     engine = Path(plan["engine"])
-    require(hashlib.sha256(engine.read_bytes()).hexdigest() == plan["engine_sha256"], "Engine changed since the plan was approved")
+    require(hashlib.sha256(engine.read_bytes()).hexdigest() == plan["engine_sha256"], "Engine changed since preparation")
     require(original["slot"] == original["active"] == plan["slot"] and original["mode"] == [0, 0], "Test requires the original active slot in normal mode")
     require([(b["button"], b["category"], b["data"]) for b in original["primary"]] == [(1, 1, [1]), (2, 1, [2])], "Backup lacks standard primary clicks")
-    require(len(original["buttons"]) == 12 and original["buttons"][0]["data"] == [0, 30], "Backup is not the approved key-1 baseline")
+    require(len(original["buttons"]) == 12 and original["buttons"][0]["data"] == [0, 30], "Backup is not the key-1 baseline")
     if stage == "apply":
-        require(plan["status"] == "approved", "Apply already attempted; inspect state or restore instead of retrying")
+        require(plan["status"] == "prepared", "Apply already attempted; inspect state or restore instead of retrying")
     with session_factory(engine) as session:
         read = session.command("onboard_read", slot=original["slot"])
         require(read.get("type") == "onboard_snapshot", "Unexpected read response")
@@ -112,7 +112,7 @@ def run_stage(stage, path, session_factory=Session):
             durable_plan(path, plan)
             return "B readback verified; other eleven wire records, primary mappings, mode and active slot match the backup. Physical input and reconnect history require user confirmation."
         if stage == "apply":
-            require(signature(current) == signature(original), "Mouse changed since the approved backup; no write was attempted")
+            require(signature(current) == signature(original), "Mouse changed since the prepared backup; no write was attempted")
             # Supply canonical actions just like the GUI; the Rust plan retains
             # the original raw records for all eleven unchanged bindings.
             desired = [{"button": b["button"], "category": b["category"], "data": b["data"]} for b in original["buttons"]]

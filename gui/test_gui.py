@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QDialog
 from PySide6.QtCore import QCoreApplication, QEvent
 from app import Window, MacroDialog
 import backend
-from onboard import hardware_buttons, write_backup, stored_label
+from onboard import hardware_buttons, hardware_controls, write_backup, stored_label
 from unittest.mock import patch
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -63,6 +63,18 @@ class SourceBuildLookup(unittest.TestCase):
 
 
 class Profiles(unittest.TestCase):
+    def test_three_control_draft_migrates_without_replacing_existing_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profiles.json"
+            profile = new_profile()
+            profile["controls"] = [{"trigger": "", "mode": "key", "value": key, "steps": []}
+                                   for key in ("F13", "F14", "F15")]
+            save_profile(path, profile)
+            migrated = load_profile(path)
+            self.assertEqual(migrated["controls"][:3], profile["controls"])
+            self.assertEqual(migrated["controls"][3]["mode"], "default")
+            self.assertEqual(json.loads(path.read_text()), profile)
+
     def test_experimental_profiles_require_learning_and_keep_layouts_on_disk(self):
         with tempfile.TemporaryDirectory() as directory:
             for device in DEVICE_MODELS:
@@ -509,6 +521,71 @@ class QtFlow(unittest.TestCase):
             window.connection_changed(False)
             self.assertIn("helper stopped", window.status.text())
             self.assertEqual(window.snapshot, snapshot)
+
+    def test_wheel_tiles_edit_save_restore_and_survive_software_mode_switch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profiles.json"
+            window = Window(path)
+            self.assertEqual(len(window.tiles), 16)
+            self.assertIn("Wheel tilt left", window.tiles[12].text())
+            self.assertIn("Scroll-mode button", window.tiles[14].text())
+            self.assertEqual(hardware_controls(window.profile), [])
+            window.select_button(14)
+            window.mode.setCurrentIndex(window.mode.findData("key"))
+            window.key_value.setText("F13")
+            window.commit_fields()
+            self.assertEqual(hardware_controls(window.profile), [{"button": 15, "category": 2, "data": [0, 104]}])
+            # An editor change survives changing storage mode; software has only
+            # the plate's triggers, since these controls can be firmware-only.
+            window.key_value.setText("F14")
+            window.storage.setCurrentIndex(window.storage.findData("software"))
+            self.assertEqual(len(window.tiles), 12)
+            self.assertEqual(window.profile["controls"][2]["value"], "F14")
+            window.storage.setCurrentIndex(window.storage.findData("hardware"))
+            window.persist()
+            self.assertEqual(load_profile(path)["controls"], window.profile["controls"])
+            window.backend.ready = True
+            window.backend.protocol = 4
+            window.backend.wheel_controls = True
+            snapshot = {"device": {"serial": "TEST"}, "slot": 1, "active": 1, "slots": [1],
+                        "buttons": hardware_buttons(window.profile),
+                        "controls": [{"button": n, "category": 0, "data": []} for n in range(13, 16)]}
+            window.on_event({"type": "onboard_snapshot", "snapshot": snapshot})
+            with patch.object(window.backend, "send") as send:
+                window.apply()
+                self.assertEqual(send.call_args.args[0]["controls"], [{"button": 15, "category": 2, "data": [0, 105]}])
+            window.select_button(14)
+            window.reset_selected()
+            self.assertEqual(hardware_controls(window.profile), [{"button": 15, "category": 18, "data": [4]}])
+            self.assertIn("Cycle wheel modes", window.tiles[14].text())
+            window.backend.ready = False
+
+    def test_restore_defaults_stages_all_bindings_without_device_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            window.profile["plates"]["12"][0].update(mode="key", value="B")
+            window.profile["plates"]["6"][0].update(mode="key", value="Z")
+            window.profile["controls"][0].update(mode="key", value="F13")
+            window.select_button(12, commit=False)
+            with patch.object(window.backend, "send") as send, patch.object(window.backend, "start") as start:
+                self.assertEqual(window.reset_button.text(), "Restore defaults")
+                window.reset_button.click()
+                send.assert_not_called()
+                start.assert_not_called()
+            self.assertTrue(all(b["mode"] == "default" for b in window.profile["plates"]["12"]))
+            self.assertEqual(window.profile["plates"]["6"][0]["value"], "Z")
+            self.assertEqual(hardware_controls(window.profile), [
+                {"button": 13, "category": 1, "data": [0x68]},
+                {"button": 14, "category": 1, "data": [0x69]},
+                {"button": 15, "category": 18, "data": [4]},
+                {"button": 16, "category": 6, "data": [6]},
+            ])
+            self.assertIn("Click Save", window.status.text())
+            window.persist()
+            self.assertEqual(load_profile(window.path)["controls"], window.profile["controls"])
+            self.assertEqual(stored_label({"category": 18, "data": [4]}), "Cycle wheel modes")
+            self.assertIn("DPI button", window.tiles[15].text())
+            self.assertIn("Cycle DPI stages", window.tiles[15].text())
 
     def test_activate_unread_slot_backs_up_both_slots_and_preserves_draft(self):
         with tempfile.TemporaryDirectory() as directory:

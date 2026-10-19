@@ -57,7 +57,7 @@ impl<T: Transport> Mouse<T> {
         Ok(())
     }
 
-    /// The caller must obtain approval and durably save the plan before calling.
+    /// The caller must durably save the plan before calling.
     /// The journal is created exclusively before the first vendor mutation.
     /// No button mappings, profile metadata or device mode are written.
     pub fn slot_trial(&mut self, plan: &Plan, journal: &Path) -> Result<()> {

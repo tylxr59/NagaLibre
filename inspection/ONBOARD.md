@@ -84,8 +84,8 @@ primary buttons and grid without setting mode, activating slots or writing.
 A button record is `[slot, button_id, hypershift, category, data_length, data…]`.
 Grid positions 1–12 address IDs `40`–`4b`. Category 2 encodes
 `[modifier_mask, USB_HID_keyboard_usage]`; category 1 encodes a mouse button.
-Only the twelve grid IDs can reach the mapping writer. Primary IDs 1 and 2
-are read for validation and never written. Successful saving sets normal mode
+The mapping writer allows grid IDs plus the three explicitly mapped wheel controls
+described below. Primary IDs 1, 2 and 3 never reach the writer. Successful saving sets normal mode
 and activates the selected slot; no helper is needed to process these bindings.
 
 ## Save and recovery contract
@@ -167,7 +167,7 @@ prepared save. Legacy backup restoration still uses fresh device state.
 empty inventories and does not create profiles. The V2 Pro protocol decoder
 supports capacities 1–5 with compact or six-byte padded replies, rejecting invalid
 IDs, duplicate entries, unsupported capacity and active IDs outside capacity.
-This does not authorize other models' onboard protocols.
+This does not establish other models' onboard protocols.
 
 The GUI shows the reported number of slots, disables uninitialized entries, and
 displays initialized count versus capacity. Older helper snapshots only show
@@ -195,8 +195,8 @@ Allocation alone does not establish complete initialization, usable clicks,
 safe activation, Synapse naming compatibility or power-cycle persistence.
 
 `python3 scripts/slot_trial.py prepare` issues only existing getters, saving
-private snapshots of every initialized slot and a checksummed plan. After exact
-plan approval, `run --approve-plan-sha256 HASH` checks engine/runner/plan hashes
+private snapshots of every initialized slot and a checksummed plan.
+`python3 scripts/slot_trial.py run` checks engine/runner/plan hashes
 and consumes the plan before launching the hidden `onboard-slot-trial` command.
 The backend rechecks all snapshots and creates/fsyncs an exclusive private journal
 before allocation. It reads the temporary slot's primary, middle and twelve grid
@@ -214,7 +214,7 @@ does not claim complete profile cloning or recovery.
 
 ### Successful wired allocation trial and desktop creation
 
-The user ran the approved temporary-slot-3 trial. It reported successful removal
+The user ran the temporary-slot-3 trial. It reported successful removal
 and exact original tracked-state verification. The newly allocated slot read back
 left/right/middle as category 1, data 1/2/3 respectively. All twelve grid entries
 read as category 2 with modifier zero and HID usages
@@ -237,3 +237,62 @@ creation, existing-slot deletion, Synapse metadata/name compatibility, receiver
 creation, physical operation and power-cycle persistence of newly created slots
 remain unsupported or unverified. The complete desktop creation transaction has
 automated coverage but has not yet been exercised on hardware.
+
+## Wheel tilts and scroll-mode button (2026-10-19)
+
+Static provenance uses the same official Device167 package and controller hash
+listed above; proprietary payloads and disassembly remain private. DefaultMappings
+for device 167 assigns MouseInput Button6/Button7 to ScrollLeft/ScrollRight and
+DKM_57 to Cycle_Up_Scroll_Wheel_Stages. These are host input names, not wire IDs.
+Configurator.167_0's OBMMappingConverter.ConvertMouseInputToMBtn (RVA 0x12248)
+converts Button6/7 to abstract mouse inputs 6/7. ConvertDKMKeystoMw (RVA 0x11ba0)
+converts DKM_57 to DKM makecode 87 (0x57).
+
+The native storage getter calls input converter RVA 0x67790 before invoking the
+button-record getter through protocol vtable offset 0x274. In the mouse-input
+branch, jump table RVA 0x679b4 selects blocks at 0x678bc/0x678c0 for inputs 6/7,
+which return 0x34/0x35. For DKM 87, the byte dispatch table at RVA 0x6792c and
+jump table at 0x678d8 select block 0x6781d, returning 0x6d. The storage caller at
+RVA 0x56474 passes that converted ID into the getter at RVA 0x28ca0, which encodes
+class 02, command 8c through the transport getter (the native command header
+contains 020c; the getter transport adds the read bit). Logical NagaLibre IDs
+13/14/15 explicitly map to wire 34/35/6d. No arithmetic extension of the thumb-grid
+address range or primary-click writer is permitted.
+
+The app reads all three records into a separate optional controls snapshot field.
+It writes only explicit supported key/shortcut/mouse-button edits, through the
+same durable backup, stale checks, per-record readback and rollback used by the
+grid. Unknown original firmware actions/raw encodings can be retained or restored
+exactly. Keep stored binding leaves the current action intact; it does not guess
+or synthesize the scroll-mode/tilt factory action. Main clicks and wheel rotation
+remain outside the writer. The user has since supplied successful getter output:
+logical 13 = category 1/data [4], logical 14 = category 1/data [5], logical 15 =
+category 18/data [4]. The first two decode as Back/Forward; category 18 is retained
+opaquely. This verifies readable records at these addresses, not physical
+identification/output, writes or persistence. The UI exposes these controls in Mouse memory mode on
+V2 Pro's 12-button layout; software relative-wheel triggers and other models'
+control maps remain unimplemented.
+
+### Default binding presets
+
+The UI now stages function defaults for all fifteen supported controls. Tilt
+presets use category 1/data 68 and 69 (hexadecimal). Native CStorage's decoder at RVA 0x54bf0
+maps those values to abstract mouse actions 8/9, and the setter at RVA 0x57e50
+maps them back through its dispatch table at 0x58380. The managed Button mapping
+converter at RVA 0x12390 resolves those actions to MouseAssignment values 10/11,
+which the UI maps to horizontal-scroll assignment types 6/7. By comparison, wire
+09/0a map to abstract actions 6/7, MouseAssignment 6/7 and UI vertical-scroll types
+4/5; they must not be used for horizontal presets. The UI's explicit RepeatScrollUp/
+RepeatScrollDown IDs corroborate the separate vertical-scroll mapping. These presets
+restore the function, without uploading Synapse's separate turbo/repeat settings.
+
+For scroll-mode cycling, decoder category 18 dispatches to RVA 0x551df, setting
+native mapping group 0x2c. Data byte 4 dispatches through table 0x55448 to block
+0x54c6c, setting abstract action 5. The JSON converter's group-specific action
+table at 0x60070 maps action 5 to block 0x5fc9f and string Haptic_CycleUp. This
+also establishes the meaning of the user's captured category 18/data [4].
+Normal save validation only accepts these three additional factory actions at
+logical positions 13/14/15 respectively. Full restoration still preserves opaque
+original wire records through the existing backup path. Default presets are
+simulated-test covered; physical horizontal scrolling and mode cycling remain
+unverified. Restore defaults edits the draft; Save performs the transaction.

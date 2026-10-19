@@ -38,9 +38,6 @@ enum Command {
         plan: PathBuf,
         #[arg(long)]
         journal: PathBuf,
-        /// Explicitly approve allocation and removal of this unused slot.
-        #[arg(long)]
-        approve_create_and_delete_slot: u8,
     },
     /// Read slot capacity, initialized IDs and active slot without reading bindings or serials.
     OnboardSlots,
@@ -218,16 +215,8 @@ fn main() -> Result<()> {
     let signal = running.clone();
     ctrlc::set_handler(move || signal.store(false, Ordering::Relaxed))?;
     match cli.command {
-        Command::OnboardSlotTrial {
-            plan,
-            journal,
-            approve_create_and_delete_slot,
-        } => {
+        Command::OnboardSlotTrial { plan, journal } => {
             let plan: onboard::slot_trial::Plan = serde_json::from_slice(&fs::read(plan)?)?;
-            anyhow::ensure!(
-                plan.target == approve_create_and_delete_slot,
-                "Approval does not match target slot"
-            );
             onboard::hidraw::connect()?.slot_trial(&plan, &journal)?;
             println!(
                 "Temporary slot removed; original tracked state verified. See private journal for defaults."

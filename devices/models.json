@@ -13,7 +13,185 @@
     ],
     "onboard": true,
     "faceplate": true,
-    "verified": true
+    "verified": true,
+    "defaults": {
+      "plates": {
+        "12": {
+          "keys": [
+            "KEY_1",
+            "KEY_2",
+            "KEY_3",
+            "KEY_4",
+            "KEY_5",
+            "KEY_6",
+            "KEY_7",
+            "KEY_8",
+            "KEY_9",
+            "KEY_0",
+            "KEY_MINUS",
+            "KEY_EQUAL"
+          ],
+          "bindings": [
+            {
+              "category": 2,
+              "data": [
+                0,
+                30
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                31
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                32
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                33
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                34
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                35
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                36
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                37
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                38
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                39
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                45
+              ]
+            },
+            {
+              "category": 2,
+              "data": [
+                0,
+                46
+              ]
+            }
+          ]
+        },
+        "6": {
+          "keys": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "bindings": []
+        },
+        "2": {
+          "keys": [
+            "",
+            ""
+          ],
+          "bindings": []
+        }
+      },
+      "controls": [
+        {
+          "id": "wheel_tilt_left",
+          "name": "Wheel tilt left",
+          "button": 13,
+          "wire_id": 52,
+          "binding": {
+            "category": 1,
+            "data": [
+              104
+            ]
+          },
+          "default_label": "Scroll left"
+        },
+        {
+          "id": "wheel_tilt_right",
+          "name": "Wheel tilt right",
+          "button": 14,
+          "wire_id": 53,
+          "binding": {
+            "category": 1,
+            "data": [
+              105
+            ]
+          },
+          "default_label": "Scroll right"
+        },
+        {
+          "id": "scroll_mode",
+          "name": "Scroll-mode button",
+          "button": 15,
+          "wire_id": 109,
+          "binding": {
+            "category": 18,
+            "data": [
+              4
+            ]
+          },
+          "default_label": "Cycle wheel modes"
+        },
+        {
+          "id": "dpi_cycle",
+          "name": "DPI button",
+          "button": 16,
+          "wire_id": 96,
+          "binding": {
+            "category": 6,
+            "data": [
+              6
+            ]
+          },
+          "default_label": "Cycle DPI stages"
+        }
+      ]
+    }
   },
   {
     "id": "naga_pro",
@@ -29,7 +207,47 @@
     ],
     "onboard": false,
     "faceplate": false,
-    "verified": false
+    "verified": false,
+    "defaults": {
+      "plates": {
+        "12": {
+          "keys": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "bindings": []
+        },
+        "6": {
+          "keys": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "bindings": []
+        },
+        "2": {
+          "keys": [
+            "",
+            ""
+          ],
+          "bindings": []
+        }
+      },
+      "controls": []
+    }
   },
   {
     "id": "naga_trinity",
@@ -44,7 +262,48 @@
     ],
     "onboard": false,
     "faceplate": false,
-    "verified": false
+    "verified": false,
+    "defaults": {
+      "plates": {
+        "12": {
+          "keys": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "bindings": []
+        },
+        "7": {
+          "keys": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "bindings": []
+        },
+        "2": {
+          "keys": [
+            "",
+            ""
+          ],
+          "bindings": []
+        }
+      },
+      "controls": []
+    }
   },
   {
     "id": "naga_x",
@@ -57,7 +316,29 @@
     ],
     "onboard": false,
     "faceplate": false,
-    "verified": false
+    "verified": false,
+    "defaults": {
+      "plates": {
+        "12": {
+          "keys": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "bindings": []
+        }
+      },
+      "controls": []
+    }
   },
   {
     "id": "naga_left_handed",
@@ -70,7 +351,29 @@
     ],
     "onboard": false,
     "faceplate": false,
-    "verified": false
+    "verified": false,
+    "defaults": {
+      "plates": {
+        "12": {
+          "keys": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "bindings": []
+        }
+      },
+      "controls": []
+    }
   },
   {
     "id": "naga_chroma",
@@ -83,7 +386,29 @@
     ],
     "onboard": false,
     "faceplate": false,
-    "verified": false
+    "verified": false,
+    "defaults": {
+      "plates": {
+        "12": {
+          "keys": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "bindings": []
+        }
+      },
+      "controls": []
+    }
   },
   {
     "id": "naga_v2_hyperspeed",
@@ -96,7 +421,29 @@
     ],
     "onboard": false,
     "faceplate": false,
-    "verified": false
+    "verified": false,
+    "defaults": {
+      "plates": {
+        "12": {
+          "keys": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "bindings": []
+        }
+      },
+      "controls": []
+    }
   },
   {
     "id": "viper_v2_pro",
@@ -110,6 +457,18 @@
     ],
     "onboard": false,
     "faceplate": false,
-    "verified": false
+    "verified": false,
+    "defaults": {
+      "plates": {
+        "2": {
+          "keys": [
+            "",
+            ""
+          ],
+          "bindings": []
+        }
+      },
+      "controls": []
+    }
   }
 ]

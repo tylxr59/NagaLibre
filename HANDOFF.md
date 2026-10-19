@@ -6,6 +6,109 @@ current implementation, evidence, and remaining work. User setup belongs in
 
 ## Current state
 
+Added the second top button, DPI-cycle, as logical 16 -> wire 0x60. The official
+Device167 defaults identify DKM_SB_03 with DPI_CycleUp; managed EMwDKMKeys gives
+DKMID_DKMKEY_SB03 = 82. The native input dispatch at RVA 0x67790 sends 82 to
+0x67809 -> 0x60. DPI action category 6/data [6] decodes at 0x55084 to abstract
+action 11, mapped through table 0x6003c to 0x5f6a1 (DPI/CycleUp). The default
+cycles the existing DPI stage table; no stage values, primary clicks or sensor
+configuration are written. Read/write/output for this new ID remains unverified.
+
+Per-device `defaults` now live in devices/models.json: plate trigger keys and
+verified onboard bindings, extra-control labels/IDs/addresses/default actions.
+Both Python and Rust consume it, including creation's grid-default validation.
+The writer retains a separate safe address set and only accepts each registry
+factory action on its declared position. Unknown model defaults remain empty;
+experimental model capabilities and input learning are unchanged. See
+devices/README.md for the schema. Existing three-control drafts append a fourth
+Keep stored binding control without replacing edits; old three-control hardware
+backups preserve the current DPI record. New backups include all four controls.
+Restore defaults now covers sixteen supported bindings. No live writes were made.
+Validation passed 52 Rust and 47 Python/Qt tests, including DPI-only writes/raw
+rollback, legacy backup preservation, profile migration and registry integrity.
+
+The reset button is now Restore defaults. In hardware mode it stages all twelve
+grid defaults plus wheel left/right horizontal scroll and scroll-mode cycling;
+it sends no device requests until Save bindings to mouse is clicked. It works
+offline and preserves other plates. Software mode retains its existing stop/reset/
+apply-pass-through behavior. Each wheel control has a separate Factory default
+mode and per-control Use default stages that preset; Keep stored binding remains
+a separate option and is still the initial draft state for existing profiles.
+Factory actions are explicit position-scoped presets: logical 13 -> category 1
+data [0x68], 14 -> 1/[0x69], 15 -> 18/[4]. The native decoder confirms the earlier
+captured 18/[4] is Haptic_CycleUp; it is now labeled Cycle wheel modes. See the
+native trace in inspection/ONBOARD.md. These presets restore binding functions,
+not device settings such as wheel tension, stages, DPI, RGB or Synapse turbo rate.
+Physical horizontal output/cycling remains unverified; no live writes were made.
+Validation passed 51 Rust and 46 Python/Qt tests, including scoped preset
+validation, rollback, offline draft-only restoration and profile round trips.
+
+The user reported "That works" after left tilt -> B, confirming physical B
+output. Local wheel-test-13 status now reports restored, so the runner verified
+exact original tracked records after restoration. Physical original Back behavior,
+primary clicks and reconnect persistence have not been separately reported.
+
+At the user's request, removed separate authorization requirements from repository
+instructions, runners and CLI flags. Test stages now use their saved plans directly;
+checksums, durable backups, stale-state checks, repeat prevention and recovery
+remain. Sudo/polkit authentication remains. scripts/wheel_test.py is a convenience
+entry point; wheel_controlled_test.py also runs directly without approval arguments.
+Existing completed plan files remain historical evidence and are not reused.
+This cleanup passed 50 Rust tests, 45 Python/Qt tests, formatting, Clippy,
+debug/release builds and example config validation. CLI help confirms that the
+wheel/slot runners and hidden slot-trial engine command have no approval flags.
+
+The user asked to run the wheel remapping test. Added scripts/wheel_controlled_test.py
+with prepare/apply/verify/restore stages, initially logical control 13 (left tilt)
+to B on the currently active wired slot. Preparation is read-only and saves all
+initialized snapshots in a private checksummed plan. The saved plan hash, engine/runner/session hashes, stable state and a 12-button
+plate are checked before test stages. The prepared active-slot backup must be durably written before
+commit. Apply is consumed before the commit, so a lost reply cannot invite a
+repeat apply. Verify reads only; restore accepts either the original state or
+exactly the intended target-to-B change and verifies exact original tracked
+records afterward. All other slots are checked before and after writes. The
+target slot is re-read after inspecting other slots so helper selection cannot
+accidentally address a different slot. Helper exits after each stage. Physical
+input, reconnect persistence and restored behavior must be recorded separately.
+The runner's six simulated
+tests and four existing controlled-test regressions pass. The shared Session now
+accepts supported protocols 2/3/4; the wheel-specific session requires protocol 4,
+wheel_controls capability and watches the plate, aborting on non-12-button events.
+
+The user subsequently ran the read-only controls query on the wired mouse.
+All three getters succeeded: logical 13 returned category 1/data [4], logical 14
+category 1/data [5], and logical 15 category 18/data [4]. The first two decode as
+Back/Forward using the existing mouse-action decoder. Keep the last action as an
+opaque firmware assignment until its meaning is independently established; do
+not infer physical behavior from readback. Added a captured-state regression for
+preserving all three during a grid-only save and restoring category 18 via backup.
+At that stage writes and physical behavior remained unverified; the subsequent
+left-tilt test and restoration are recorded above. The readback command did not modify any mappings.
+
+Wheel controls added to Mouse memory mode: tilt left/right and the scroll-mode
+button below the wheel. Official Device167 DefaultMappings.xml uses Mouse
+Button6/Button7 and DKM_57 (scroll stage cycle). Managed ConvertDKMKeystoMw maps
+DKM_57 to 87; native converter RVA 0x67790 maps mouse buttons 6/7 to wire
+0x34/0x35 and DKM 87 to 0x6d. See inspection/ONBOARD.md for the trace.
+Logical positions 13/14/15 have explicit allowlisted addresses; left/right/middle
+remain unwritable. Snapshots retain the twelve grid records and add a default-empty
+controls array for compatibility. New reads get all three control records;
+backup/restore/stale checks/rollback include them. Legacy backups preserve current
+wheel records. Normal saves only write controls explicitly edited in the draft;
+Keep stored binding preserves exact firmware actions, including unknown encodings.
+Initially Reset 12 buttons left wheel drafts intact; the Restore defaults behavior
+above supersedes this. Software mode retains its
+existing plate triggers and leaves firmware wheel behavior intact. No onboard
+sequence support or wheel tension/scroll-stage settings were added.
+New GUI controls and drafts are isolated from other models. The protocol-4 hello
+advertises wheel_controls and onboard_prepare accepts an optional controls list.
+Read/write/output of these three IDs still needs a user-run hardware check; no
+agent-driven live writes were performed. New read requests are statically derived
+getters, not guessed probes. Validation passed 49 Rust and 39 Python/Qt tests,
+including each address, raw unknown-record rollback after lost acknowledgement,
+legacy backup preservation, modern backup restoration, GUI translation/persistence
+and storage-mode switches. Debug/release builds, Clippy and formatting passed.
+
 Standalone slot activation is now implemented. Select any initialized inactive
 slot and click Activate slot; it can read an unread target without changing the
 draft. The protocol-4 hello advertises slot_activation. Preparation reads/checks
@@ -24,7 +127,7 @@ commit, second-backup failure, and draft preservation. Prior creation evidence
 and tests below remain applicable.
 
 Slot creation now has a desktop path for wired 00a7 with the detected 12-button
-plate. The user completed the approved slot-3 trial: creation returned standard
+plate. The user completed the slot-3 trial: creation returned standard
 left/right/middle mappings and the twelve expected grid keys, all grid records
 with declared length 1. The runner removed slot 3, verified original slots 1/2,
 active slot 1 and normal mode. No physical new-slot output, reconnect/power-cycle
@@ -45,8 +148,8 @@ explicit error, never a silent retry. Existing-slot deletion and first-profile
 creation remain unsupported. Receiver creation remains disabled.
 
 The hidden onboard-slot-trial CLI and scripts/slot_trial.py remain available for
-explicitly approved temporary experiments. The completed plan is consumed; do not
-repeat it or treat its approval as permission for permanent creation writes.
+temporary experiments. The completed plan is consumed and must not be repeated.
+New experiments require fresh snapshots and a new plan.
 Private snapshots cover only the established read contract, not complete profile
 images. Creation backup files contain a plan with all original snapshots and a
 target; the ordinary Restore backup command accepts individual mapping snapshots,
@@ -98,14 +201,14 @@ Verified on the user's wired mouse:
 - All twelve active-slot outputs: KEY_1..KEY_9, KEY_0, KEY_MINUS, KEY_EQUAL.
 - Durable active-slot backup: private file, file/directory fsync, checksum, and
   preservation of the ten original nonstandard keyboard encodings.
-- Explicitly approved change of button 1 (firmware ID 0x40) from 1 to B through
+- Change of button 1 (firmware ID 0x40) from 1 to B through
   the real session using canonical GUI actions. Save and independent readback
   showed B, the other eleven exact records, standard primary mappings, unchanged
   mode and unchanged active slot.
 - User confirmed physical B output, fully quitting NagaLibre, reconnecting/
   power-cycling, B still working, and normal left/right/middle clicks. A fresh
   read-only session verified the saved B and other records.
-- Approved backup restore: save response and independent readback matched all
+- Backup restore: save response and independent readback matched all
   original wire records, primary mappings, mode, active slot and identity.
   Transient hidraw path was excluded. Restore receipt and backup hash checked;
   user confirmed button 1 typed 1 again.
@@ -120,8 +223,7 @@ other plates and multi-step macros remain unverified or unsupported.
 Private backups, checksums, engine checksum, recovery records, receipts and user
 confirmations remain on the hardware machine under ~/.config/NagaLibre/. Its
 controlled-hardware-test.json status was restored_exactly_button_1_confirmed.
-Do not commit the private files or mouse serial. That test is complete and does
-not authorize additional writes. A new apply requires a fresh approved plan.
+Do not commit the private files or mouse serial. That test is complete. A new apply requires fresh backups and a prepared plan.
 
 Local sudo authentication was needed. The user ran staged commands because
 noninteractive sudo required a password and an earlier pkexec getter attempt

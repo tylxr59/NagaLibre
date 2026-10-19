@@ -81,6 +81,29 @@ unexpected primary/middle clicks and an absent 12-button plate prevent switching
 A failed switch attempts restoration of the previous active slot, including after
 a failed acknowledgement. Old helpers without the capability disable the button.
 
+Fresh `onboard-read` snapshots now include `controls`: logical positions 13–16
+for wheel tilt left/right, scroll-mode and DPI-cycle buttons. Their
+firmware IDs are 34, 35, 6d and 60 in hexadecimal, recovered from Device167. The hello
+capability `wheel_controls` allows an optional `controls` array on `onboard_prepare`.
+Only explicit edits are sent; omitted controls retain exact stored records.
+Backups include raw records for these controls. Older snapshots without the field
+still restore their grid bindings while preserving the current wheel controls.
+Wheel/scroll-mode getters have succeeded on the user's wired mouse, and a left
+tilt remap to B was physically confirmed. Other control writes/output and DPI
+readback remain unverified.
+
+The desktop Restore defaults button stages grid defaults and factory control
+actions in the local draft, without sending hardware commands. Saving uses the
+existing prepared transaction. Factory wheel actions are category 1/data [104] (0x68) on
+logical 13, category 1/data [105] (0x69) on logical 14, and category 18/data [4] on logical
+15, plus category 6/data [6] on logical 16 for cycling DPI stages. Normal prepare accepts these functions only on those positions; arbitrary
+firmware actions remain unsupported. Keep stored binding continues to omit that
+control from the save request. Restoring an old hardware backup remains separate.
+Defaults and control IDs come from `devices/models.json`; three-control local
+drafts migrate by preserving their edits and appending a pass-through DPI control.
+The DPI button has not yet had live read/write/output verification. It uses the
+existing DPI stages and does not change their values.
+
 The GUI automatically selects the corresponding draft and stops remapping on
 a change; Apply rechecks the module ID before starting software bindings.
 The standalone `run` command uses its supplied config and does not select

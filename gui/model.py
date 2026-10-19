@@ -7,8 +7,13 @@ from pathlib import Path
 import re
 import tempfile
 
-DEFAULT_KEYS = [f"KEY_{i}" for i in range(1, 10)] + ["KEY_0", "KEY_MINUS", "KEY_EQUAL"]
 DEVICE_MODELS = {m["id"]: m for m in json.loads((Path(__file__).resolve().parent.parent / "devices/models.json").read_text())}
+DEFAULT_KEYS = DEVICE_MODELS["naga_v2_pro"]["defaults"]["plates"]["12"]["keys"]
+CONTROL_NAMES = tuple(c["name"] for c in DEVICE_MODELS["naga_v2_pro"]["defaults"]["controls"])
+
+
+def default_control(factory=False):
+    return {"trigger": "", "mode": "factory" if factory else "default", "value": "", "steps": []}
 PROTECTED_INPUTS = frozenset(("BTN_LEFT", "BTN_RIGHT", "BTN_MIDDLE", "BTN_MOUSE"))
 SYMBOLS = {"KEY_MINUS": "-", "KEY_EQUAL": "="}
 ALIASES = {
@@ -46,13 +51,13 @@ def display_key(code: str) -> str:
     return SYMBOLS.get(code, code.removeprefix("KEY_").replace("LEFTCTRL", "Ctrl").replace("LEFTSHIFT", "Shift").replace("LEFTALT", "Alt").replace("LEFTMETA", "Super"))
 
 
-def default_button(index: int, plate: str) -> dict:
-    return {"trigger": DEFAULT_KEYS[index] if plate == "12" else "", "mode": "default", "value": "", "steps": []}
+def default_button(index: int, plate: str, device="naga_v2_pro") -> dict:
+    return {"trigger": DEVICE_MODELS[device]["defaults"]["plates"][plate]["keys"][index], "mode": "default", "value": "", "steps": []}
 
 
 def new_profile(device="naga_v2_pro") -> dict:
     layouts = DEVICE_MODELS[device]["plates"]
-    profile = {"version": 1, "plate": layouts[0], "plates": {p: [default_button(i, p) for i in range(int(p))] for p in layouts}}
+    profile = {"version": 1, "plate": layouts[0], "plates": {p: [default_button(i, p, device) for i in range(int(p))] for p in layouts}}
     if device != "naga_v2_pro":
         profile.update(device=device, storage="software")
         for buttons in profile["plates"].values():
@@ -94,6 +99,19 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
                 valid = (kind in ("tap", "down", "up") and isinstance(argument, str)) or (kind == "wait_ms" and type(argument) is int) or (kind == "chord" and isinstance(argument, list) and all(isinstance(k, str) for k in argument))
                 if not valid:
                     raise ValueError("Invalid macro action.")
+    controls = value.get("controls", [])
+    count = len(DEVICE_MODELS[device]["defaults"]["controls"])
+    if not isinstance(controls, list) or (controls and len(controls) not in (3, count)) or (controls and not count):
+        raise ValueError("Invalid wheel controls.")
+    for control in controls:
+        if not isinstance(control, dict) or control.get("mode") not in ("default", "factory", "key", "shortcut", "macro"):
+            raise ValueError("Invalid wheel control binding.")
+        if not isinstance(control.get("trigger"), str) or not isinstance(control.get("value"), str) or not isinstance(control.get("steps"), list):
+            raise ValueError("Invalid wheel control data.")
+    if controls:
+        # Existing three-control drafts predate the DPI button. Preserve every
+        # edit and append pass-through controls; never silently restore defaults.
+        value["controls"] = controls + [default_control() for _ in range(count - len(controls))]
     return value
 
 
@@ -160,13 +178,15 @@ def runtime_config(profile: dict) -> str:
 def reset_plate(profile: dict, plate: str) -> None:
     # Preserve learned inputs on the unverified plates, but remove all remapping.
     old = profile["plates"][plate]
-    profile["plates"][plate] = [default_button(i, plate) for i in range(int(plate))]
+    profile["plates"][plate] = [default_button(i, plate, profile.get("device", "naga_v2_pro")) for i in range(int(plate))]
     if plate != "12" or profile.get("device", "naga_v2_pro") != "naga_v2_pro":
         for before, after in zip(old, profile["plates"][plate]):
             after["trigger"] = before["trigger"] if before["trigger"] not in PROTECTED_INPUTS else ""
 
 
 def binding_label(button: dict) -> str:
+    if button["mode"] == "factory":
+        return "Factory default"
     if button["mode"] == "default":
         return display_key(button["trigger"]) if button["trigger"] else "Default"
     if button["mode"] == "macro":

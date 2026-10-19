@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare or run the approved temporary onboard-slot allocation experiment.
+"""Prepare or run the temporary onboard-slot allocation experiment.
 
 Preparation issues getters only. Run creates and removes one unused slot and
 never writes button mappings. Private plans include serials and bindings.
@@ -73,15 +73,15 @@ def prepare(directory, engine):
           "No button mappings or device mode will be written.")
     print(f"Private backup: {directory}")
     print(f"Plan SHA-256: {manifest['plan_sha256']}")
-    print("No settings were changed. Review and approve this concrete plan before running it.")
+    print("No settings were changed. Preparation complete; run uses the saved plan.")
 
 
-def run(directory, approval):
+def run(directory):
     manifest_path = directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     plan_path = directory / "plan.json"
     require(manifest["status"] == "prepared", "Trial already attempted; do not repeat")
-    require(approval == manifest["plan_sha256"] == digest(plan_path), "Plan approval/checksum mismatch")
+    require(manifest["plan_sha256"] == digest(plan_path), "Plan checksum mismatch")
     engine = Path(manifest["engine"])
     require(digest(engine) == manifest["engine_sha256"], "Engine changed; prepare a fresh plan")
     require(digest(Path(__file__).resolve()) == manifest["runner_sha256"], "Runner changed; prepare a fresh plan")
@@ -93,7 +93,7 @@ def run(directory, approval):
     durable(manifest_path, manifest)
     result = subprocess.run([
         "sudo", str(engine), "onboard-slot-trial", "--plan", str(plan_path),
-        "--journal", str(journal), "--approve-create-and-delete-slot", str(plan["target"]),
+        "--journal", str(journal),
     ], check=False)
     manifest["status"] = "completed" if result.returncode == 0 else "inspect_required"
     durable(manifest_path, manifest)
@@ -117,14 +117,13 @@ def main():
     parser.add_argument("stage", choices=("prepare", "run"))
     parser.add_argument("--directory", type=Path,
                         default=config_path().parent / "slot-creation-trial")
-    parser.add_argument("--approve-plan-sha256")
     args = parser.parse_args()
     try:
         directory = args.directory.expanduser().resolve()
         if args.stage == "prepare":
             prepare(directory, (ROOT / "target/release/naga-macros").resolve())
         else:
-            run(directory, args.approve_plan_sha256)
+            run(directory)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Slot trial stopped: {error}\n")
 

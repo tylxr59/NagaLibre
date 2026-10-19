@@ -39,6 +39,8 @@ enum Command {
     },
     OnboardPrepare {
         buttons: Vec<onboard::Button>,
+        #[serde(default)]
+        controls: Vec<onboard::Button>,
     },
     OnboardCommit {
         token: String,
@@ -170,6 +172,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         json!({"type":"hello","protocol":4,"version":env!("CARGO_PKG_VERSION"), "device":device,
         "slot_creation":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "slot_activation":device.is_some_and(|d| d.onboard),
+        "wheel_controls":device.is_some_and(|d| d.onboard),
         "device_error":selection.as_ref().err().map(|e| format!("{e:#}"))}),
     );
     let mut active: Option<Worker> = None;
@@ -310,7 +313,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                         snapshot = Some(read);
                         hardware = Some(mouse);
                     }
-                    Command::OnboardPrepare { buttons } => {
+                    Command::OnboardPrepare { buttons, controls } => {
                         prepared = None;
                         if watching_plate {
                             ensure!(
@@ -324,7 +327,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                         let before = snapshot
                             .as_ref()
                             .context("Read mouse slots before saving")?;
-                        let plan = mouse.prepare(before, buttons)?;
+                        let plan = mouse.prepare_controls(before, buttons, controls)?;
                         let token = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)?
                             .as_nanos()

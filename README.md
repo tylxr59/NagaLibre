@@ -31,7 +31,8 @@ Hardware verification below refers to the Naga V2 Pro.
 | 6- and 2-button bindings | Input learning in software mode; remapping still needs physical testing |
 | 2.4 GHz receiver | Recognized; onboard behavior still needs testing |
 | Bluetooth onboard programming | Unsupported |
-| New onboard slots, DPI, and RGB | Not implemented |
+| New onboard slots | Wired Naga V2 Pro, 12-button plate |
+| DPI stage values and RGB settings | Not implemented |
 | Multi-step macros stored on the mouse | Not implemented; use software mode |
 
 This is a project under active development. Start with the USB cable and the
@@ -144,7 +145,22 @@ switches and verifies the result. Selecting the dropdown or clicking **Read slot
 alone does not activate it. Activation currently requires normal device mode and
 the detected 12-button plate; it refuses slots with unexpected primary clicks.
 
-**Reset 12 buttons** restores `1…9, 0, -, =` in the selected slot.
+**Restore defaults** updates your draft to `1…9, 0, -, =` on the side plate,
+horizontal scroll left/right on the wheel tilts, cycling wheel modes on the
+scroll-mode button, and cycling DPI stages on the DPI button. Click **Save bindings to mouse** to apply these bindings to
+the selected slot. Other plate drafts are preserved.
+Mouse memory mode also has **Wheel tilt left**, **Wheel tilt right**,
+**Scroll-mode button**, and **DPI button** tiles. Assign a key, shortcut,
+or mouse-button action and click **Save bindings to mouse**. These controls default
+to **Keep stored binding**, which preserves their existing firmware behavior.
+**Factory default** and **Use default for this button** restore an individual
+wheel control's standard function in the draft. These bindings are derived from
+the official driver; horizontal scrolling, wheel-mode cycling and DPI cycling still need physical
+verification. Software mode leaves their firmware
+behavior intact; onboard macro sequences for these controls are unsupported.
+The DPI binding uses the mouse's existing DPI stages; it does not change their
+values. Device defaults and control definitions live in [devices/models.json](devices/models.json),
+shared by the GUI and backend. See [the registry format](devices/README.md).
 **Restore backup…** restores saved side-button records on the same mouse and
 connection type, then activates their slot. Primary left/right click mappings
 are never rewritten. The slot list shows the device-reported capacity and distinguishes initialized

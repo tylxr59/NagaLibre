@@ -53,15 +53,15 @@ impl<T: Transport> Mouse<T> {
                 middle.category == 1 && middle.data == [3],
                 "New slot lacks standard middle click"
             );
-            let usages = [
-                0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d, 0x2e,
-            ];
+            let defaults = &crate::devices::naga_defaults().plates["12"].bindings;
             ensure!(
-                after
-                    .buttons
-                    .iter()
-                    .zip(usages)
-                    .all(|(button, usage)| button.category == 2 && button.data == [0, usage]),
+                defaults.len() == after.buttons.len()
+                    && after
+                        .buttons
+                        .iter()
+                        .zip(defaults)
+                        .all(|(button, default)| button.category == default.category
+                            && button.data == default.data),
                 "New slot defaults differ from the verified wired firmware"
             );
             for before in &plan.snapshots {
