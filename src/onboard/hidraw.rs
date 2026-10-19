@@ -289,6 +289,17 @@ pub fn connect() -> Result<Mouse<Hidraw>> {
 mod tests {
     use super::*;
     #[test]
+    fn inventory_reply_uses_reported_length_instead_of_request_size() {
+        let packet = request(0x1f, 5, 0x81, &[0; 6]).unwrap();
+        let mut response = packet;
+        response[1] = 2;
+        response[6] = 3;
+        response[9..12].copy_from_slice(&[5, 1, 2]);
+        response[89] = response[3..89].iter().fold(0, |a, b| a ^ b);
+        assert_eq!(reply(&packet, &response, 0).unwrap(), Some(vec![5, 1, 2]));
+    }
+
+    #[test]
     fn feature_framing_and_reply_checks_reject_stale_or_corrupt_data() {
         let packet = request(0x1f, 2, 0x8c, &[1, 0x40, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap();
         assert_eq!(ioctl_code(3, 6, 91), 0xc05b4806);

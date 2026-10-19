@@ -26,7 +26,10 @@ The implementable profile protocol was cross-referenced against the MIT-licensed
 and its [device transport](https://github.com/Bmwascher/razer-naga-companion/blob/master/src/NagaBatteryTray/Hid/RazerDevice.cs).
 That project's documentation reports exact Naga V2 Pro hardware verification,
 including persistence across power cycles. These are external observations;
-**NagaLibre's new transport has not yet been tested on a physical mouse**.
+**NagaLibre's USB serial, mode, inventory and active-slot getters have now
+succeeded on a physical mouse, as have button-record reads for slots 1 and 2;
+slot 1's decoded factory actions match observed physical events. All writes
+remain unverified**.
 NagaLibre implements the protocol independently in Rust.
 
 ## Implemented protocol
@@ -42,10 +45,34 @@ Busy replies are polled without resending writes.
 | --- | --- | --- |
 | `00/82` | Serial number | 22 |
 | `00/84`, `00/04` | Read/set normal or driver mode | 2 |
-| `05/81` | Initialized slot inventory | 6 |
+| `05/81` | Initialized slot inventory | Request 6; reply capacity byte + returned slot IDs (up to 6 total) |
 | `05/84` | Read active slot | 6 |
 | `05/04` | Activate initialized slot | 1 |
 | `02/8c`, `02/0c` | Read/write button record | 10 |
+
+The physical USB probe returned mode `00 00`, inventory `05 01 02` with
+reported payload length 3, and active slot `01 00 00 00 00 00`. Inventory's
+first byte is capacity, not a count of returned entries. The source parser
+accepts compact and padded lists bounded by capacity; this fix builds and passes
+automated tests and both slots now read successfully on the physical mouse.
+It does not alter transport framing.
+
+Both slots report standard primary left/right records. Raw probing of slot 1
+found category-2 length-2 records on grid buttons 1/2, and length-1 records on
+buttons 3–12. Despite length 1, the modifier and HID usage bytes are both present:
+ID 0x42 returned `01 42 00 02 01 00 20 00 00 00`. All twelve usages match
+physical events KEY_1..KEY_9, KEY_0, KEY_MINUS, KEY_EQUAL in order. The earlier
+[0] decoding discarded the trailing usage. The source now reads both keyboard
+bytes for category 2 with declared length 1. A fresh physical read verified
+all twelve decoded factory keys and preservation of raw records on buttons
+3–12. No write or persistence tests have occurred.
+
+Noncanonical records include optional `raw_record` metadata containing category,
+original length, and all five data bytes. Snapshot JSON preserves this for exact
+restore and rollback. Raw metadata is checked against decoded category/data
+before writes. Canonical records omit it, and older snapshots still deserialize.
+Full raw payloads remain available through `onboard-probe --slot 1`; this reads
+primary buttons and grid without setting mode, activating slots or writing.
 
 A button record is `[slot, button_id, hypershift, category, data_length, data…]`.
 Grid positions 1–12 address IDs `40`–`4b`. Category 2 encodes

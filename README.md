@@ -43,12 +43,25 @@ fails, obtain the raw getter replies with:
 sudo ./naga-macros onboard-probe
 ```
 
-The inventory format failure remains unresolved until actual device output is
-available. The probe changes no settings.
+The physical USB probe returned the compact inventory `05 01 02` (capacity 5,
+slots 1 and 2). The source parser now accepts this reply; the released 0.3.1
+binary still requires six bytes and rejects it. The source fix builds and passes
+automated tests; physical `onboard-read` now succeeds for slots 1 and 2.
+Raw probing found keyboard records with declared length 1 but both modifier
+and HID usage bytes present. The source now decodes these and preserves original
+bytes in backups; physical monitoring confirmed all twelve factory key outputs
+in active slot 1. A fresh physical read verified the corrected decoding for
+all twelve buttons and preservation of the original nonstandard records.
+Settings writes remain unverified. The probe changes no settings.
+
+To inspect complete button getter payloads from an existing slot with a local
+build, use `sudo ./target/release/naga-macros onboard-probe --slot 1`.
+This adds primary and side-button reads without changing settings.
 
 Version **0.3.0** adds an experimental **Mouse memory** mode for existing
-onboard profile slots. It is implemented from the Naga V2 Pro protocol, but has
-not yet been tested on a physical mouse. Start with this read-only diagnostic:
+onboard profile slots. Read-only slot discovery and button-record retrieval
+have succeeded on a physical mouse; settings writes remain unverified. Start
+with this read-only diagnostic:
 
 ```sh
 sudo ./naga-macros onboard-read

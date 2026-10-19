@@ -1,5 +1,68 @@
 # Project handoff
 
+## Latest: physical probe identifies compact inventory reply
+
+The USB-connected mouse (`1532:00a7`, control interface `/dev/hidraw6` at
+probe time) was probed with the checksum-verified 0.3.1 release. All four
+getters succeeded: serial returned 22 bytes, mode `00 00`, inventory
+`05 01 02` with length **3**, and active slot `01 00 00 00 00 00`.
+Do not commit the mouse's serial number. The descriptor exposes the expected
+report-ID-zero, 90-byte feature report.
+
+The reference protocol identifies the first inventory byte as capacity, followed
+by existing slot IDs. The failure was the requirement for exactly six returned
+bytes; the transport already correctly respects the reply's data_size. The
+source parser now accepts compact inventories bounded by capacity (maximum 5),
+retaining slot-range, duplicate and empty-inventory rejection. Regression tests
+cover the observed three-byte reply, padded replies via the existing fake, and
+malformed inventories. A framing test verifies reply-length handling.
+
+The user chose to install this machine's distro Rust toolchain and asked to
+continue locally, superseding the earlier no-toolchain-on-main-PC guidance.
+The corrected source builds locally. All 22 Rust tests and 15 offscreen GUI
+tests pass; `cargo fmt --check` and Clippy with warnings denied pass.
+**The inventory parser fix is now hardware-verified:** the user ran the corrected
+release binary's read-only `onboard-read --slot 1` and `--slot 2`; both succeeded,
+reporting slots [1, 2], active slot 1, normal mode [0, 0], and standard primary
+left/right records. Slot 1 side buttons 1 and 2 declared keyboard
+length 2; the remaining ten declared length 1. The original decoder returned
+only [0] for those ten buttons and all buttons in slot 2. Physical monitoring
+in active slot 1 nevertheless confirmed KEY_1..KEY_9, KEY_0, KEY_MINUS,
+KEY_EQUAL, in order.
+
+The user ran `onboard-probe --slot 1` (new optional slot argument reads primary
+IDs 1/2 and grid IDs 0x40..0x4b with existing echo checks). Complete payloads
+confirmed that the HID usages are present after the zero modifier despite the
+declared length 1: e.g. ID 0x42 returned `01 42 00 02 01 00 20 00 00 00`.
+All twelve trailing usages match the observed factory outputs. The local source
+now decodes category-2 length-1 records using both modifier and usage bytes.
+The user re-ran the rebuilt binary's `onboard-read --slot 1`: all twelve
+decoded bindings now match the observed factory key outputs, with raw_record
+retained on buttons 3–12. This verifies both read-side fixes on physical USB.
+
+`Button.raw_record` optionally preserves the original seven bytes (category,
+length, all five data bytes) whenever canonical encoding would differ. Backup
+JSON retains this metadata, including trailing bytes for unknown categories.
+Restore/rollback writes the original record and validates it against decoded
+data before writes. Old canonical records need no extra field. Tests cover all
+twelve captured records, JSON round trips, rollback/restore of length-1 records,
+and rejection of inconsistent raw metadata. All 22 Rust tests, 15 GUI tests,
+formatting, Clippy and release build pass. No live write test has occurred.
+
+The requested read-only inventory investigation is complete. Slot 2's physical
+behavior remains untested. Next hardware phase, if requested: durably back up
+the verified slot, test a binding change, app exit/reconnect persistence,
+primary controls, reset and backup restoration. The GUI writes all twelve draft
+actions; do not describe it as a one-record write, especially because canonical
+draft records differ from the ten original raw records. No writes are authorized
+by the read-only diagnostic request alone.
+
+The downloaded 0.3.1 binary
+at `/tmp/nagalibre-probe.U8lvTx/naga-macros` still contains the old parser.
+Unprivileged access to hidraw6 fails and noninteractive sudo requires a password;
+the user ran the diagnostics locally. No settings writes or persistence tests
+have occurred.
+
 ## Latest: 0.3.1 display fix and main-PC handoff
 
 The user tried 0.3.0 on the mouse. `get_slots()` fails with

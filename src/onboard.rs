@@ -19,6 +19,49 @@ pub struct Button {
     pub button: u8,
     pub category: u8,
     pub data: Vec<u8>,
+    /// Original category, length and five data bytes when not canonically encoded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_record: Option<[u8; 7]>,
+}
+
+impl Button {
+    fn from_record(button: u8, record: [u8; 7]) -> Result<Self> {
+        ensure!(record[1] <= 5, "Invalid button action length");
+        // Physical USB captures show keyboard length=1 while the modifier and
+        // HID usage still occupy both bytes, matching observed key events.
+        let length = if record[0] == 2 && record[1] == 1 {
+            2
+        } else {
+            usize::from(record[1])
+        };
+        let mut decoded = Self {
+            button,
+            category: record[0],
+            data: record[2..2 + length].to_vec(),
+            raw_record: None,
+        };
+        if decoded.record()? != record {
+            decoded.raw_record = Some(record);
+        }
+        Ok(decoded)
+    }
+
+    fn record(&self) -> Result<[u8; 7]> {
+        ensure!(self.data.len() <= 5, "Button action is too long");
+        if let Some(raw) = self.raw_record {
+            let decoded = Self::from_record(self.button, raw)?;
+            ensure!(
+                decoded.category == self.category && decoded.data == self.data,
+                "Raw button record does not match decoded action"
+            );
+            return Ok(raw);
+        }
+        let mut record = [0; 7];
+        record[0] = self.category;
+        record[1] = self.data.len() as u8;
+        record[2..2 + self.data.len()].copy_from_slice(&self.data);
+        Ok(record)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +106,7 @@ pub fn validate_buttons(buttons: &[Button]) -> Result<()> {
     );
     let mut seen = BTreeSet::new();
     for button in buttons {
+        button.record()?;
         ensure!(
             (1..=12).contains(&button.button) && seen.insert(button.button),
             "Invalid or duplicate physical side-button number"
@@ -93,12 +137,14 @@ impl<T: Transport> Mouse<T> {
                     Button {
                         button: 1,
                         category: 1,
-                        data: vec![1]
+                        data: vec![1],
+                        raw_record: None,
                     },
                     Button {
                         button: 2,
                         category: 1,
-                        data: vec![2]
+                        data: vec![2],
+                        raw_record: None,
                     }
                 ],
             "This slot does not have standard primary-click actions. Choose another initialized slot; primary clicks will not be rewritten."
@@ -117,6 +163,7 @@ impl<T: Transport> Mouse<T> {
         );
         let mut seen = BTreeSet::new();
         for b in &backup.buttons {
+            b.record()?;
             ensure!(
                 (1..=12).contains(&b.button) && seen.insert(b.button) && b.data.len() <= 5,
                 "Invalid side-button backup record"
@@ -144,12 +191,15 @@ impl<T: Transport> Mouse<T> {
     fn get_slots(&mut self) -> Result<Vec<u8>> {
         let bytes = self.transport.exchange(5, 0x81, &[0; 6], 0)?;
         ensure!(
-            bytes.len() == 6 && bytes[0] <= 5,
+            !bytes.is_empty() && bytes[0] <= 5 && bytes.len() <= 1 + usize::from(bytes[0]),
             "Unsupported onboard profile inventory: {} bytes, payload {:02x?}. No settings were changed. Run onboard-probe and share its output.",
             bytes.len(),
             bytes
         );
-        let slots: Vec<_> = bytes[1..1 + usize::from(bytes[0])]
+        // The first byte is capacity, not the number of returned entries.
+        // Wired hardware returned [5, 1, 2] with data_size=3: absent entries
+        // need not be zero-padded to the six-byte request size.
+        let slots: Vec<_> = bytes[1..]
             .iter()
             .copied()
             .filter(|slot| *slot != 0)
@@ -184,11 +234,7 @@ impl<T: Transport> Mouse<T> {
             bytes.len() == 10 && bytes[..3] == payload[..3] && bytes[4] <= 5,
             "Invalid button-table reply for slot {slot}, id {id:#x}"
         );
-        Ok(Button {
-            button: physical_number,
-            category: bytes[3],
-            data: bytes[5..5 + usize::from(bytes[4])].to_vec(),
-        })
+        Button::from_record(physical_number, bytes[3..10].try_into().unwrap())
     }
 
     fn set_button(&mut self, slot: u8, button: &Button) -> Result<()> {
@@ -201,9 +247,7 @@ impl<T: Transport> Mouse<T> {
         let mut payload = [0; 10];
         payload[0] = slot;
         payload[1] = 0x3f + button.button;
-        payload[3] = button.category;
-        payload[4] = button.data.len() as u8;
-        payload[5..5 + button.data.len()].copy_from_slice(&button.data);
+        payload[3..10].copy_from_slice(&button.record()?);
         self.transport.exchange(2, 0x0c, &payload, 0)?;
         let actual = self.get_button(slot, payload[1], button.button)?;
         ensure!(
@@ -371,6 +415,7 @@ mod tests {
         fail_once: Option<u8>,
         mode: Vec<u8>,
         active: u8,
+        inventory: Vec<u8>,
     }
     impl Fake {
         fn new() -> Self {
@@ -383,6 +428,7 @@ mod tests {
                                 button: n,
                                 category: 2,
                                 data: vec![0, 0x1d + n],
+                                raw_record: None,
                             },
                         )
                     })
@@ -391,6 +437,7 @@ mod tests {
                 fail_once: None,
                 mode: vec![0, 0],
                 active: 1,
+                inventory: vec![5, 1, 2, 0, 0, 0],
             }
         }
     }
@@ -414,7 +461,7 @@ mod tests {
                     self.mode = p.to_vec();
                     p.to_vec()
                 }
-                (5, 0x81) => vec![5, 1, 2, 0, 0, 0],
+                (5, 0x81) => self.inventory.clone(),
                 (5, 0x84) => vec![self.active, 0, 0, 0, 0, 0],
                 (5, 4) => {
                     self.active = p[0];
@@ -426,14 +473,13 @@ mod tests {
                             button: p[1],
                             category: 1,
                             data: vec![p[1]],
+                            raw_record: None,
                         }
                     } else {
                         self.buttons[&p[1]].clone()
                     };
                     let mut r = p.to_vec();
-                    r[3] = b.category;
-                    r[4] = b.data.len() as u8;
-                    r[5..5 + b.data.len()].copy_from_slice(&b.data);
+                    r[3..10].copy_from_slice(&b.record()?);
                     r
                 }
                 (2, 0x0c) => {
@@ -441,11 +487,7 @@ mod tests {
                     self.writes.push(p[1]);
                     self.buttons.insert(
                         p[1],
-                        Button {
-                            button: p[1] - 0x3f,
-                            category: p[3],
-                            data: p[5..5 + usize::from(p[4])].to_vec(),
-                        },
+                        Button::from_record(p[1] - 0x3f, p[3..10].try_into().unwrap())?,
                     );
                     if self.fail_once == Some(p[1]) {
                         self.fail_once = None;
@@ -455,6 +497,114 @@ mod tests {
                 }
                 _ => panic!("Unexpected command {class:x}/{cmd:x}"),
             })
+        }
+    }
+
+    #[test]
+    fn captured_keyboard_records_decode_all_factory_keys_and_preserve_wire_bytes() {
+        let usages = [
+            0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d, 0x2e,
+        ];
+        for (index, usage) in usages.into_iter().enumerate() {
+            let length = if index < 2 { 2 } else { 1 };
+            let raw = [2, length, 0, usage, 0, 0, 0];
+            let button = Button::from_record(index as u8 + 1, raw).unwrap();
+            assert_eq!(button.data, vec![0, usage]);
+            assert_eq!(button.raw_record.is_some(), length == 1);
+            assert_eq!(button.record().unwrap(), raw);
+            let json = serde_json::to_string(&button).unwrap();
+            let restored: Button = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored.record().unwrap(), raw);
+        }
+        let legacy: Button =
+            serde_json::from_str(r#"{"button":1,"category":2,"data":[0,30]}"#).unwrap();
+        assert_eq!(legacy.raw_record, None);
+        assert_eq!(legacy.record().unwrap(), [2, 2, 0, 30, 0, 0, 0]);
+        let unknown = [0x12, 1, 8, 7, 6, 5, 4];
+        assert_eq!(
+            Button::from_record(1, unknown).unwrap().record().unwrap(),
+            unknown
+        );
+        assert!(Button::from_record(1, [2, 6, 0, 0, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn short_keyboard_records_survive_backup_restore_and_failed_save_rollback() {
+        let mut mouse = Mouse {
+            transport: Fake::new(),
+        };
+        let raw = [2, 1, 0, 0x20, 0, 0, 0];
+        mouse
+            .transport
+            .buttons
+            .insert(0x42, Button::from_record(3, raw).unwrap());
+        let before = mouse.read(None).unwrap();
+        let backup: Snapshot =
+            serde_json::from_str(&serde_json::to_string(&before).unwrap()).unwrap();
+        let mut desired = before.buttons.clone();
+        desired[2].data = vec![0, 5];
+        desired[2].raw_record = None;
+        let plan = mouse.prepare(&before, desired).unwrap();
+        mouse.transport.fail_once = Some(0x42);
+        assert!(
+            mouse
+                .commit(plan)
+                .unwrap_err()
+                .to_string()
+                .contains("were restored")
+        );
+        assert_eq!(mouse.read(None).unwrap(), before);
+        // Restore must carry the original length byte and trailing usage too.
+        mouse.transport.buttons.get_mut(&0x42).unwrap().raw_record = None;
+        let plan = mouse.prepare_restore(backup).unwrap();
+        mouse.commit(plan).unwrap();
+        assert_eq!(mouse.transport.buttons[&0x42].record().unwrap(), raw);
+    }
+
+    #[test]
+    fn inconsistent_raw_backup_is_rejected_before_writes() {
+        let mut mouse = Mouse {
+            transport: Fake::new(),
+        };
+        let mut backup = mouse.read(None).unwrap();
+        backup.buttons[0].raw_record = Some([2, 1, 0, 5, 0, 0, 0]);
+        assert!(mouse.prepare_restore(backup).is_err());
+        assert!(mouse.transport.writes.is_empty());
+    }
+
+    #[test]
+    fn compact_hardware_inventory_reads_both_initialized_slots_without_writes() {
+        let mut mouse = Mouse {
+            transport: Fake::new(),
+        };
+        mouse.transport.inventory = vec![5, 1, 2];
+        let snapshot = mouse.read(None).unwrap();
+        assert_eq!(snapshot.slots, vec![1, 2]);
+        assert_eq!(snapshot.slot, 1);
+        assert_eq!(mouse.read(Some(2)).unwrap().slot, 2);
+        assert!(mouse.read(Some(3)).is_err());
+        assert!(mouse.transport.writes.is_empty());
+    }
+
+    #[test]
+    fn invalid_or_empty_inventories_fail_without_writes() {
+        let mut mouse = Mouse {
+            transport: Fake::new(),
+        };
+        for inventory in [
+            vec![],
+            vec![6, 1],
+            vec![1, 1, 2],
+            vec![5, 1, 1],
+            vec![5, 6],
+            vec![5, 0],
+            vec![5],
+            vec![0],
+            vec![0, 1],
+        ] {
+            mouse.transport.inventory = inventory;
+            assert!(mouse.read(None).is_err());
+            assert!(mouse.transport.writes.is_empty());
         }
     }
 

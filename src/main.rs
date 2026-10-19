@@ -29,7 +29,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Read raw profile-query payloads for troubleshooting, without changing settings.
-    OnboardProbe,
+    OnboardProbe {
+        /// Also read raw primary and twelve side-button payloads from this slot.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
+        slot: Option<u8>,
+    },
     /// Read onboard slots and twelve side-button records without changing settings.
     OnboardRead {
         #[arg(long)]
@@ -148,17 +152,29 @@ fn main() -> Result<()> {
     let signal = running.clone();
     ctrlc::set_handler(move || signal.store(false, Ordering::Relaxed))?;
     match cli.command {
-        Command::OnboardProbe => {
+        Command::OnboardProbe { slot } => {
             use onboard::Transport;
             let mut mouse = onboard::hidraw::connect()?;
             let mut reads = Vec::new();
-            for (name, class, command, size) in [
+            let mut queries: Vec<_> = [
                 ("serial", 0, 0x82, 22),
                 ("mode", 0, 0x84, 2),
                 ("inventory", 5, 0x81, 6),
                 ("active", 5, 0x84, 6),
-            ] {
-                let result = mouse.transport.exchange(class, command, &vec![0; size], 0);
+            ]
+            .into_iter()
+            .map(|(name, class, command, size)| (name.to_owned(), class, command, vec![0; size], 0))
+            .collect();
+            if let Some(slot) = slot {
+                for id in [1, 2].into_iter().chain(0x40..=0x4b) {
+                    let mut payload = vec![0; 10];
+                    payload[0] = slot;
+                    payload[1] = id;
+                    queries.push((format!("slot_{slot}_button_{id:02x}"), 2, 0x8c, payload, 3));
+                }
+            }
+            for (name, class, command, payload, echo) in queries {
+                let result = mouse.transport.exchange(class, command, &payload, echo);
                 reads.push(match result {
                     Ok(bytes) => serde_json::json!({"query":name,"length":bytes.len(),"payload":bytes,"hex":bytes.iter().map(|b|format!("{b:02x}")).collect::<Vec<_>>().join(" ")}),
                     Err(e) => serde_json::json!({"query":name,"error":format!("{e:#}")}),
