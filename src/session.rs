@@ -1,6 +1,6 @@
 //! The GUI stays unprivileged; the input session receives only data over stdin.
 //! EOF is a lifecycle boundary, including when the GUI is killed or crashes.
-use crate::{config, onboard, runtime};
+use crate::{config, faceplate, onboard, runtime};
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -12,7 +12,7 @@ use std::{
         mpsc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub fn emit(value: Value) {
@@ -24,12 +24,24 @@ pub fn emit(value: Value) {
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
-    OnboardRestore { backup: onboard::Snapshot },
-    OnboardRead { slot: Option<u8> },
-    OnboardPrepare { buttons: Vec<onboard::Button> },
-    OnboardCommit { token: String },
+    Faceplate,
+    OnboardRestore {
+        backup: onboard::Snapshot,
+    },
+    OnboardRead {
+        slot: Option<u8>,
+    },
+    OnboardPrepare {
+        buttons: Vec<onboard::Button>,
+    },
+    OnboardCommit {
+        token: String,
+    },
     Monitor,
-    Apply { config: String },
+    Apply {
+        config: String,
+        module_id: Option<u8>,
+    },
     Shutdown,
 }
 
@@ -94,6 +106,15 @@ fn worker(bindings: Option<config::Bindings>) -> Worker {
     Worker { running, thread }
 }
 
+fn read_plate(
+    hardware: &mut Option<onboard::Mouse<onboard::hidraw::Hidraw>>,
+) -> Result<faceplate::Faceplate> {
+    if hardware.is_none() {
+        *hardware = Some(onboard::hidraw::connect()?);
+    }
+    faceplate::read(hardware.as_mut().unwrap())
+}
+
 pub fn run(running: Arc<AtomicBool>) -> Result<()> {
     let (tx, rx) = mpsc::sync_channel(8);
     thread::spawn(move || {
@@ -120,12 +141,37 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         }
         // Dropping tx makes recv detect EOF, even when a worker is active.
     });
-    emit(json!({"type":"hello","protocol":2,"version":env!("CARGO_PKG_VERSION")}));
+    emit(json!({"type":"hello","protocol":3,"version":env!("CARGO_PKG_VERSION")}));
     let mut active: Option<Worker> = None;
     let mut hardware: Option<onboard::Mouse<onboard::hidraw::Hidraw>> = None;
     let mut snapshot: Option<onboard::Snapshot> = None;
     let mut prepared: Option<(String, onboard::Prepared)> = None;
+    let mut watching_plate = false;
+    let mut next_plate = Instant::now();
+    let mut last_plate = None;
     while running.load(Ordering::Relaxed) {
+        if watching_plate && Instant::now() >= next_plate {
+            let event = match read_plate(&mut hardware) {
+                Ok(plate) => {
+                    json!({"type":"faceplate", "module_id":plate.module_id, "buttons":plate.buttons})
+                }
+                Err(e) => {
+                    hardware = None;
+                    json!({"type":"faceplate", "module_id":null, "buttons":null, "message":format!("{e:#}")})
+                }
+            };
+            if last_plate.as_ref() != Some(&event) {
+                // Stop and release software output before telling the UI to switch drafts.
+                if let Some(worker) = active.take() {
+                    worker.stop();
+                }
+                prepared = None;
+                snapshot = None;
+                emit(event.clone());
+                last_plate = Some(event);
+            }
+            next_plate = Instant::now() + Duration::from_secs(1);
+        }
         let command = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(Ok(command)) => command,
             Ok(Err(message)) => {
@@ -135,6 +181,11 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         };
+        if matches!(command, Command::Faceplate) {
+            watching_plate = true;
+            next_plate = Instant::now();
+            continue;
+        }
         if matches!(
             command,
             Command::OnboardRead { .. }
@@ -173,6 +224,12 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                     }
                     Command::OnboardPrepare { buttons } => {
                         prepared = None;
+                        if watching_plate {
+                            ensure!(
+                                read_plate(&mut hardware)?.buttons == Some(12),
+                                "Attach the 12-button plate before saving mouse memory"
+                            );
+                        }
                         let mouse = hardware
                             .as_mut()
                             .context("Read mouse slots before saving")?;
@@ -190,6 +247,12 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                     Command::OnboardCommit { token } => {
                         let (expected, plan) =
                             prepared.take().context("No hardware save is prepared")?;
+                        if watching_plate {
+                            ensure!(
+                                read_plate(&mut hardware)?.buttons == Some(12),
+                                "Faceplate changed before save; no settings were written"
+                            );
+                        }
                         ensure!(
                             expected == token,
                             "Prepared hardware-save token does not match"
@@ -213,7 +276,19 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         let bindings = match command {
             Command::Shutdown => break,
             Command::Monitor => None,
-            Command::Apply { config: text } => match config::parse(&text) {
+            Command::Apply {
+                config: text,
+                module_id,
+            } => match config::parse(&text).and_then(|bindings| {
+                if let Some(expected) = module_id {
+                    let plate = read_plate(&mut hardware)?;
+                    ensure!(
+                        plate.module_id == expected && plate.buttons.is_some(),
+                        "Faceplate changed; wait for detection, then Apply again"
+                    );
+                }
+                Ok(bindings)
+            }) {
                 Ok(bindings) => Some(bindings),
                 Err(e) => {
                     emit(json!({"type":"error","message":format!("{e:#}")}));
@@ -222,7 +297,9 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             },
             _ => unreachable!(),
         };
-        hardware = None;
+        if !watching_plate {
+            hardware = None;
+        }
         snapshot = None;
         prepared = None;
         if let Some(worker) = active.take() {

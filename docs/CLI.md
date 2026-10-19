@@ -25,6 +25,26 @@ Use the paths reported on your own machine; event numbers can change. Stable
 keyboard. A physical button must emit an input event to be a software trigger;
 firmware-only DPI or profile actions cannot be captured this way.
 
+## Detect the attached faceplate
+
+```sh
+sudo ./target/release/naga-macros faceplate
+sudo ./target/release/naga-macros faceplate --watch
+```
+
+This read-only query prints JSON with `module_id` and `buttons`. Wired hardware
+verified IDs `1` = two buttons, `3` = twelve buttons, `4` = six buttons, and
+`0` = detached. Unknown IDs retain their raw value with `buttons: null`.
+`--watch` samples once per second until Ctrl+C. It does not grab input or change
+mouse settings. Stop the watcher before connecting the desktop helper so the
+two processes do not compete for feature replies. Receiver detection is untested.
+
+The desktop helper uses protocol 3 and publishes `faceplate` events on changes.
+The GUI automatically selects the corresponding draft and stops remapping on
+a change; Apply rechecks the module ID before starting software bindings.
+The standalone `run` command uses its supplied config and does not select
+plate-specific drafts.
+
 ## Configure software macros
 
 Copy the example and choose triggers from the monitor output:

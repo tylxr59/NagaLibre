@@ -23,10 +23,11 @@ OpenRazer. It is an independent project, unaffiliated with Razer.
 | Onboard key bindings | USB save, app exit/reconnect persistence, and exact backup restore tested on one mouse and slot |
 | Onboard shortcuts and mouse-button outputs | Implemented; physical testing still needed |
 | Software keys, shortcuts, and macro sequences | Available while the background helper runs |
-| 6- and 2-button plates | Manual selection and input learning in software mode; physical testing still needed |
+| Automatic faceplate detection | USB detection verified for 12-, 6-, and 2-button plates, including swaps |
+| 6- and 2-button bindings | Input learning in software mode; remapping still needs physical testing |
 | 2.4 GHz receiver | Recognized; onboard behavior still needs testing |
 | Bluetooth onboard programming | Unsupported |
-| Automatic plate detection, new onboard slots, DPI, and RGB | Not implemented |
+| New onboard slots, DPI, and RGB | Not implemented |
 | Multi-step macros stored on the mouse | Not implemented; use software mode |
 
 This is a project under active development. Start with the USB cable and the
@@ -120,8 +121,15 @@ are never rewritten. Only existing slots can be edited.
 ### Run software macros
 
 Choose **Software** for sequences such as a shortcut, a delay, and another key.
-Select the attached plate manually; use **Learn input** to identify side-button
-inputs, then **Apply bindings**. Learning ignores primary mouse clicks.
+After **Connect mouse**, the attached plate is selected automatically and checked
+once per second while the helper is connected. Swapping plates stops software
+bindings and selects that plate’s draft; click **Apply bindings** when ready.
+Use **Learn input** to identify side-button inputs, especially on the six- and
+two-button plates. Learning ignores primary mouse clicks.
+
+If detection is unavailable, the app allows manual selection. A detached or
+unrecognized plate blocks Apply until a supported plate is attached. Detection
+has been verified over USB; receiver detection still needs testing.
 
 Software mode needs the helper to stay running. Closing to the system tray keeps
 it active; **Quit** stops it. With the window focused, **Esc** stops software

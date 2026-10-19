@@ -128,7 +128,9 @@ plate, standard keys, modifier shortcuts and mouse-button outputs.
 
 Multi-step onboard macro encoding, allocation, upload and deletion remain
 unimplemented. Macro sequences are rejected before hardware writes and are
-available in the separate software mode. Other plates remain manual/software.
+available in the separate software mode. Other plates use software mode with
+input learning; automatic plate identification is now verified on USB (see
+[FACEPLATES.md](FACEPLATES.md)).
 DPI, RGB, firmware updates and arbitrary vendor command probes are outside this
 implementation.
 

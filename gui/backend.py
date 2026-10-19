@@ -73,7 +73,7 @@ class Backend(QObject):
                 self.log.emit("Invalid input-helper response.")
                 continue
             if message.get("type") == "hello":
-                if message.get("protocol") not in (1, 2):
+                if message.get("protocol") not in (1, 2, 3):
                     self.log.emit("Input engine version is incompatible. Update both app and engine.")
                     self.process.closeWriteChannel()
                     continue

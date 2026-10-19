@@ -147,6 +147,8 @@ class Window(QMainWindow):
         self.learn_pending = False
         self.pending_config = None
         self.pending_onboard = None
+        self.detected_module = None
+        self.plate_detection = "offline"
         self.hardware_busy = False
         self.hardware_saved = None
         self.snapshot = None
@@ -209,9 +211,9 @@ class Window(QMainWindow):
         self.plate.setCurrentIndex(self.plate.findData(self.profile["plate"]))
         self.plate.currentIndexChanged.connect(self.change_plate)
         left_layout.addWidget(self.plate)
-        plate_hint = QLabel("Plate selection is manual. Use Learn input to check a different plate.")
-        plate_hint.setWordWrap(True)
-        left_layout.addWidget(plate_hint)
+        self.plate_hint = QLabel("Connect mouse to detect the attached plate automatically.")
+        self.plate_hint.setWordWrap(True)
+        left_layout.addWidget(self.plate_hint)
         self.grid_host = QWidget()
         self.grid = QGridLayout(self.grid_host)
         self.grid.setContentsMargins(0, 10, 0, 10)
@@ -439,6 +441,17 @@ class Window(QMainWindow):
     def connection_changed(self, connected):
         self.connect_button.setText("Reconnect / rescan" if connected else "Connect mouse")
         if connected:
+            if self.backend.protocol >= 3:
+                self.detected_module = None
+                self.plate_detection = "pending"
+                self.plate_hint.setText("Detecting attached faceplate…")
+                self.plate.setEnabled(False)
+                self.backend.send({"command": "faceplate"})
+                # A queued config was built before we knew the attached plate.
+                self.pending_config = None
+                self.applying = False
+            else:
+                self.plate_hint.setText("This helper requires manual plate selection. Rebuild the engine for automatic detection.")
             if self.pending_onboard is not None:
                 command, self.pending_onboard = self.pending_onboard, None
                 if self.backend.protocol < 2:
@@ -454,6 +467,9 @@ class Window(QMainWindow):
             else:
                 self.backend.send({"command": "monitor"})
         else:
+            self.detected_module = None
+            self.plate_detection = "offline"
+            self.plate_hint.setText("Connect mouse to detect the attached plate automatically.")
             self.applying = False
             self.pending_config = None
             self.pending_onboard = None
@@ -500,6 +516,10 @@ class Window(QMainWindow):
         snapshot = self.current_snapshot()
         self.apply_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
         self.reset_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
+        self.plate.setEnabled(not self.hardware_busy and self.plate_detection in ("offline", "unavailable"))
+        if self.plate_detection in ("pending", "unknown"):
+            self.apply_button.setEnabled(False)
+            self.reset_button.setEnabled(False)
         if hasattr(self, "stored_binding"):
             self.stored_binding.setVisible(hardware)
             if snapshot is None:
@@ -567,6 +587,44 @@ class Window(QMainWindow):
         self.select_button(0, commit=False)
         self.status.setText("Plate selected manually · bindings are stopped. Learn inputs if needed, then Apply.")
 
+    def detected_plate(self, message):
+        self.commit_fields()
+        self.cancel_learning()
+        self.pending_config = None
+        self.snapshot = None
+        self.hardware_saved = None
+        self.save_after_read = False
+        self.applying = False
+        self.detected_module = message.get("module_id")
+        count = message.get("buttons")
+        if count in (2, 6, 12):
+            self.plate_detection = "auto"
+            plate = str(count)
+            changed = self.profile["plate"] != plate
+            if changed:
+                self.profile["plate"] = plate
+                self.selected = 0
+                self.plate.blockSignals(True)
+                self.plate.setCurrentIndex(self.plate.findData(plate))
+                self.plate.blockSignals(False)
+                self.rebuild_grid()
+                self.select_button(0, commit=False)
+            self.plate_hint.setText(f"Detected {count}-button plate · updates automatically when swapped.")
+            self.status.setText(f"Detected {count}-button plate · " + ("read slots before saving." if self.is_hardware() else "bindings stopped. Click Apply when ready."))
+        elif self.detected_module is None:
+            self.plate_detection = "unavailable"
+            self.plate_hint.setText("Automatic detection unavailable · select the plate manually.")
+            self.status.setText("Faceplate detection unavailable · bindings stopped. Select the plate manually before applying.")
+            self.log(message.get("message", "Faceplate could not be read."))
+        else:
+            self.plate_detection = "unknown"
+            self.snapshot = None
+            self.plate_hint.setText("No faceplate attached." if self.detected_module == 0 else f"Unrecognized faceplate ID {self.detected_module}.")
+            self.status.setText("Attach a supported faceplate to apply bindings.")
+        if not self.is_hardware() and self.backend.ready:
+            self.backend.send({"command": "monitor"})
+        self.refresh_hardware_view()
+
     def learn_input(self):
         self.commit_fields()
         self.learn_pending = True
@@ -585,7 +643,9 @@ class Window(QMainWindow):
 
     def on_event(self, message):
         kind = message.get("type")
-        if kind == "onboard_snapshot":
+        if kind == "faceplate":
+            self.detected_plate(message)
+        elif kind == "onboard_snapshot":
             self.fault = False
             self.snapshot = message["snapshot"]
             snapshot = self.snapshot
@@ -704,6 +764,8 @@ class Window(QMainWindow):
 
     def apply(self):
         try:
+            if self.plate_detection in ("pending", "unknown"):
+                raise ValueError("Wait for a supported faceplate to be detected before applying bindings.")
             self.commit_fields()
             if self.is_hardware():
                 buttons = hardware_buttons(self.profile)
@@ -726,7 +788,10 @@ class Window(QMainWindow):
             self.applying = True
             self.status.setText("Applying… release all mouse buttons.")
             if self.backend.ready:
-                self.backend.send({"command": "apply", "config": config})
+                command = {"command": "apply", "config": config}
+                if self.backend.protocol >= 3 and self.detected_module is not None:
+                    command["module_id"] = self.detected_module
+                self.backend.send(command)
             else:
                 self.pending_config = config
                 self.connect_mouse()

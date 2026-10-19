@@ -8,8 +8,11 @@ current implementation, evidence, and remaining work. User setup belongs in
 
 NagaLibre is an independent FOSS Linux reimplementation of Razer Naga side-button
 bindings. Target mouse: Naga V2 Pro. The user's hardware machine runs Arch/KDE;
-this development VM has no mouse attached. Do not assume one machine's toolchain,
-device paths, sudo access, or private files exist on another.
+earlier development used a VM without the mouse. In the 2026-10-19 session,
+the current execution environment reports CachyOS/Arch and the wired mouse is
+visible. Direct hidraw access still requires local sudo authentication. Do not
+assume one machine’s toolchain, device paths, sudo access, or private files exist
+on another.
 
 The GUI uses PySide6 and a locally built Rust engine. The source-only distribution
 policy replaces the earlier binary-preview workflow. No compiled executables or
@@ -31,7 +34,7 @@ local executable includes these source fixes. Rebuild from the intended commit.
 
 ## Hardware evidence
 
-The latest completed live test is recorded in commit 8def909 and preceding
+The latest completed onboard-write test is recorded in commit 8def909 and preceding
 commits deb2668, dd0d727 and 594fea9. Device: USB 1532:00a7, 12-button plate,
 active slot 1, normal mode [0, 0]. Receiver 1532:00a8 is recognized but unverified.
 Bluetooth onboard access is unsupported. Slot inventory reports initialized
@@ -128,8 +131,9 @@ remains displayed after the helper exits; another save needs a fresh read.
 
 Closing software mode to tray keeps the helper running. Session EOF, Quit and
 process termination release software input grabs. Onboard saves stop the helper
-and remain in firmware. Other plates require manual selection/input learning in
-software mode; do not infer plate identity from one shared key event.
+and remain in firmware. Plate selection is now automatic while connected; six- and two-button inputs
+still require learning in software mode. Do not infer plate identity from one
+shared key event.
 
 ## Research and provenance
 
@@ -138,8 +142,10 @@ software mode; do not infer plate identity from one shared key event.
 - [Onboard protocol](inspection/ONBOARD.md): official Device167 package, native/
   managed investigation and independent protocol references. Proprietary payloads
   and decompiled code stay outside version control.
-- [Faceplates](inspection/FACEPLATES.md): recovered generic 00/86 layout query is
-  not verified as Naga plate identification. No mapping to plate counts is known.
+- [Faceplates](inspection/FACEPLATES.md): model-specific native/managed trace
+  recovered hardware-module getter `00/b9`, one-byte payload/reply. Wired physical
+  swaps verified IDs 3 (twelve), 4 (six), 1 (two), 0 (detached), then 3 again.
+  This supersedes the inconclusive generic `00/86` layout investigation.
 
 The managed module exposes macro conversion/storage handlers but its host event
 structures are not the USB wire format. Native multi-step allocation/upload/
@@ -171,6 +177,38 @@ Use the portable build/check commands in AGENTS.md on other machines.
 1. Broaden controlled hardware coverage: reset, failure rollback, shortcuts/mouse
    outputs, inactive slots and receiver behavior, plus the Qt/polkit workflow.
 2. Recover and verify native multi-step macro storage before offering it in UI.
-3. Verify 6/2-button plates and investigate actual faceplate notifications.
+3. Verify 6/2-button software outputs and receiver detection. Faceplate detection
+   and swaps are verified on USB; the helper currently polls once per second.
 4. Exercise hotplug, cleanup and simultaneous external controller access.
 5. Keep builds source-only; never revive the old binary-packaging workflow.
+
+## Automatic faceplate detection (2026-10-19)
+
+Pulled main fast-forward from 8def909 to ee84ce0 before this work. Re-extracted
+the supplied bootstrap and official Device167 package without running Windows
+code. The Naga-specific hardware-module trace and physical readings are in
+inspection/FACEPLATES.md. User ran the existing durable backup script and the
+new `faceplate --watch` diagnostic through sudo, then confirmed each plate swap.
+No mouse settings were written. The backup and raw capture remain private/local.
+
+The engine adds `faceplate [--watch]` and JSON session protocol 3. A `faceplate`
+session command enables polling and emits changes with `module_id` and `buttons`.
+Known IDs select the corresponding GUI draft automatically; switches stop active
+software remaps and learning, preserve drafts and invalidate mouse snapshots.
+Read errors show manual fallback; detached/unknown modules block Apply.
+Software Apply carries an optional module_id checked immediately before starting;
+onboard prepare/commit recheck the twelve-button plate when detection is enabled.
+Older protocol-1/2 engines retain manual GUI behavior. Successful onboard saves
+still terminate the helper, so detection resumes on the next connection.
+
+Automated validation passed 29 Rust and 25 Python/Qt tests, formatting, Clippy
+with warnings denied, debug/release builds and the example config check.
+Regressions cover draft preservation, no-plate/unknown/error handling and queued
+config cancellation. After launching the rebuilt app and being asked to connect
+and swap plates, the user confirmed that desktop detection worked. This is a
+user-reported GUI result; the exact plate sequence and authentication flow were
+not separately recorded. The CLI watcher independently verified all three plates
+and detach/reattach transitions.
+The current environment has Cargo and PySide6 directly available; the older
+/tmp toolchain and .venv instructions above describe a previous environment.
+Receiver/Bluetooth and physical six-/two-button remapping remain unverified.

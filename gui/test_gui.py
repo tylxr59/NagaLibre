@@ -221,6 +221,60 @@ class QtFlow(unittest.TestCase):
                     else:
                         os.environ[name] = value
 
+    def test_detected_plate_switch_keeps_drafts_cancels_learning_and_guards_apply(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profile.json")
+            window.storage.setCurrentIndex(window.storage.findData("software"))
+            window.mode.setCurrentIndex(window.mode.findData("key"))
+            window.key_value.setText("F13")
+            window.learning = True
+            window.pending_config = "old config"
+            window.backend.ready = True
+            window.backend.protocol = 3
+            with patch.object(window.backend, "send") as send:
+                window.on_event({"type": "faceplate", "module_id": 4, "buttons": 6})
+                self.assertEqual(window.profile["plate"], "6")
+                self.assertEqual(len(window.tiles), 6)
+                self.assertEqual(window.profile["plates"]["12"][0]["value"], "F13")
+                self.assertFalse(window.learning)
+                self.assertIsNone(window.pending_config)
+                self.assertFalse(window.plate.isEnabled())
+                self.assertEqual(send.call_args.args[0], {"command": "monitor"})
+                send.reset_mock()
+                window.on_event({"type": "faceplate", "module_id": 0, "buttons": None})
+                self.assertFalse(window.apply_button.isEnabled())
+                window.apply()
+                self.assertFalse(any(c.args[0]["command"] == "apply" for c in send.call_args_list))
+                window.on_event({"type": "faceplate", "module_id": 2, "buttons": None})
+                self.assertEqual(window.profile["plate"], "6")
+                self.assertIn("Unrecognized", window.plate_hint.text())
+                window.on_event({"type": "faceplate", "module_id": 1, "buttons": 2})
+                self.assertEqual(len(window.tiles), 2)
+                window.on_event({"type": "faceplate", "module_id": 3, "buttons": 12})
+                self.assertEqual(window.key_value.text(), "F13")
+                window.apply()
+                self.assertEqual(send.call_args.args[0]["module_id"], 3)
+                window.on_event({"type": "faceplate", "module_id": None, "buttons": None, "message": "Disconnected"})
+                self.assertTrue(window.plate.isEnabled())
+                self.assertIn("unavailable", window.plate_hint.text())
+            window.backend.ready = False
+
+    def test_initial_detection_discards_config_built_for_previous_plate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profile.json")
+            window.storage.setCurrentIndex(window.storage.findData("software"))
+            window.backend.ready = True
+            window.backend.protocol = 3
+            window.pending_config = "stale twelve-button config"
+            with patch.object(window.backend, "send") as send:
+                window.connection_changed(True)
+                self.assertEqual([c.args[0]["command"] for c in send.call_args_list], ["faceplate", "monitor"])
+                self.assertIsNone(window.pending_config)
+                self.assertFalse(window.plate.isEnabled())
+                window.on_event({"type": "faceplate", "module_id": 4, "buttons": 6})
+                self.assertEqual(window.profile["plate"], "6")
+            window.backend.ready = False
+
     def test_onboard_save_through_real_qprocess_and_reconnect(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,4 +1,5 @@
 mod config;
+mod faceplate;
 mod onboard;
 mod runtime;
 mod session;
@@ -28,6 +29,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Read the attached hardware-module ID without changing mouse settings.
+    Faceplate {
+        /// Print one reading per second until Ctrl+C.
+        #[arg(long)]
+        watch: bool,
+    },
     /// Read raw profile-query payloads for troubleshooting, without changing settings.
     OnboardProbe {
         /// Also read raw primary and twelve side-button payloads from this slot.
@@ -152,6 +159,19 @@ fn main() -> Result<()> {
     let signal = running.clone();
     ctrlc::set_handler(move || signal.store(false, Ordering::Relaxed))?;
     match cli.command {
+        Command::Faceplate { watch } => {
+            let mut mouse = onboard::hidraw::connect()?;
+            loop {
+                let plate = faceplate::read(&mut mouse)?;
+                session::emit(
+                    serde_json::json!({"type":"faceplate", "module_id":plate.module_id, "buttons":plate.buttons}),
+                );
+                if !watch || !running.load(Ordering::Relaxed) {
+                    break;
+                }
+                thread::sleep(Duration::from_secs(1));
+            }
+        }
         Command::OnboardProbe { slot } => {
             use onboard::Transport;
             let mut mouse = onboard::hidraw::connect()?;
