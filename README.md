@@ -64,6 +64,15 @@ It requests sudo only for the Rust getter, saves a private snapshot with the
 original wire records, and prints its path and checksum. It performs no writes
 to the mouse.
 
+The approved controlled hardware test uses
+`python3 scripts/onboard_controlled_test.py apply`, then a physical input and
+quit/reconnect check, then the read-only `verify` stage, followed by `restore`.
+It requires a previously verified private test plan with explicit write approval;
+it checks backup/engine checksums and live state, saves a recovery backup before
+commit, and only changes side button 1 to B. Restore verifies the original wire
+records exactly. Hardware outcomes are recorded in `HANDOFF.md`; a successful
+script readback alone does not establish physical clicks or reconnect persistence.
+
 Version **0.3.0** adds an experimental **Mouse memory** mode for existing
 onboard profile slots. Read-only slot discovery and button-record retrieval
 have succeeded on a physical mouse; settings writes remain unverified. Start

@@ -22,14 +22,17 @@ exact rollback after an accepted-but-failed write (including unknown actions),
 and exact encoding restoration. An additional test permits changed-action
 re-encoding during normal saves but rejects it for explicit exact restoration.
 
-Hardware phase: **fresh read and durable backup verified; awaiting write approval**.
+Hardware phase: **explicit write/restore approval received; awaiting local apply**.
 The user ran `python3 scripts/backup_onboard.py` locally with sudo authentication.
 The active slot is 1, mode [0, 0], standard primary clicks, and twelve factory
 key actions. The snapshot preserves the ten original length-1 encodings. Its
 reported SHA256 and 0600 file permissions were independently checked on disk.
 The private backup path, checksum, release-engine checksum and exact proposed
 button records are saved in `~/.config/NagaLibre/controlled-hardware-test.json`.
-That plan's status is awaiting_explicit_write_approval. It changes only ID 0x40
+The user explicitly approved the controlled write and subsequent restoration
+with “Yeah, go ahead”. Approval persists; do not request it again for this plan.
+The plan now has write_approved=true and status=approved. Backup and release
+engine checksums were rechecked when recording approval. It changes only ID 0x40
 from [2, 2, 0, 0x1e, 0, 0, 0] to [2, 2, 0, 0x05, 0, 0, 0]. No mouse
 commands were issued while constructing the plan. Do not commit private plans,
 backups or serial numbers. Recheck fresh hardware state before committing.
@@ -40,14 +43,35 @@ only the getter and saves through the existing private, atomic, file-and-directo
 fsynced backup writer. Tests cover raw data/private permissions and failure
 without creating a substitute-slot backup.
 
-No hardware writes have been performed with this change. Ask for explicit
-approval after the backup and concrete plan are ready: only active-slot button 1
+No hardware writes have been performed with this change. The approved plan is only active-slot button 1
 (ID 0x40) from key 1 to B (HID usage 0x05), leaving mode, selected slot, other
 eleven raw records and primary clicks intact. Verify readback and primary
 records, have the user test clicks and B, quit the app/helper and reconnect,
 then re-read/test persistence. Finally restore the original backup and verify
 all records exactly. Writes, physical click checks, reconnect persistence and
 live backup restoration remain pending; do not describe mock tests as hardware.
+
+`scripts/onboard_controlled_test.py` provides apply, verify (read-only), and
+restore stages using the existing JSON session protocol. Run as the desktop
+user; only the Rust helper is elevated with sudo. Apply verifies original backup
+and engine checksums and unchanged live state, submits canonical GUI actions,
+durably saves the prepared recovery snapshot before acknowledging commit, then
+independently re-reads B and verifies all other wire records/primary mappings,
+mode and slot. It exits the helper. It blocks accidental repeated apply attempts.
+The verify stage cannot establish reconnect history or physical clicks on its
+own: the user must confirm those. Restore uses exact onboard_restore and verifies
+the original full snapshot excluding the transient hidraw path. Restore is
+already approved, but should follow user physical/reconnect results.
+
+Next user command: `python3 scripts/onboard_controlled_test.py apply`. Sudo still
+requires local authentication; no apply has been attempted by the agent. If it
+succeeds, have the user test B and left/right/middle clicks, quit NagaLibre,
+reconnect, and run `python3 scripts/onboard_controlled_test.py verify`. Then
+restore with `python3 scripts/onboard_controlled_test.py restore` and check
+physical key 1/clicks. Additional orchestration tests pass: 21 GUI/backup/test
+runner tests total (plus the same 28 Rust tests). They test apply/verify/restore
+commands and exact snapshots, refusal of changed/tampered/unapproved state or
+repeated apply, and no commit acknowledgement after durable-plan failure.
 
 ## Latest: physical probe identifies compact inventory reply
 
