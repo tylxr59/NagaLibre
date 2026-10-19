@@ -33,6 +33,8 @@ class Backend(QObject):
         self.buffer = b""
         self.ready = False
         self.protocol = 0
+        self.slot_creation = False
+        self.slot_activation = False
         self.device = None
 
     def start(self):
@@ -74,11 +76,13 @@ class Backend(QObject):
                 self.log.emit("Invalid input-helper response.")
                 continue
             if message.get("type") == "hello":
-                if message.get("protocol") not in (1, 2, 3):
+                if message.get("protocol") not in (1, 2, 3, 4):
                     self.log.emit("Input engine version is incompatible. Update both app and engine.")
                     self.process.closeWriteChannel()
                     continue
                 self.protocol = message["protocol"]
+                self.slot_creation = self.protocol >= 4 and message.get("slot_creation") is True
+                self.slot_activation = self.protocol >= 4 and message.get("slot_activation") is True
                 self.device = message.get("device")
                 self.ready = True
                 self.connected.emit(True)

@@ -118,8 +118,19 @@ mouse macro data still exists.
 
 ## Limits and next evidence
 
-The implementation edits existing slots only. Creating an empty slot could leave
-primary buttons unbound, so create/delete/erase commands are absent. The GUI
+Standalone activation uses the existing `05/04` selector with a separate prepared
+transaction. Both target and previous active-slot snapshots are backed up before
+switching, then rechecked and verified afterward; only the active ID may change.
+It requires normal mode and standard primary/middle actions on the target. On a
+failed acknowledgement it attempts restoration of the previous active selector
+and verifies original records without any mapping or mode writes. The desktop
+flow has simulated failure/GUI coverage; standalone switching and physical output
+on a different slot have not yet been verified on hardware.
+
+The app can edit initialized slots and create unused slots on wired 00a7 after
+the controlled default-allocation test below passed. It never writes primary
+buttons; unexpected defaults cause cleanup of only the new slot. Deleting existing
+slots and erase remain absent. The GUI
 keeps a local draft; reading mouse slots displays the raw records in its log and
 does not import them into or replace the draft. Saving compares all twelve draft
 actions and writes only changed actions to the selected slot, retaining original
@@ -162,3 +173,67 @@ The GUI shows the reported number of slots, disables uninitialized entries, and
 displays initialized count versus capacity. Older helper snapshots only show
 known initialized IDs with capacity explicitly unavailable. No slot-creation,
 activation or mapping-write command was added by this change.
+
+## Slot allocation investigation (2026-10-19)
+
+Static analysis of the official Device167 wired controller (SHA-256
+`dc7dcf529731e95ce6f712e7ce5166423b80ea26087648061cf343e7594578d7`)
+identified the following native paths, expressed as RVAs:
+
+- `CProtocol25` allocation at `0x282d0`: class `05`, command `02`, one-byte slot.
+- Removal at `0x2d230`: class `05`, command `03`, one-byte slot; refuses slot 1.
+- Metadata upload at `0x30720`: `05/08`, chunks of up to 64 bytes, prefixed by
+  slot, big-endian offset and big-endian total length.
+- `CStorage` allocation handler at `0x53c80` allocates, then uploads 250 bytes of
+  profile metadata for slots above 1; it removes the allocation if upload fails.
+  It can replace existing profiles. NagaLibre's trial explicitly refuses that.
+
+These are independently described protocol facts, not redistributed decompiled
+source. The upstream [companion protocol implementation](https://github.com/Bmwascher/razer-naga-companion/blob/master/src/NagaBatteryTray/Hid/RazerProtocol.cs)
+also identifies allocation/removal opcodes; that is not proof of firmware defaults.
+Allocation alone does not establish complete initialization, usable clicks,
+safe activation, Synapse naming compatibility or power-cycle persistence.
+
+`python3 scripts/slot_trial.py prepare` issues only existing getters, saving
+private snapshots of every initialized slot and a checksummed plan. After exact
+plan approval, `run --approve-plan-sha256 HASH` checks engine/runner/plan hashes
+and consumes the plan before launching the hidden `onboard-slot-trial` command.
+The backend rechecks all snapshots and creates/fsyncs an exclusive private journal
+before allocation. It reads the temporary slot's primary, middle and twelve grid
+records, then removes only that new slot. If allocation unexpectedly activated it,
+cleanup first restores the previous active slot. Lost acknowledgements are never
+retried; cleanup and full tracked-state verification still run. Failed cleanup
+requires inspection, not a repeat allocation. No button, mode or metadata writes
+are made by this temporary experiment.
+
+The snapshots cover the existing read contract (identity, mode, inventory,
+active slot, left/right and twelve grid records), not a full image of DPI, RGB,
+wheel, Hypershift, macro memory or all firmware state. They cannot recreate a
+deleted pre-existing profile. This is why the trial refuses existing targets and
+does not claim complete profile cloning or recovery.
+
+### Successful wired allocation trial and desktop creation
+
+The user ran the approved temporary-slot-3 trial. It reported successful removal
+and exact original tracked-state verification. The newly allocated slot read back
+left/right/middle as category 1, data 1/2/3 respectively. All twelve grid entries
+read as category 2 with modifier zero and HID usages
+`1e 1f 20 21 22 23 24 25 26 27 2d 2e`. Every grid record had declared length 1
+while retaining both keyboard bytes, matching the previously observed encoding.
+The successful trial also checked unchanged active slot 1 and normal mode before
+removal. These are hardware readbacks, not physical output or persistence tests.
+
+The desktop creation path uses that allocation without metadata or mapping writes.
+It requires a fresh read and a durable GUI backup of every existing slot, rejects
+existing targets, receiver connections and non-normal mode, then rechecks state
+immediately before allocating. It validates standard primary/middle and exact
+decoded factory grid actions, and compares every existing snapshot with only the
+inventory's addition allowed. A failed allocation acknowledgement still enters
+cleanup; only the newly allocated slot may be removed. An unexpected activation
+is restored to the original slot before cleanup. Failed cleanup is reported
+explicitly and not retried. Success selects the inactive new slot for editing;
+draft bindings are saved separately using the existing mapping path. First-profile
+creation, existing-slot deletion, Synapse metadata/name compatibility, receiver
+creation, physical operation and power-cycle persistence of newly created slots
+remain unsupported or unverified. The complete desktop creation transaction has
+automated coverage but has not yet been exercised on hardware.

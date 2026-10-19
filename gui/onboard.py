@@ -79,6 +79,23 @@ def write_backup(profile_path: Path, snapshot: dict, token: str) -> Path:
     return path
 
 
+def write_creation_backup(profile_path: Path, plan: dict, token: str) -> Path:
+    if not token.isdecimal() or len(token) > 40:
+        raise ValueError("Invalid hardware backup token.")
+    snapshots = plan["snapshots"]
+    if plan["format"] != 1 or not snapshots or plan["target"] in snapshots[0]["slots"]:
+        raise ValueError("Invalid slot creation backup.")
+    serial = re.sub(r"[^A-Za-z0-9_-]", "_", snapshots[0]["device"]["serial"])
+    path = profile_path.parent / "backups" / f"{serial}-create-slot-{plan['target']}-{token}.json"
+    save_profile(path, plan)
+    fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    return path
+
+
 def stored_label(record):
     """Describe an actual firmware record without guessing unknown categories."""
     category, data = record.get("category"), record.get("data", [])

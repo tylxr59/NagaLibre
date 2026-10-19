@@ -24,6 +24,12 @@ pub fn emit(value: Value) {
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    OnboardActivate {
+        slot: u8,
+    },
+    OnboardCreate {
+        slot: u8,
+    },
     Faceplate,
     OnboardRestore {
         backup: onboard::Snapshot,
@@ -43,6 +49,12 @@ enum Command {
         module_id: Option<u8>,
     },
     Shutdown,
+}
+
+enum HardwarePlan {
+    Activation(onboard::activation::PreparedActivation),
+    Bindings(onboard::Prepared),
+    Creation(onboard::creation::PreparedCreation),
 }
 
 struct Worker {
@@ -155,13 +167,15 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
     let device = selection.as_ref().ok().and_then(|d| d[0].model);
     let physical_id = selection.as_ref().ok().map(|d| d[0].physical_id.clone());
     emit(
-        json!({"type":"hello","protocol":3,"version":env!("CARGO_PKG_VERSION"), "device":device,
+        json!({"type":"hello","protocol":4,"version":env!("CARGO_PKG_VERSION"), "device":device,
+        "slot_creation":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
+        "slot_activation":device.is_some_and(|d| d.onboard),
         "device_error":selection.as_ref().err().map(|e| format!("{e:#}"))}),
     );
     let mut active: Option<Worker> = None;
     let mut hardware: Option<onboard::Mouse<onboard::hidraw::Hidraw>> = None;
     let mut snapshot: Option<onboard::Snapshot> = None;
-    let mut prepared: Option<(String, onboard::Prepared)> = None;
+    let mut prepared: Option<(String, HardwarePlan)> = None;
     let mut watching_plate = false;
     let mut next_plate = Instant::now();
     let mut last_plate = None;
@@ -211,6 +225,8 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         if matches!(
             command,
             Command::OnboardRead { .. }
+                | Command::OnboardActivate { .. }
+                | Command::OnboardCreate { .. }
                 | Command::OnboardRestore { .. }
                 | Command::OnboardPrepare { .. }
                 | Command::OnboardCommit { .. }
@@ -226,6 +242,50 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             }
             let result = (|| -> Result<()> {
                 match command {
+                    Command::OnboardActivate { slot } => {
+                        prepared = None;
+                        ensure!(
+                            read_plate(&mut hardware)?.buttons == Some(12),
+                            "Attach the 12-button plate before activating a slot"
+                        );
+                        let before = snapshot
+                            .as_ref()
+                            .context("Read mouse slots before activation")?;
+                        let plan = hardware
+                            .as_mut()
+                            .context("Hardware connection lost")?
+                            .prepare_activation(before, slot)?;
+                        let token = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_nanos()
+                            .to_string();
+                        emit(
+                            json!({"type":"onboard_activation_prepared", "token":token, "backup":plan.before, "previous":plan.previous}),
+                        );
+                        prepared = Some((token, HardwarePlan::Activation(plan)));
+                    }
+                    Command::OnboardCreate { slot } => {
+                        prepared = None;
+                        ensure!(
+                            read_plate(&mut hardware)?.buttons == Some(12),
+                            "Attach the 12-button plate before creating a slot"
+                        );
+                        let before = snapshot
+                            .as_ref()
+                            .context("Read mouse slots before creating a slot")?;
+                        let plan = hardware
+                            .as_mut()
+                            .context("Hardware connection lost")?
+                            .prepare_creation(before, slot)?;
+                        let token = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_nanos()
+                            .to_string();
+                        emit(
+                            json!({"type":"onboard_creation_prepared", "token":token, "backup":plan.backup}),
+                        );
+                        prepared = Some((token, HardwarePlan::Creation(plan)));
+                    }
                     Command::OnboardRestore { backup } => {
                         prepared = None;
                         snapshot = None;
@@ -238,7 +298,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                             .as_nanos()
                             .to_string();
                         emit(json!({"type":"onboard_prepared","token":token,"backup":plan.before}));
-                        prepared = Some((token, plan));
+                        prepared = Some((token, HardwarePlan::Bindings(plan)));
                     }
                     Command::OnboardRead { slot } => {
                         prepared = None;
@@ -270,12 +330,17 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                             .as_nanos()
                             .to_string();
                         emit(json!({"type":"onboard_prepared","token":token,"backup":plan.before}));
-                        prepared = Some((token, plan));
+                        prepared = Some((token, HardwarePlan::Bindings(plan)));
                     }
                     Command::OnboardCommit { token } => {
                         let (expected, plan) =
                             prepared.take().context("No hardware save is prepared")?;
-                        if watching_plate {
+                        if watching_plate
+                            || matches!(
+                                &plan,
+                                HardwarePlan::Creation(_) | HardwarePlan::Activation(_)
+                            )
+                        {
                             ensure!(
                                 read_plate(&mut hardware)?.buttons == Some(12),
                                 "Faceplate changed before save; no settings were written"
@@ -287,8 +352,16 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                         );
                         let mouse = hardware.as_mut().context("Hardware connection lost")?;
                         snapshot = None;
-                        let after = mouse.commit(plan)?;
-                        emit(json!({"type":"onboard_saved","snapshot":after}));
+                        let (after, event) = match plan {
+                            HardwarePlan::Activation(plan) => {
+                                (mouse.commit_activation(plan)?, "onboard_activated")
+                            }
+                            HardwarePlan::Bindings(plan) => (mouse.commit(plan)?, "onboard_saved"),
+                            HardwarePlan::Creation(plan) => {
+                                (mouse.commit_creation(plan)?, "onboard_created")
+                            }
+                        };
+                        emit(json!({"type":event,"snapshot":after}));
                         snapshot = Some(after);
                     }
                     _ => unreachable!(),

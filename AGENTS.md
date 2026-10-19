@@ -53,7 +53,11 @@ device permissions, not a reason to run the entire Qt app as root.
 
 - Only physical grid positions 1–12 (firmware IDs 0x40–0x4b) may reach the onboard
   mapping writer. Primary clicks may be read/checked but never written. Slot
-  creation/deletion and guessed vendor probes are absent; do not add them casually.
+  creation is restricted to unused slots on wired 00a7, with all existing slots
+  durably backed up before commit and firmware defaults checked after allocation.
+  Deletion is restricted to cleanup of that newly allocated slot or the approved
+  temporary experiment in scripts/slot_trial.py. Never remove an existing slot.
+  Guessed vendor probes remain absent.
 - A normal save compares decoded actions, skips unchanged actions and preserves
   their original records. Changed actions verify semantically. Unchanged records,
   explicit backup restoration and rollback verify exact wire bytes, including

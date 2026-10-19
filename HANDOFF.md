@@ -6,6 +6,58 @@ current implementation, evidence, and remaining work. User setup belongs in
 
 ## Current state
 
+Standalone slot activation is now implemented. Select any initialized inactive
+slot and click Activate slot; it can read an unread target without changing the
+draft. The protocol-4 hello advertises slot_activation. Preparation reads/checks
+the target and previous active slot; the GUI fsyncs both backups before commit.
+Commit rechecks both snapshots, writes only 05/04, and verifies both complete
+tracked snapshots with only active changed. No mapping/mode writes occur. Normal
+mode, standard target primary/middle clicks and the detected 12-button plate are
+required. A failed acknowledgement triggers restoration of the old active slot
+and unchanged-record checks; incomplete rollback is explicit. Successful activation
+updates the dropdown and stored tiles while leaving the helper connected for
+further reads/switches; quitting does not request any restoration. No new hardware
+writes or live activation tests were performed in this implementation turn.
+Validation passed 46 Rust tests and 38 Python/Qt tests, including lost-switch
+acknowledgement, failed rollback, unsafe/stale targets, two durable backups before
+commit, second-backup failure, and draft preservation. Prior creation evidence
+and tests below remain applicable.
+
+Slot creation now has a desktop path for wired 00a7 with the detected 12-button
+plate. The user completed the approved slot-3 trial: creation returned standard
+left/right/middle mappings and the twelve expected grid keys, all grid records
+with declared length 1. The runner removed slot 3, verified original slots 1/2,
+active slot 1 and normal mode. No physical new-slot output, reconnect/power-cycle
+persistence or desktop creation transaction has been tested on hardware.
+
+The GUI's Create slot button chooses the next unused ID, prepares snapshots of
+all existing slots, durably saves the complete creation plan, then acknowledges
+the commit token. Session protocol 4 advertises slot_creation only for wired
+00a7. Creation rechecks every snapshot immediately before allocation, reads and
+validates new primary/middle/grid defaults and verifies original slots with only
+the added inventory entry allowed. No button mappings, mode or metadata are
+written; the previous active slot stays active. Success selects the new inactive
+slot and keeps the local draft. Save remains a separate action that activates the
+selected slot. On any allocation/verification failure, cleanup only removes the
+new target, including after a failed allocation acknowledgement; unexpected
+activation first restores the previous active slot. Incomplete cleanup is an
+explicit error, never a silent retry. Existing-slot deletion and first-profile
+creation remain unsupported. Receiver creation remains disabled.
+
+The hidden onboard-slot-trial CLI and scripts/slot_trial.py remain available for
+explicitly approved temporary experiments. The completed plan is consumed; do not
+repeat it or treat its approval as permission for permanent creation writes.
+Private snapshots cover only the established read contract, not complete profile
+images. Creation backup files contain a plan with all original snapshots and a
+target; the ordinary Restore backup command accepts individual mapping snapshots,
+not the complete creation plan. See inspection/ONBOARD.md for evidence and limits.
+
+Validation passed 43 Rust tests, 36 Python/Qt tests, formatting, Clippy with
+warnings denied, debug/release builds and example config validation. Coverage
+includes stale/existing targets, lost allocation acknowledgements, unexpected
+activation, invalid primary defaults, failed cleanup, durable GUI backups before
+commit, backup failure, unchanged drafts, and receiver/plate capability gates.
+
 NagaLibre is an independent FOSS Linux reimplementation of Razer Naga side-button
 bindings. Target mouse: Naga V2 Pro. The user's hardware machine runs Arch/KDE;
 earlier development used a VM without the mouse. In the 2026-10-19 session,
@@ -306,7 +358,8 @@ and active IDs outside capacity rejected. No profiles are created or activated.
 The dropdown shows all slots within reported capacity and disables uninitialized
 entries. A summary says e.g. “2 of 5 slots initialized”; older helper snapshots
 retain initialized-only lists and explicitly unknown capacity. Read failures
-invalidate the summary. Slot creation remains unimplemented. README, CLI/support
+invalidate the summary. At that stage slot creation was unimplemented; the current
+desktop creation path is described above. README, CLI/support
 guides and issue form explain the distinction and optional serial-free inventory.
 
 Validation covers captured capacity 5/IDs 1,2, sparse IDs, smaller capacities,

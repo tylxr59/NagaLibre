@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QKeySequenceEdit, QFileDialog,
 )
 
-from onboard import hardware_buttons, write_backup, stored_label
+from onboard import hardware_buttons, write_backup, write_creation_backup, stored_label
 from backend import Backend, backend_path
 from support import device_issue_url
 from model import (
@@ -209,6 +209,14 @@ class Window(QMainWindow):
         self.read_button = QPushButton("Read slots")
         self.read_button.clicked.connect(self.read_mouse)
         storage_row.addWidget(self.read_button)
+        self.activate_button = QPushButton("Activate slot")
+        self.activate_button.setToolTip("Use this slot's stored bindings without saving your draft.")
+        self.activate_button.clicked.connect(self.activate_slot)
+        storage_row.addWidget(self.activate_button)
+        self.create_button = QPushButton("Create slot")
+        self.create_button.clicked.connect(self.create_slot)
+        self.create_button.setToolTip("Create an unused slot with factory bindings. The current slot stays active; save your draft separately.")
+        storage_row.addWidget(self.create_button)
         self.restore_button = QPushButton("Restore backup…")
         self.restore_button.clicked.connect(self.restore_backup)
         storage_row.addWidget(self.restore_button)
@@ -415,7 +423,7 @@ class Window(QMainWindow):
 
     def set_hardware_busy(self, busy):
         self.hardware_busy = busy
-        for widget in (self.storage, self.slots, self.read_button, self.restore_button,
+        for widget in (self.storage, self.slots, self.read_button, self.activate_button, self.create_button, self.restore_button,
                        self.apply_button, self.plate, self.reset_button, self.stop_button,
                        self.connect_button):
             widget.setEnabled(not busy)
@@ -433,7 +441,7 @@ class Window(QMainWindow):
 
     def update_storage_view(self):
         hardware = self.is_hardware()
-        for widget in (self.slots, self.slot_summary, self.read_button, self.restore_button, self.memory_hint):
+        for widget in (self.slots, self.slot_summary, self.read_button, self.activate_button, self.create_button, self.restore_button, self.memory_hint):
             widget.setVisible(hardware)
         self.learn_button.setEnabled(not hardware)
         self.apply_button.setText("Save 12 bindings to mouse" if hardware else "Apply bindings")
@@ -458,6 +466,40 @@ class Window(QMainWindow):
             self.set_hardware_busy(True)
             self.status.setText("Reading onboard profiles… no settings are being changed.")
             self.hardware_command({"command": "onboard_read", "slot": self.slots.currentData()})
+        except (ValueError, OSError) as error:
+            self.set_hardware_busy(False)
+            self.fail(error)
+
+    def activate_slot(self):
+        if not self.activate_button.isEnabled():
+            return
+        try:
+            self.save_after_read = False
+            self.hardware_saved = None
+            target = self.slots.currentData()
+            self.set_hardware_busy(True)
+            self.status.setText(f"Preparing to activate slot {target}… your draft will stay unchanged.")
+            self.hardware_command({"command": "onboard_activate", "slot": target})
+        except (ValueError, OSError) as error:
+            self.set_hardware_busy(False)
+            self.fail(error)
+
+    def unused_slot(self):
+        if self.snapshot is None or self.snapshot.get("slot_capacity") is None:
+            return None
+        return next((n for n in range(2, self.snapshot["slot_capacity"] + 1)
+                     if n not in self.snapshot["slots"]), None)
+
+    def create_slot(self):
+        target = self.unused_slot()
+        if not self.create_button.isEnabled() or target is None:
+            return
+        try:
+            self.save_after_read = False
+            self.hardware_saved = None
+            self.set_hardware_busy(True)
+            self.status.setText(f"Preparing slot {target}… backing up existing slots first.")
+            self.hardware_command({"command": "onboard_create", "slot": target})
         except (ValueError, OSError) as error:
             self.set_hardware_busy(False)
             self.fail(error)
@@ -600,10 +642,20 @@ class Window(QMainWindow):
         if self.snapshot is None:
             self.slot_summary.setText("Slot capacity: unread")
         elif self.snapshot.get("slot_capacity") is not None:
-            self.slot_summary.setText(f"{len(self.snapshot['slots'])} of {self.snapshot['slot_capacity']} slots initialized · creating slots is not supported yet.")
+            self.slot_summary.setText(f"{len(self.snapshot['slots'])} of {self.snapshot['slot_capacity']} slots initialized.")
         else:
             self.slot_summary.setText(f"{len(self.snapshot['slots'])} slots initialized · total capacity unavailable from this read.")
         self.apply_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
+        selected = self.slots.currentData()
+        self.activate_button.setEnabled(hardware and not self.hardware_busy and self.backend.ready
+                                        and self.backend.slot_activation and self.snapshot is not None
+                                        and selected in self.snapshot["slots"] and selected != self.snapshot["active"]
+                                        and self.profile["plate"] == "12" and self.detected_module == 3)
+        target = self.unused_slot()
+        self.create_button.setText(f"Create slot {target}" if target is not None else "Create slot")
+        self.create_button.setEnabled(hardware and not self.hardware_busy and self.backend.ready
+                                      and self.backend.slot_creation and target is not None
+                                      and self.profile["plate"] == "12" and self.detected_module == 3)
         self.reset_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
         self.plate.setEnabled(not self.hardware_busy and self.plate_detection in ("offline", "unavailable", "manual") and len(self.device_model["plates"]) > 1)
         if self.plate_detection in ("pending", "unknown"):
@@ -736,7 +788,7 @@ class Window(QMainWindow):
         kind = message.get("type")
         if kind == "faceplate":
             self.detected_plate(message)
-        elif kind == "onboard_snapshot":
+        elif kind in ("onboard_snapshot", "onboard_created", "onboard_activated"):
             self.fault = False
             self.snapshot = message["snapshot"]
             snapshot = self.snapshot
@@ -749,20 +801,31 @@ class Window(QMainWindow):
                 item = self.slots.model().item(self.slots.count() - 1)
                 item.setEnabled(initialized)
                 if not initialized:
-                    item.setToolTip("The device reports this capacity, but the slot is not initialized. Slot creation is not supported yet.")
+                    item.setToolTip("This slot is unused. Create slot initializes the next unused slot on supported wired mice.")
             self.slots.setCurrentIndex(self.slots.findData(snapshot["slot"]))
             self.set_hardware_busy(False)
             records = ", ".join(f"{b['button']}:{b['category']:02x}/" + bytes(b['data']).hex() for b in snapshot['buttons'])
             self.log(f"Read slot {snapshot['slot']} · side records {records}")
             self.status.setText(f"Read slot {snapshot['slot']} · tiles show stored bindings and local drafts separately. Save writes all 12 draft bindings and activates this slot.")
+            if kind == "onboard_created":
+                self.status.setText(f"Created slot {snapshot['slot']} with factory bindings · slot {snapshot['active']} remains active. Save your draft to use the new slot.")
+            elif kind == "onboard_activated":
+                self.status.setText(f"Slot {snapshot['slot']} active · using stored bindings. Your draft is unchanged; you can quit NagaLibre.")
             if self.save_after_read:
                 self.save_after_read = False
                 self.apply()
-        elif kind == "onboard_prepared":
+        elif kind in ("onboard_prepared", "onboard_creation_prepared", "onboard_activation_prepared"):
             try:
-                path = write_backup(self.path, message["backup"], message["token"])
+                creating = kind == "onboard_creation_prepared"
+                writer = write_creation_backup if creating else write_backup
+                path = writer(self.path, message["backup"], message["token"])
+                if kind == "onboard_activation_prepared":
+                    previous_path = write_backup(self.path, message["previous"], message["token"])
+                    self.log(f"Previous active-slot backup saved: {previous_path}")
                 self.log(f"Hardware backup saved: {path}")
-                self.status.setText("Backup saved. Writing and verifying side bindings…")
+                self.status.setText("Backups saved. Creating and verifying the new slot…" if creating else "Backup saved. Writing and verifying side bindings…")
+                if kind == "onboard_activation_prepared":
+                    self.status.setText("Backups saved. Activating stored bindings…")
                 self.backend.send({"command": "onboard_commit", "token": message["token"]})
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.fault = True

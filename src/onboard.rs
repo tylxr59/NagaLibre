@@ -1,5 +1,8 @@
 //! Naga V2 Pro hardware profiles. Only the twelve thumb-grid records are writable.
+pub mod activation;
+pub mod creation;
 pub mod hidraw;
+pub mod slot_trial;
 
 use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -333,7 +336,7 @@ impl<T: Transport> Mouse<T> {
         let active = inventory.active;
         ensure!(
             !slots.is_empty(),
-            "No initialized onboard profiles found. Profile creation is not supported yet; no changes were made."
+            "No initialized onboard profiles found. Creating the first profile is unsupported; no changes were made."
         );
         let slot = slot.unwrap_or_else(|| {
             if slots.contains(&active) {
@@ -487,6 +490,12 @@ mod tests {
         wire_writes: Vec<(u8, [u8; 7])>,
         reencode_once: bool,
         requests: Vec<(u8, u8)>,
+        allocation_fails: bool,
+        deletion_fails: bool,
+        allocation_activates: bool,
+        blank_new_primary: bool,
+        product: u16,
+        fail_activations: usize,
     }
     impl Fake {
         fn new() -> Self {
@@ -512,6 +521,12 @@ mod tests {
                 wire_writes: vec![],
                 reencode_once: false,
                 requests: Vec::new(),
+                allocation_fails: false,
+                deletion_fails: false,
+                allocation_activates: false,
+                blank_new_primary: false,
+                product: 0xa7,
+                fail_activations: 0,
             }
         }
 
@@ -547,7 +562,7 @@ mod tests {
         fn identity(&self) -> Identity {
             Identity {
                 path: "fake".into(),
-                product: 0xa7,
+                product: self.product,
                 serial: String::new(),
             }
         }
@@ -566,12 +581,43 @@ mod tests {
                 }
                 (5, 0x81) => self.inventory.clone(),
                 (5, 0x84) => vec![self.active, 0, 0, 0, 0, 0],
+                (5, 2) => {
+                    assert!(!self.inventory.contains(&p[0]));
+                    self.inventory.retain(|n| *n != 0);
+                    self.inventory.push(p[0]);
+                    if self.allocation_activates {
+                        self.active = p[0];
+                    }
+                    if self.allocation_fails {
+                        bail!("Allocation accepted but acknowledgement lost");
+                    }
+                    p.to_vec()
+                }
+                (5, 3) => {
+                    assert!(p[0] > 2, "Deleting an original slot");
+                    if self.deletion_fails {
+                        bail!("Deletion failed");
+                    }
+                    self.inventory.retain(|n| *n != p[0]);
+                    p.to_vec()
+                }
                 (5, 4) => {
                     self.active = p[0];
+                    if self.fail_activations > 0 {
+                        self.fail_activations -= 1;
+                        bail!("Activation accepted but acknowledgement lost");
+                    }
                     p.to_vec()
                 }
                 (2, 0x8c) => {
-                    let b = if p[1] <= 2 {
+                    let b = if p[0] == 3 && p[1] == 1 && self.blank_new_primary {
+                        Button {
+                            button: 1,
+                            category: 0,
+                            data: vec![],
+                            raw_record: None,
+                        }
+                    } else if p[1] <= 3 {
                         Button {
                             button: p[1],
                             category: 1,
@@ -605,6 +651,304 @@ mod tests {
                 _ => panic!("Unexpected command {class:x}/{cmd:x}"),
             })
         }
+    }
+
+    #[test]
+    fn creation_keeps_existing_active_slot_and_factory_records_without_mapping_writes() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let before = mouse.read(None).unwrap();
+        let plan = mouse.prepare_creation(&before, 3).unwrap();
+        assert!(!mouse.transport.requests.contains(&(5, 2)));
+        assert_eq!(plan.backup.snapshots.len(), 2);
+        let created = mouse.commit_creation(plan).unwrap();
+        assert_eq!((created.slot, created.active), (3, 1));
+        assert_eq!(created.slots, vec![1, 2, 3]);
+        assert_eq!(created.buttons, before.buttons);
+        let mutations: Vec<_> = mouse
+            .transport
+            .requests
+            .iter()
+            .copied()
+            .filter(|(_, cmd)| *cmd < 0x80)
+            .collect();
+        assert_eq!(mutations, vec![(5, 2)]);
+    }
+
+    #[test]
+    fn creation_refuses_existing_slots_and_rechecks_state_after_preparation() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let before = mouse.read(None).unwrap();
+        assert!(mouse.prepare_creation(&before, 2).is_err());
+        assert!(mouse.prepare_creation(&before, 6).is_err());
+        let plan = mouse.prepare_creation(&before, 3).unwrap();
+        mouse.transport.active = 2;
+        assert!(mouse.commit_creation(plan).is_err());
+        assert!(!mouse.transport.requests.contains(&(5, 2)));
+    }
+
+    #[test]
+    fn creation_rejects_receiver_and_driver_mode_without_writes() {
+        for receiver in [true, false] {
+            let mut mouse = Mouse {
+                transport: Fake::captured_factory(),
+            };
+            if receiver {
+                mouse.transport.product = 0xa8;
+            } else {
+                mouse.transport.mode = vec![3, 0];
+            }
+            let before = mouse.read(None).unwrap();
+            assert!(mouse.prepare_creation(&before, 3).is_err());
+            assert!(!mouse.transport.requests.iter().any(|(_, cmd)| *cmd < 0x80));
+        }
+    }
+
+    #[test]
+    fn creation_failure_cleans_up_without_fixing_primary_or_retrying_allocation() {
+        for case in 0..3 {
+            let mut mouse = Mouse {
+                transport: Fake::captured_factory(),
+            };
+            let before = mouse.read(None).unwrap();
+            let plan = mouse.prepare_creation(&before, 3).unwrap();
+            match case {
+                0 => mouse.transport.allocation_fails = true,
+                1 => mouse.transport.blank_new_primary = true,
+                _ => mouse.transport.allocation_activates = true,
+            }
+            assert!(mouse.commit_creation(plan).is_err());
+            assert_eq!(mouse.read(None).unwrap(), before);
+            assert_eq!(
+                mouse
+                    .transport
+                    .requests
+                    .iter()
+                    .filter(|r| **r == (5, 2))
+                    .count(),
+                1
+            );
+            assert!(mouse.transport.wire_writes.is_empty());
+        }
+    }
+
+    #[test]
+    fn creation_failed_cleanup_is_reported_and_not_retried() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let before = mouse.read(None).unwrap();
+        let plan = mouse.prepare_creation(&before, 3).unwrap();
+        mouse.transport.blank_new_primary = true;
+        mouse.transport.deletion_fails = true;
+        let error = mouse.commit_creation(plan).unwrap_err();
+        assert!(error.to_string().contains("cleanup incomplete"));
+        assert_eq!(
+            mouse
+                .transport
+                .requests
+                .iter()
+                .filter(|r| **r == (5, 3))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn activation_only_switches_active_slot_preserving_every_mapping_record() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let before = mouse.read(None).unwrap();
+        let plan = mouse.prepare_activation(&before, 2).unwrap();
+        assert!(!mouse.transport.requests.contains(&(5, 4)));
+        let after = mouse.commit_activation(plan).unwrap();
+        assert_eq!((after.slot, after.active), (2, 2));
+        assert_eq!(after.buttons, before.buttons);
+        assert_eq!(after.primary, before.primary);
+        let mutations: Vec<_> = mouse
+            .transport
+            .requests
+            .iter()
+            .copied()
+            .filter(|(_, c)| *c < 0x80)
+            .collect();
+        assert_eq!(mutations, vec![(5, 4)]);
+    }
+
+    #[test]
+    fn activation_rejects_uninitialized_active_unsafe_and_stale_targets() {
+        for case in 0..5 {
+            let mut mouse = Mouse {
+                transport: Fake::captured_factory(),
+            };
+            if case == 2 {
+                mouse.transport.mode = vec![3, 0];
+            }
+            if case == 3 {
+                // Make slot 3 initialized but its primary click unsafe.
+                mouse.transport.inventory.push(3);
+                mouse.transport.blank_new_primary = true;
+            }
+            let before = mouse.read(None).unwrap();
+            if case == 4 {
+                let plan = mouse.prepare_activation(&before, 2).unwrap();
+                mouse.transport.active = 2;
+                assert!(mouse.commit_activation(plan).is_err());
+            } else {
+                let target = match case {
+                    0 | 3 => 3,
+                    1 => 1,
+                    _ => 2,
+                };
+                assert!(mouse.prepare_activation(&before, target).is_err());
+            }
+            assert!(!mouse.transport.requests.iter().any(|(_, c)| *c < 0x80));
+        }
+    }
+
+    #[test]
+    fn activation_lost_ack_restores_previous_slot_and_reports_failed_rollback() {
+        for failures in [1, 2] {
+            let mut mouse = Mouse {
+                transport: Fake::captured_factory(),
+            };
+            let before = mouse.read(None).unwrap();
+            let plan = mouse.prepare_activation(&before, 2).unwrap();
+            mouse.transport.fail_activations = failures;
+            let error = mouse.commit_activation(plan).unwrap_err().to_string();
+            if failures == 1 {
+                assert!(error.contains("Previous active slot restored"));
+                assert_eq!(mouse.read(None).unwrap(), before);
+            } else {
+                assert!(error.contains("could not be verified"));
+            }
+            assert!(mouse.transport.wire_writes.is_empty());
+            assert_eq!(
+                mouse
+                    .transport
+                    .requests
+                    .iter()
+                    .filter(|r| **r == (5, 4))
+                    .count(),
+                2
+            );
+        }
+    }
+
+    fn trial_plan(mouse: &mut Mouse<Fake>) -> slot_trial::Plan {
+        slot_trial::Plan {
+            format: 1,
+            target: 3,
+            snapshots: vec![mouse.read(Some(1)).unwrap(), mouse.read(Some(2)).unwrap()],
+        }
+    }
+
+    fn trial_journal() -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        std::env::temp_dir().join(format!(
+            "nagalibre-trial-{}-{}.jsonl",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+    }
+
+    #[test]
+    fn slot_trial_removes_only_new_slot_without_mapping_or_mode_writes() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let plan = trial_plan(&mut mouse);
+        let journal = trial_journal();
+        mouse.slot_trial(&plan, &journal).unwrap();
+        let text = std::fs::read_to_string(&journal).unwrap();
+        std::fs::remove_file(journal).unwrap();
+        assert!(text.contains("defaults_read") && text.contains("finished"));
+        assert_eq!(mouse.transport.inventory, vec![5, 1, 2]);
+        let mutations: Vec<_> = mouse
+            .transport
+            .requests
+            .iter()
+            .copied()
+            .filter(|(_, command)| *command < 0x80)
+            .collect();
+        assert_eq!(mutations, vec![(5, 2), (5, 3)]);
+    }
+
+    #[test]
+    fn slot_trial_cleans_up_lost_allocation_ack_and_unexpected_activation() {
+        for activate in [false, true] {
+            let mut mouse = Mouse {
+                transport: Fake::captured_factory(),
+            };
+            let plan = trial_plan(&mut mouse);
+            mouse.transport.allocation_fails = !activate;
+            mouse.transport.allocation_activates = activate;
+            let journal = trial_journal();
+            assert!(mouse.slot_trial(&plan, &journal).is_err());
+            std::fs::remove_file(journal).unwrap();
+            assert_eq!(mouse.transport.inventory, vec![5, 1, 2]);
+            assert_eq!(mouse.transport.active, 1);
+            assert_eq!(
+                mouse
+                    .transport
+                    .requests
+                    .iter()
+                    .filter(|r| **r == (5, 2))
+                    .count(),
+                1
+            );
+            assert!(mouse.transport.wire_writes.is_empty());
+        }
+    }
+
+    #[test]
+    fn slot_trial_rejects_stale_incomplete_existing_and_undurable_plans() {
+        for case in 0..4 {
+            let mut mouse = Mouse {
+                transport: Fake::captured_factory(),
+            };
+            let mut plan = trial_plan(&mut mouse);
+            let journal = trial_journal();
+            match case {
+                0 => plan.target = 2,
+                1 => {
+                    plan.snapshots.pop();
+                }
+                2 => mouse.transport.active = 2,
+                _ => std::fs::write(&journal, b"existing").unwrap(),
+            }
+            assert!(mouse.slot_trial(&plan, &journal).is_err());
+            let _ = std::fs::remove_file(journal);
+            assert!(!mouse.transport.requests.contains(&(5, 2)));
+        }
+    }
+
+    #[test]
+    fn slot_trial_reports_failed_cleanup_without_retry_or_success_claim() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let plan = trial_plan(&mut mouse);
+        mouse.transport.deletion_fails = true;
+        let journal = trial_journal();
+        let error = mouse.slot_trial(&plan, &journal).unwrap_err();
+        assert!(error.to_string().contains("cleanup"));
+        let text = std::fs::read_to_string(&journal).unwrap();
+        std::fs::remove_file(journal).unwrap();
+        assert!(text.contains("Temporary slot remains"));
+        assert_eq!(
+            mouse
+                .transport
+                .requests
+                .iter()
+                .filter(|r| **r == (5, 3))
+                .count(),
+            1
+        );
     }
 
     #[test]

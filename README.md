@@ -137,12 +137,25 @@ The app saves a backup before writing and reads the result back to check it.
 After a successful save, it stops the helper. Saved bindings then work without
 NagaLibre running.
 
+To switch to a slot's stored bindings, select it in the dropdown and click
+**Activate slot**. This leaves your draft and the stored bindings unchanged.
+The app reads the target, backs up the target and previous active slot, then
+switches and verifies the result. Selecting the dropdown or clicking **Read slots**
+alone does not activate it. Activation currently requires normal device mode and
+the detected 12-button plate; it refuses slots with unexpected primary clicks.
+
 **Reset 12 buttons** restores `1…9, 0, -, =` in the selected slot.
 **Restore backup…** restores saved side-button records on the same mouse and
 connection type, then activates their slot. Primary left/right click mappings
 are never rewritten. The slot list shows the device-reported capacity and distinguishes initialized
 slots from disabled, uninitialized entries—for example, “2 of 5 slots initialized.”
-Only initialized slots can be edited; slot creation is not implemented.
+On the wired Naga V2 Pro with the 12-button plate, **Create slot** initializes the
+next unused slot with factory bindings and leaves the current slot active. The
+app backs up existing slots and checks the new defaults before selecting the new
+slot. Your draft stays unchanged; **Save 12 bindings to mouse** saves it to the new
+slot and activates it. Creation is unavailable when all slots are initialized,
+over the receiver, or without a successful fresh read. Creating the first profile
+on a device with no initialized slots and deleting existing slots are unsupported.
 
 ### Run software macros
 

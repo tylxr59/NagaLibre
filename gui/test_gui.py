@@ -510,6 +510,110 @@ class QtFlow(unittest.TestCase):
             self.assertIn("helper stopped", window.status.text())
             self.assertEqual(window.snapshot, snapshot)
 
+    def test_activate_unread_slot_backs_up_both_slots_and_preserves_draft(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            window.backend.ready = True
+            window.backend.protocol = 4
+            window.backend.slot_activation = True
+            window.detected_module = 3
+            before = {"device": {"serial": "TEST"}, "slot": 1, "active": 1, "slots": [1, 2],
+                      "buttons": hardware_buttons(new_profile())}
+            target = dict(before, slot=2)
+            draft = json.loads(json.dumps(window.profile))
+            with patch.object(window.backend, "send") as send:
+                window.on_event({"type": "onboard_snapshot", "snapshot": before})
+                self.assertFalse(window.activate_button.isEnabled())
+                window.slots.setCurrentIndex(1)
+                self.assertTrue(window.activate_button.isEnabled())
+                window.activate_button.click()
+                send.assert_called_once_with({"command": "onboard_activate", "slot": 2})
+                self.assertFalse(window.activate_button.isEnabled())
+                send.reset_mock()
+                def verify_backups(command):
+                    backups = list((Path(directory) / "backups").glob("*.json"))
+                    self.assertEqual(len(backups), 2)
+                    self.assertEqual({json.loads(p.read_text())["slot"] for p in backups}, {1, 2})
+                send.side_effect = verify_backups
+                window.on_event({"type": "onboard_activation_prepared", "backup": target,
+                                 "previous": before, "token": "910"})
+                send.assert_called_once_with({"command": "onboard_commit", "token": "910"})
+                window.on_event({"type": "onboard_activated", "snapshot": dict(target, active=2)})
+                self.assertEqual(window.profile, draft)
+                self.assertIn("Slot 2 active", window.status.text())
+                self.assertIn("active", window.slots.currentText())
+                self.assertFalse(window.activate_button.isEnabled())
+            window.backend.ready = False
+
+    def test_activation_second_backup_failure_prevents_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            with patch("app.write_backup", side_effect=[Path(directory) / "first.json", OSError("fsync failed")]), \
+                    patch.object(window.backend, "send") as send, \
+                    patch.object(window.backend, "shutdown") as shutdown:
+                window.on_event({"type": "onboard_activation_prepared", "backup": {},
+                                 "previous": {}, "token": "910"})
+                send.assert_not_called()
+                shutdown.assert_called_once()
+
+    def test_create_slot_backs_up_all_slots_before_commit_and_keeps_draft(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            window.backend.ready = True
+            window.backend.protocol = 4
+            window.backend.slot_creation = True
+            window.detected_module = 3
+            snapshot = {"device": {"serial": "TEST", "product": 0xA7}, "slot": 1,
+                        "active": 1, "slots": [1, 2], "slot_capacity": 5,
+                        "buttons": hardware_buttons(new_profile())}
+            plan = {"format": 1, "target": 3, "snapshots": [snapshot, dict(snapshot, slot=2)]}
+            draft = json.loads(json.dumps(window.profile))
+            with patch.object(window.backend, "send") as send:
+                window.on_event({"type": "onboard_snapshot", "snapshot": snapshot})
+                self.assertTrue(window.create_button.isEnabled())
+                window.create_button.click()
+                send.assert_called_once_with({"command": "onboard_create", "slot": 3})
+                self.assertFalse(window.create_button.isEnabled())
+                send.reset_mock()
+                def verify_backup(command):
+                    backups = list((Path(directory) / "backups").glob("*-create-slot-3-*.json"))
+                    self.assertEqual(len(backups), 1)
+                    self.assertEqual(json.loads(backups[0].read_text()), plan)
+                    self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+                send.side_effect = verify_backup
+                window.on_event({"type": "onboard_creation_prepared", "backup": plan, "token": "789"})
+                send.assert_called_once_with({"command": "onboard_commit", "token": "789"})
+                window.on_event({"type": "onboard_created", "snapshot": dict(snapshot, slot=3, slots=[1, 2, 3])})
+                self.assertEqual(window.profile, draft)
+                self.assertEqual(window.slots.currentData(), 3)
+                self.assertIn("slot 1 remains active", window.status.text())
+                self.assertTrue(window.slots.model().item(2).isEnabled())
+                self.assertEqual(window.create_button.text(), "Create slot 4")
+            window.backend.ready = False
+
+    def test_creation_backup_failure_never_commits_and_capabilities_gate_button(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            window.backend.ready = True
+            snapshot = {"slot": 1, "active": 1, "slots": [1, 2], "slot_capacity": 5,
+                        "buttons": hardware_buttons(new_profile())}
+            window.on_event({"type": "onboard_snapshot", "snapshot": snapshot})
+            self.assertFalse(window.create_button.isEnabled())
+            window.backend.slot_creation = True
+            window.detected_module = 3
+            window.refresh_hardware_view()
+            self.assertTrue(window.create_button.isEnabled())
+            window.detected_module = 4
+            window.refresh_hardware_view()
+            self.assertFalse(window.create_button.isEnabled())
+            with patch("app.write_creation_backup", side_effect=OSError("fsync failed")), \
+                    patch.object(window.backend, "send") as send, \
+                    patch.object(window.backend, "shutdown") as shutdown:
+                window.on_event({"type": "onboard_creation_prepared", "backup": {}, "token": "789"})
+                send.assert_not_called()
+                shutdown.assert_called_once()
+            window.backend.ready = False
+
     def test_slot_capacity_shows_uninitialized_entries_without_enabling_them(self):
         with tempfile.TemporaryDirectory() as directory:
             window = Window(Path(directory) / "profiles.json")

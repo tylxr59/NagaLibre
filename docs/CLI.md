@@ -62,7 +62,25 @@ verified IDs `1` = two buttons, `3` = twelve buttons, `4` = six buttons, and
 mouse settings. Stop the watcher before connecting the desktop helper so the
 two processes do not compete for feature replies. Receiver detection is untested.
 
-The desktop helper uses protocol 3 and publishes `faceplate` events on changes.
+The desktop helper uses protocol 4 and publishes `faceplate` events on changes.
+It advertises `slot_creation` for wired V2 Pro devices. The GUI's `onboard_create`
+request prepares an unused slot and returns `onboard_creation_prepared` with all
+existing snapshots. Only after durably saving that backup does the GUI acknowledge
+the token through `onboard_commit`. Success returns `onboard_created` with the new
+slot selected and the previous slot still active. Creation verifies firmware
+defaults and existing records; failures attempt removal of only the new slot.
+No public CLI command creates permanent profiles; use the desktop flow.
+
+The protocol-4 hello also advertises `slot_activation`. `onboard_activate` accepts
+an initialized `slot`, reads it and the previous active slot, and returns
+`onboard_activation_prepared` with `backup`, `previous` and `token`. The GUI durably
+saves both snapshots before sending `onboard_commit`. `onboard_activated` returns
+the verified active snapshot. This changes only the active-profile selector;
+it writes neither mappings nor device mode. Stale state, non-normal mode,
+unexpected primary/middle clicks and an absent 12-button plate prevent switching.
+A failed switch attempts restoration of the previous active slot, including after
+a failed acknowledgement. Old helpers without the capability disable the button.
+
 The GUI automatically selects the corresponding draft and stops remapping on
 a change; Apply rechecks the module ID before starting software bindings.
 The standalone `run` command uses its supplied config and does not select
