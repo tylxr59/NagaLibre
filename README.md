@@ -104,8 +104,9 @@ cargo build --release --locked
 4. Click **Save 12 bindings to mouse** to apply the draft to the selected slot.
 
 Each tile distinguishes **Stored** (read from that slot) from **Draft** (your
-local edits). Reading the mouse leaves your draft unchanged. The selected slot
-may be inactive; saving activates it. Saving compares all twelve draft actions
+local edits). Connecting reads stored bindings automatically. Returning to the twelve-button
+plate after a swap refreshes the selected slot automatically. Reading the mouse
+leaves your draft unchanged. The selected slot may be inactive; saving activates it. Saving compares all twelve draft actions
 and writes only changed bindings, preserving the original bytes of unchanged
 bindings. Review the entire draft before saving.
 

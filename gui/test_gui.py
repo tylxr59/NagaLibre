@@ -275,6 +275,40 @@ class QtFlow(unittest.TestCase):
                 self.assertEqual(window.profile["plate"], "6")
             window.backend.ready = False
 
+    def test_memory_detection_reads_stored_bindings_without_replacing_draft(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profile.json")
+            window.backend.ready = True
+            window.backend.protocol = 3
+            window.mode.setCurrentIndex(window.mode.findData("key"))
+            window.key_value.setText("B")
+            snapshot = {"device": {"serial": "TEST"}, "slot": 1, "active": 1,
+                        "slots": [1, 2], "buttons": hardware_buttons(new_profile())}
+            with patch.object(window.backend, "send") as send:
+                window.on_event({"type": "faceplate", "module_id": 3, "buttons": 12})
+                self.assertEqual(send.call_args.args[0], {"command": "onboard_read", "slot": None})
+                self.assertTrue(window.hardware_busy)
+                # A detection arriving during the initial connection read must
+                # leave that request in flight without sending a duplicate.
+                window.on_event({"type": "faceplate", "module_id": 3, "buttons": 12})
+                self.assertEqual(send.call_count, 1)
+                window.on_event({"type": "onboard_snapshot", "snapshot": snapshot})
+                self.assertIn("Stored: 1", window.tiles[0].text())
+                self.assertIn("Draft: B", window.tiles[0].text())
+                self.assertFalse(window.hardware_busy)
+                window.on_event({"type": "faceplate", "module_id": 0, "buttons": None})
+                self.assertIsNone(window.snapshot)
+                window.on_event({"type": "faceplate", "module_id": 4, "buttons": 6})
+                self.assertEqual(send.call_count, 1)
+                window.on_event({"type": "faceplate", "module_id": 3, "buttons": 12})
+                self.assertEqual(send.call_count, 2)
+                self.assertEqual(send.call_args.args[0], {"command": "onboard_read", "slot": 1})
+                window.on_event({"type": "onboard_snapshot", "snapshot": snapshot})
+                self.assertIn("Stored: 1", window.tiles[0].text())
+                self.assertIn("Draft: B", window.tiles[0].text())
+                self.assertEqual([c.args[0]["command"] for c in send.call_args_list], ["onboard_read", "onboard_read"])
+            window.backend.ready = False
+
     def test_onboard_save_through_real_qprocess_and_reconnect(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

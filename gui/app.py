@@ -624,6 +624,8 @@ class Window(QMainWindow):
         if not self.is_hardware() and self.backend.ready:
             self.backend.send({"command": "monitor"})
         self.refresh_hardware_view()
+        if self.is_hardware() and count == 12 and self.backend.ready and not self.hardware_busy:
+            self.read_mouse()
 
     def learn_input(self):
         self.commit_fields()

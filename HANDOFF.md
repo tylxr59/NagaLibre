@@ -212,3 +212,17 @@ and detach/reattach transitions.
 The current environment has Cargo and PySide6 directly available; the older
 /tmp toolchain and .venv instructions above describe a previous environment.
 Receiver/Bluetooth and physical six-/two-button remapping remain unverified.
+
+## Automatic stored-binding refresh (2026-10-19)
+
+The user reported that the detected twelve-button plate still showed Stored:
+unread. Plate detection invalidated the previous snapshot but did not request a
+replacement on return to the supported plate. In Mouse memory mode, detecting
+the twelve-button plate now automatically reads the selected slot when connected
+and idle. The existing connection read remains automatic; an in-flight read/save
+prevents duplicate automatic requests. Other plates and Software mode do not
+trigger onboard reads. Stored values refresh without changing local drafts or
+writing settings. A regression covers initial read/detection ordering, detach,
+six-button detection, return to twelve buttons, and preserving draft B beside
+stored 1. All 26 Python/Qt tests passed, along with diff whitespace validation.
+The new automatic refresh has not yet been separately confirmed on hardware.
