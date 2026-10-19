@@ -328,6 +328,10 @@ Use the portable build/check commands in AGENTS.md on other machines.
 
 ## Remaining work
 
+The prioritized, session-sized feature backlog is in [TODO.md](TODO.md), including
+Synapse gaps beyond OpenRazer's current Naga V2 Pro API. Use it to select the next
+chunk and keep the hardware evidence in this handoff current.
+
 1. Broaden controlled hardware coverage: reset, failure rollback, shortcuts/mouse
    outputs, inactive slots and receiver behavior, plus the Qt/polkit workflow.
 2. Recover and verify native multi-step macro storage before offering it in UI.

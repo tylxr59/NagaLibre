@@ -38,6 +38,8 @@ Hardware verification below refers to the Naga V2 Pro.
 This is a project under active development. Start with the USB cable and the
 12-button plate for the best-tested setup.
 
+See [TODO.md](TODO.md) for the prioritized roadmap and remaining Synapse features.
+
 ## Experimental mouse models
 
 The additional models are identified from Razer's device packages and have not
