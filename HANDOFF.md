@@ -16,8 +16,10 @@ policy replaces the earlier binary-preview workflow. No compiled executables or
 bundled application archives should be uploaded. scripts/package.py was removed.
 The GUI now uses target/release/naga-macros unless NAGALIBRE_BACKEND is set,
 preventing old root/dist preview executables from overriding a fresh source build.
-Earlier GitHub binary release assets are historical; they were not deleted and
-predate the current hardware fixes. Do not recommend them for testing.
+At the user's subsequent request, all five historical GitHub preview releases
+(v0.2.0 through v0.3.1) and their downloadable assets were removed. Source commits
+and git tags were retained. Publishing releases is postponed until the user asks
+to resume it; build from source in the meantime.
 
 The README was rewritten for users, with requirements, source build commands,
 support limits and app usage. AGENTS.md holds architecture, checks and hardware

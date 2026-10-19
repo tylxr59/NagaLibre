@@ -23,9 +23,9 @@ replacement. Do not present implemented but untested features as hardware-verifi
   hardware-test plans and local proprietary extraction must remain untracked.
 - The GUI uses target/release/naga-macros, unless NAGALIBRE_BACKEND explicitly
   overrides it. Do not prefer obsolete root/dist executables over a source build.
-- Earlier GitHub releases contained binaries. This policy supersedes the old
-  release workflow; it does not authorize deleting historical release assets or
-  rewriting git history.
+- Historical GitHub releases and their binary assets were removed at the user's
+  request. Source commits and tags remain. Releases are postponed until the user
+  asks to resume them; do not recreate previews or rewrite git history.
 
 ## Commands
 
