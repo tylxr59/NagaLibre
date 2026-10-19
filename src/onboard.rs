@@ -25,6 +25,10 @@ pub struct Button {
 }
 
 impl Button {
+    fn same_action(&self, other: &Self) -> bool {
+        self.button == other.button && self.category == other.category && self.data == other.data
+    }
+
     fn from_record(button: u8, record: [u8; 7]) -> Result<Self> {
         ensure!(record[1] <= 5, "Invalid button action length");
         // Physical USB captures show keyboard length=1 while the modifier and
@@ -89,6 +93,24 @@ pub struct Mouse<T> {
 pub struct Prepared {
     pub before: Snapshot,
     pub desired: Vec<Button>,
+    verification: Verification,
+}
+
+#[derive(Clone, Copy)]
+enum Verification {
+    Action,
+    Wire,
+}
+
+impl Verification {
+    fn matches(self, actual: &Button, expected: &Button) -> Result<bool> {
+        Ok(match self {
+            Self::Action => actual.same_action(expected),
+            Self::Wire => {
+                actual.button == expected.button && actual.record()? == expected.record()?
+            }
+        })
+    }
 }
 
 fn slot_valid(slot: u8) -> Result<()> {
@@ -180,6 +202,7 @@ impl<T: Transport> Mouse<T> {
         Ok(Prepared {
             before: fresh,
             desired: backup.buttons,
+            verification: Verification::Wire,
         })
     }
     fn get_mode(&mut self) -> Result<Vec<u8>> {
@@ -237,7 +260,7 @@ impl<T: Transport> Mouse<T> {
         Button::from_record(physical_number, bytes[3..10].try_into().unwrap())
     }
 
-    fn set_button(&mut self, slot: u8, button: &Button) -> Result<()> {
+    fn set_button(&mut self, slot: u8, button: &Button, verification: Verification) -> Result<()> {
         // This is the only mapping writer: no caller can address primary clicks.
         slot_valid(slot)?;
         ensure!(
@@ -251,7 +274,7 @@ impl<T: Transport> Mouse<T> {
         self.transport.exchange(2, 0x0c, &payload, 0)?;
         let actual = self.get_button(slot, payload[1], button.button)?;
         ensure!(
-            actual == *button,
+            verification.matches(&actual, button)?,
             "Read-back mismatch for side button {}",
             button.button
         );
@@ -321,7 +344,7 @@ impl<T: Transport> Mouse<T> {
         })
     }
 
-    pub fn prepare(&mut self, before: &Snapshot, desired: Vec<Button>) -> Result<Prepared> {
+    pub fn prepare(&mut self, before: &Snapshot, mut desired: Vec<Button>) -> Result<Prepared> {
         validate_buttons(&desired)?;
         ensure!(before.format == 1, "Unsupported hardware backup format");
         let fresh = self.read(Some(before.slot))?;
@@ -330,9 +353,17 @@ impl<T: Transport> Mouse<T> {
             "Mouse state changed since Read slots. Read the mouse again before saving."
         );
         Self::writable_snapshot(&fresh)?;
+        // GUI drafts describe actions. Retain the exact hardware representation
+        // for unchanged actions rather than normalizing their length/padding.
+        for button in &mut desired {
+            if let Some(original) = fresh.buttons.iter().find(|b| b.same_action(button)) {
+                *button = original.clone();
+            }
+        }
         Ok(Prepared {
             before: fresh,
             desired,
+            verification: Verification::Action,
         })
     }
 
@@ -354,9 +385,9 @@ impl<T: Transport> Mouse<T> {
                     .iter()
                     .find(|b| b.button == button.button)
                     .unwrap();
-                if original != button {
+                if !prepared.verification.matches(original, button)? {
                     attempted.push(original.clone());
-                    self.set_button(before.slot, button)?;
+                    self.set_button(before.slot, button, prepared.verification)?;
                 }
             }
             if before.active != before.slot {
@@ -370,8 +401,25 @@ impl<T: Transport> Mouse<T> {
                 "Final onboard state did not verify"
             );
             for desired in &prepared.desired {
+                let original = before
+                    .buttons
+                    .iter()
+                    .find(|b| b.button == desired.button)
+                    .unwrap();
+                let actual = after
+                    .buttons
+                    .iter()
+                    .find(|b| b.button == desired.button)
+                    .unwrap();
+                // Changed GUI actions may be encoded differently by firmware.
+                // Unchanged actions, explicit restores and rollback stay exact.
+                let verification = if original.same_action(desired) {
+                    Verification::Wire
+                } else {
+                    prepared.verification
+                };
                 ensure!(
-                    after.buttons.contains(desired),
+                    verification.matches(actual, desired)?,
                     "Final button read-back mismatch"
                 );
             }
@@ -382,7 +430,7 @@ impl<T: Transport> Mouse<T> {
             Err(error) => {
                 let mut failures = Vec::new();
                 for button in attempted.into_iter().rev() {
-                    if let Err(e) = self.set_button(before.slot, &button) {
+                    if let Err(e) = self.set_button(before.slot, &button, Verification::Wire) {
                         failures.push(e.to_string());
                     }
                 }
@@ -416,6 +464,8 @@ mod tests {
         mode: Vec<u8>,
         active: u8,
         inventory: Vec<u8>,
+        wire_writes: Vec<(u8, [u8; 7])>,
+        reencode_once: bool,
     }
     impl Fake {
         fn new() -> Self {
@@ -438,7 +488,37 @@ mod tests {
                 mode: vec![0, 0],
                 active: 1,
                 inventory: vec![5, 1, 2, 0, 0, 0],
+                wire_writes: vec![],
+                reencode_once: false,
             }
+        }
+
+        fn captured_factory() -> Self {
+            let mut fake = Self::new();
+            let usages = [
+                0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d, 0x2e,
+            ];
+            for (i, usage) in usages.into_iter().enumerate() {
+                let n = i as u8 + 1;
+                let length = if n <= 2 { 2 } else { 1 };
+                fake.buttons.insert(
+                    0x3f + n,
+                    Button::from_record(n, [2, length, 0, usage, 0, 0, 0]).unwrap(),
+                );
+            }
+            fake.inventory = vec![5, 1, 2];
+            fake
+        }
+
+        fn gui_factory() -> Vec<Button> {
+            Self::captured_factory()
+                .buttons
+                .into_values()
+                .map(|mut b| {
+                    b.raw_record = None;
+                    b
+                })
+                .collect()
         }
     }
     impl Transport for Fake {
@@ -485,10 +565,14 @@ mod tests {
                 (2, 0x0c) => {
                     assert!((0x40..=0x4b).contains(&p[1]), "primary write attempted");
                     self.writes.push(p[1]);
-                    self.buttons.insert(
-                        p[1],
-                        Button::from_record(p[1] - 0x3f, p[3..10].try_into().unwrap())?,
-                    );
+                    let mut record: [u8; 7] = p[3..10].try_into().unwrap();
+                    self.wire_writes.push((p[1], record));
+                    if self.reencode_once && record[0] == 2 && record[1] == 2 {
+                        self.reencode_once = false;
+                        record[1] = 1;
+                    }
+                    self.buttons
+                        .insert(p[1], Button::from_record(p[1] - 0x3f, record)?);
                     if self.fail_once == Some(p[1]) {
                         self.fail_once = None;
                         bail!("Injected failure after device accepted write");
@@ -498,6 +582,137 @@ mod tests {
                 _ => panic!("Unexpected command {class:x}/{cmd:x}"),
             })
         }
+    }
+
+    #[test]
+    fn unchanged_gui_factory_save_preserves_captured_records_without_button_writes() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let before = mouse.read(None).unwrap();
+        let plan = mouse.prepare(&before, Fake::gui_factory()).unwrap();
+        assert_eq!(plan.desired, before.buttons);
+        assert_eq!(mouse.commit(plan).unwrap(), before);
+        assert!(mouse.transport.writes.is_empty());
+    }
+
+    #[test]
+    fn gui_change_to_b_writes_only_first_button_and_preserves_other_wire_records() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let before = mouse.read(None).unwrap();
+        let mut desired = Fake::gui_factory();
+        desired[0].data = vec![0, 5];
+        let plan = mouse.prepare(&before, desired).unwrap();
+        let after = mouse.commit(plan).unwrap();
+        assert_eq!(mouse.transport.writes, vec![0x40]);
+        assert_eq!(
+            mouse.transport.wire_writes,
+            vec![(0x40, [2, 2, 0, 5, 0, 0, 0])]
+        );
+        assert_eq!(after.buttons[0].data, vec![0, 5]);
+        assert_eq!(after.buttons[1..], before.buttons[1..]);
+        assert_eq!(after.primary, before.primary);
+    }
+
+    #[test]
+    fn failed_gui_save_restores_captured_and_unknown_records_byte_for_byte() {
+        for unknown in [false, true] {
+            let mut mouse = Mouse {
+                transport: Fake::captured_factory(),
+            };
+            if unknown {
+                mouse.transport.buttons.insert(
+                    0x42,
+                    Button::from_record(3, [0x12, 1, 8, 7, 6, 5, 4]).unwrap(),
+                );
+            }
+            let before = mouse.read(None).unwrap();
+            let mut desired = Fake::gui_factory();
+            desired[0].data = vec![0, 5];
+            desired[2].data = vec![0, 6];
+            let plan = mouse.prepare(&before, desired).unwrap();
+            mouse.transport.fail_once = Some(0x42);
+            assert!(
+                mouse
+                    .commit(plan)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("were restored")
+            );
+            assert_eq!(mouse.transport.writes, vec![0x40, 0x42, 0x42, 0x40]);
+            assert_eq!(
+                mouse.transport.wire_writes[2],
+                (0x42, before.buttons[2].record().unwrap())
+            );
+            assert_eq!(
+                mouse.transport.wire_writes[3],
+                (0x40, before.buttons[0].record().unwrap())
+            );
+            assert_eq!(mouse.read(None).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn explicit_restore_restores_original_encoding_even_when_actions_match() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let backup = mouse.read(None).unwrap();
+        for b in mouse.transport.buttons.values_mut() {
+            b.raw_record = None;
+        }
+        let plan = mouse.prepare_restore(backup.clone()).unwrap();
+        assert_eq!(mouse.commit(plan).unwrap(), backup);
+        assert_eq!(mouse.transport.writes, (0x42..=0x4b).collect::<Vec<_>>());
+        for (id, wire) in &mouse.transport.wire_writes {
+            assert_eq!(
+                *wire,
+                backup.buttons[usize::from(*id - 0x40)].record().unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_restore_preserves_unknown_action_and_trailing_bytes() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let raw = [0x12, 1, 8, 7, 6, 5, 4];
+        mouse
+            .transport
+            .buttons
+            .insert(0x42, Button::from_record(3, raw).unwrap());
+        let backup = mouse.read(None).unwrap();
+        mouse.transport.buttons.insert(
+            0x42,
+            Button::from_record(3, [0x12, 1, 8, 0, 0, 0, 0]).unwrap(),
+        );
+        let plan = mouse.prepare_restore(backup.clone()).unwrap();
+        assert_eq!(mouse.commit(plan).unwrap(), backup);
+        assert_eq!(mouse.transport.wire_writes, vec![(0x42, raw)]);
+    }
+
+    #[test]
+    fn gui_verifies_changed_actions_but_explicit_restore_requires_exact_encoding() {
+        let mut mouse = Mouse {
+            transport: Fake::captured_factory(),
+        };
+        let backup = mouse.read(None).unwrap();
+        let mut desired = Fake::gui_factory();
+        desired[0].data = vec![0, 5];
+        let plan = mouse.prepare(&backup, desired).unwrap();
+        mouse.transport.reencode_once = true;
+        let after = mouse.commit(plan).unwrap();
+        assert_eq!(after.buttons[0].data, vec![0, 5]);
+        assert_eq!(after.buttons[0].record().unwrap(), [2, 1, 0, 5, 0, 0, 0]);
+        assert_eq!(mouse.transport.writes, vec![0x40]);
+        let plan = mouse.prepare_restore(backup).unwrap();
+        mouse.transport.reencode_once = true;
+        let error = mouse.commit(plan).unwrap_err().to_string();
+        assert!(error.contains("Read-back mismatch"), "{error}");
+        assert_eq!(mouse.read(None).unwrap(), after);
     }
 
     #[test]

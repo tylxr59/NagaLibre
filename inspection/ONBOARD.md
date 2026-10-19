@@ -89,10 +89,15 @@ and activates the selected slot; no helper is needed to process these bindings.
 4. GUI atomically saves a private JSON backup, fsyncs file and directory, then
    acknowledges the prepared token. Failure here prevents all settings writes.
 5. Recheck the snapshot, set normal mode if needed, write only changed grid
-   entries, GET each entry to verify, activate the slot, and verify the full state.
+   actions, GET each entry to verify, activate the slot, and verify the full state.
+   Normal saves compare decoded actions and retain original records for unchanged
+   bindings. Changed actions are verified by decoded action, allowing equivalent
+   firmware encoding. Unchanged records are verified byte for byte. Explicit
+   backup restoration compares and verifies wire bytes even when actions match.
 6. If any operation fails, attempt to restore every attempted binding (including
    a write whose acknowledgement failed), previous active slot, and previous mode.
-   An incomplete rollback is reported explicitly. Disconnect/power loss can prevent
+   Rollback verifies original wire bytes, including unknown actions and trailing
+   data. An incomplete rollback is reported explicitly. Disconnect/power loss can prevent
    rollback; keep the backup.
 7. On success, the GUI stops the privileged helper. Closing the app leaves the
    firmware bindings in place.
@@ -109,8 +114,9 @@ mouse macro data still exists.
 This release edits existing slots only. Creating an empty slot could leave
 primary buttons unbound, so create/delete/erase commands are absent. The GUI
 keeps a local draft; reading mouse slots displays the raw records in its log and
-does not import them into or replace the draft. Saving writes all twelve draft
-actions to the selected slot. Hardware support currently covers the 12-button
+does not import them into or replace the draft. Saving compares all twelve draft
+actions and writes only changed actions to the selected slot, retaining original
+encoding for unchanged bindings. Hardware support currently covers the 12-button
 plate, standard keys, modifier shortcuts and mouse-button outputs.
 
 Multi-step onboard macro encoding, allocation, upload and deletion remain

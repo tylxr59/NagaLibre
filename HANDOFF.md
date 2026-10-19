@@ -1,5 +1,46 @@
 # Project handoff
 
+## Latest: prevent unnecessary writes before controlled hardware testing
+
+Reviewed commit `50c43dd`: normal GUI saves compared complete Button structs,
+including raw_record. Canonical factory drafts therefore rewrote ten semantically
+unchanged length-1 keyboard records. Per-write and final verification also used
+complete struct equality.
+
+Normal saves now compare button number, category and decoded data, and resolve
+unchanged actions to the original captured record. Changed GUI actions verify
+by decoded action, permitting equivalent firmware encoding; unchanged bindings
+verify exact wire bytes. Explicit backup restoration compares and verifies exact
+wire bytes, even for equivalent actions. Rollback also restores/verifies exact
+bytes, including unknown categories and trailing data. Stale snapshot checks
+remain strict. Primary writes and slot creation/deletion remain absent.
+
+Passed: 28 Rust tests, 17 offscreen GUI/backup tests, Clippy with warnings denied,
+formatting checks and release build. New captured-record regressions cover zero
+button writes for an unchanged factory draft, only ID 0x40 for button 1 to B,
+exact rollback after an accepted-but-failed write (including unknown actions),
+and exact encoding restoration. An additional test permits changed-action
+re-encoding during normal saves but rejects it for explicit exact restoration.
+
+Hardware phase: **blocked on fresh read/backup access, before write approval**.
+Noninteractive sudo still needs a password; the read-only pkexec attempt timed
+out after 90 seconds. No fresh backup was created by that attempt. The user
+should run `python3 scripts/backup_onboard.py` as their normal desktop user.
+It elevates only the Rust active-slot getter with sudo, then saves the exact
+snapshot through the existing private, atomic, file-and-directory-fsynced
+backup writer and checks JSON readback. It prints a path/hash and action summary;
+keep private backups and serial numbers out of Git. Tests cover preserved raw
+data/private permissions and failure without creating a substitute-slot backup.
+
+No hardware writes have been performed with this change. Ask for explicit
+approval after the backup and concrete plan are ready: only active-slot button 1
+(ID 0x40) from key 1 to B (HID usage 0x05), leaving mode, selected slot, other
+eleven raw records and primary clicks intact. Verify readback and primary
+records, have the user test clicks and B, quit the app/helper and reconnect,
+then re-read/test persistence. Finally restore the original backup and verify
+all records exactly. Writes, physical click checks, reconnect persistence and
+live backup restoration remain pending; do not describe mock tests as hardware.
+
 ## Latest: physical probe identifies compact inventory reply
 
 The USB-connected mouse (`1532:00a7`, control interface `/dev/hidraw6` at
@@ -52,10 +93,9 @@ formatting, Clippy and release build pass. No live write test has occurred.
 The requested read-only inventory investigation is complete. Slot 2's physical
 behavior remains untested. Next hardware phase, if requested: durably back up
 the verified slot, test a binding change, app exit/reconnect persistence,
-primary controls, reset and backup restoration. The GUI writes all twelve draft
-actions; do not describe it as a one-record write, especially because canonical
-draft records differ from the ten original raw records. No writes are authorized
-by the read-only diagnostic request alone.
+primary controls, reset and backup restoration. The subsequent fix described
+above now avoids rewriting equivalent draft actions. Hardware writes require
+the user's approval of the controlled test plan.
 
 The downloaded 0.3.1 binary
 at `/tmp/nagalibre-probe.U8lvTx/naga-macros` still contains the old parser.
@@ -111,8 +151,9 @@ On success normal mode and the chosen slot are verified, then the helper exits.
 `gui/onboard.py` maps Linux key names to HID usages and saves private backups.
 The GUI defaults to Mouse memory, with an explicit Software mode for existing
 macro sequences and other plates. Read slots leaves the local draft unchanged;
-saving writes all twelve draft actions. Reset in hardware mode writes factory
-keys. Restore accepts matching mouse serial/product and restores side records
+saving compares all twelve draft actions and writes only changed actions.
+Reset in hardware mode writes factory keys. Restore accepts matching mouse
+serial/product and restores side records
 into their original slot; it does not recreate deleted underlying macro data.
 
 See [inspection/ONBOARD.md](inspection/ONBOARD.md) for decompilation findings,

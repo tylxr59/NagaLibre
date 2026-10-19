@@ -58,6 +58,12 @@ To inspect complete button getter payloads from an existing slot with a local
 build, use `sudo ./target/release/naga-macros onboard-probe --slot 1`.
 This adds primary and side-button reads without changing settings.
 
+For a durable backup of the active slot before controlled hardware testing, run
+`python3 scripts/backup_onboard.py` as your normal user from the source checkout.
+It requests sudo only for the Rust getter, saves a private snapshot with the
+original wire records, and prints its path and checksum. It performs no writes
+to the mouse.
+
 Version **0.3.0** adds an experimental **Mouse memory** mode for existing
 onboard profile slots. Read-only slot discovery and button-record retrieval
 have succeeded on a physical mouse; settings writes remain unverified. Start
@@ -72,7 +78,8 @@ In **Mouse memory** mode:
 - Connect / **Read slots** discovers initialized slots. Select a slot to edit.
   Tiles show its stored bindings alongside the draft; your local draft stays unchanged.
 - Edit the twelve side buttons, then **Save 12 bindings to mouse**. This writes
-  all twelve displayed draft actions and activates that slot. Standard keys,
+  changed actions from the twelve-button draft and activates that slot. Unchanged
+  actions retain their original firmware encoding. Standard keys,
   modifier shortcuts (Ctrl+C), and mouse-button outputs are supported.
 - The app saves a private backup before writing, checks every binding by reading
   it back, and stops the helper after success. The intended result is bindings
