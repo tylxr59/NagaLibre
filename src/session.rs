@@ -24,6 +24,20 @@ pub fn emit(value: Value) {
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    HapticRead {
+        slot: Option<u8>,
+    },
+    HapticPrepare {
+        known: onboard::haptic::Inspection,
+        edit: onboard::haptic_transaction::Edit,
+    },
+    HapticRestore {
+        backup: onboard::haptic_transaction::Backup,
+        slot: u8,
+    },
+    HapticCommit {
+        token: String,
+    },
     OnboardLayersRestoreNormal {
         backup: onboard::Snapshot,
     },
@@ -188,6 +202,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         "slot_activation":device.is_some_and(|d| d.onboard),
         "wheel_controls":device.is_some_and(|d| d.onboard),
         "hypershift_transactions":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
+        "haptic_settings":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "device_error":selection.as_ref().err().map(|e| format!("{e:#}"))}),
     );
     let mut active: Option<Worker> = None;
@@ -195,6 +210,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
     let mut snapshot: Option<onboard::Snapshot> = None;
     let mut layer_snapshot = None;
     let mut prepared: Option<(String, HardwarePlan)> = None;
+    let mut haptic_prepared = None;
     let mut watching_plate = false;
     let mut next_plate = Instant::now();
     let mut last_plate = None;
@@ -215,6 +231,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                     worker.stop();
                 }
                 prepared = None;
+                haptic_prepared = None;
                 snapshot = None;
                 layer_snapshot = None;
                 emit(event.clone());
@@ -231,6 +248,78 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         };
+        if matches!(
+            command,
+            Command::HapticRead { .. }
+                | Command::HapticPrepare { .. }
+                | Command::HapticRestore { .. }
+                | Command::HapticCommit { .. }
+        ) {
+            if let Some(worker) = active.take() {
+                worker.stop();
+            }
+            prepared = None;
+            snapshot = None;
+            layer_snapshot = None;
+            let committing = matches!(command, Command::HapticCommit { .. });
+            let result = (|| -> Result<()> {
+                ensure!(
+                    selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
+                    "Wheel settings require wired Naga V2 Pro"
+                );
+                if hardware.is_none() {
+                    hardware = Some(onboard::hidraw::connect()?);
+                }
+                let mouse = hardware.as_mut().context("Hardware connection lost")?;
+                let plan = match command {
+                    Command::HapticRead { slot } => {
+                        haptic_prepared = None;
+                        emit(
+                            json!({"type":"haptic_snapshot","snapshot":mouse.inspect_haptic(slot)?}),
+                        );
+                        return Ok(());
+                    }
+                    Command::HapticPrepare { known, edit } => {
+                        haptic_prepared = None;
+                        mouse.prepare_haptic(&known, edit)?
+                    }
+                    Command::HapticRestore { backup, slot } => {
+                        haptic_prepared = None;
+                        mouse.prepare_haptic_restore(backup, slot)?
+                    }
+                    Command::HapticCommit { token } => {
+                        let (expected, plan) =
+                            haptic_prepared.take().context("No prepared wheel save")?;
+                        ensure!(
+                            token == expected,
+                            "Wheel backup acknowledgement token differs"
+                        );
+                        let after = mouse.commit_haptic(plan)?;
+                        emit(json!({"type":"haptic_saved","snapshot":after}));
+                        return Ok(());
+                    }
+                    _ => unreachable!(),
+                };
+                let token = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_nanos()
+                    .to_string();
+                emit(json!({"type":"haptic_prepared","token":token,"backup":plan.backup}));
+                haptic_prepared = Some((token, plan));
+                Ok(())
+            })();
+            match result {
+                Ok(()) if committing => break,
+                Ok(()) => {}
+                Err(error) => {
+                    haptic_prepared = None;
+                    hardware = None;
+                    emit(json!({"type":"haptic_error","message":format!("{error:#}")}));
+                }
+            }
+            continue;
+        }
+        haptic_prepared = None;
         if matches!(command, Command::Faceplate) {
             if !device.is_some_and(|d| d.faceplate) {
                 emit(

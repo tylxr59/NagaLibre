@@ -13,6 +13,26 @@ use std::{
 
 const SIZE: usize = 91;
 
+/// A checksum-valid, transaction/command-matched firmware rejection. Callers
+/// must not mistake transport timeouts or malformed packets for unsupported data.
+#[derive(Debug)]
+pub struct Rejected {
+    pub class: u8,
+    pub command: u8,
+    pub status: u8,
+}
+
+impl std::fmt::Display for Rejected {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "Mouse rejected {:02x}/{:02x}: status {:#x}",
+            self.class, self.command, self.status
+        )
+    }
+}
+impl std::error::Error for Rejected {}
+
 fn ioctl_code(direction: u32, number: u32, size: usize) -> libc::c_ulong {
     ((direction << 30) | ((size as u32) << 16) | (u32::from(b'H') << 8) | number) as libc::c_ulong
 }
@@ -39,13 +59,14 @@ fn reply(request: &[u8; SIZE], response: &[u8; SIZE], echo: usize) -> Result<Opt
     if response[89] != response[3..89].iter().fold(0, |crc, byte| crc ^ byte) {
         return Ok(None);
     }
-    ensure!(
-        response[1] == 2,
-        "Mouse rejected {:02x}/{:02x}: status {:#x}",
-        request[7],
-        request[8],
-        response[1]
-    );
+    if response[1] != 2 {
+        return Err(Rejected {
+            class: request[7],
+            command: request[8],
+            status: response[1],
+        }
+        .into());
+    }
     let length = usize::from(response[6]);
     ensure!(
         length <= 80 && echo <= length && echo <= usize::from(request[6]),

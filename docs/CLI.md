@@ -409,3 +409,98 @@ both it and the original allocation backup before acknowledging the token. The
 allocator still requires zero normal tags and refuses configured Hypershift
 states before allocation. Existing secondary banks are verified after allocation
 and cleanup. Receiver and legacy protocol paths retain their earlier behavior.
+
+## HyperScroll Pro standard modes
+
+Use **Wheel settings…** in the GUI for Standard, Distinct, Ultra-fine, Adaptive
+and Smooth Scroll. Wired Naga V2 Pro and its twelve-button plate are required.
+The dialog supports enabled cycle order, active mode, draft-only defaults and
+stage-backup restoration. It preserves existing Custom curves/metadata and
+button bindings. See [the desktop wheel guide](WHEEL.md).
+
+The JSON-lines helper supports `haptic_read`, `haptic_prepare`, `haptic_commit`
+and `haptic_restore` for stage selection/order only. A prepare response supplies
+a backup and token; the unprivileged caller must atomically save, fsync and read
+back the backup before acknowledging the token. Do not confuse a local draft
+with the mouse's active settings. A failed read invalidates stored values.
+
+### Read-only inspection
+
+```sh
+sudo ./target/debug/naga-macros haptic-read
+python3 scripts/inspect_haptic.py
+python3 scripts/inspect_haptic.py --firmware-version
+python3 scripts/inspect_haptic_views.py
+python3 scripts/backup_haptic_independent.py
+```
+
+The scripts retain private paired-mapping checkpoints and compare reported state.
+They send no settings writes. Firmware reports major/minor only; patch is unknown.
+Stored-profile CCW/velocity table replies can alias the CW table. Selector-zero
+views retain subtable offsets but can expose flash rather than uncommitted cache.
+Editor metadata describes intent, not proof of actual curves. Inactive metadata
+may explicitly reject reads and remains unknown. These exports are not full
+firmware images or substitutes for stage transaction backups.
+
+Close other mouse controllers first. If OpenRazer is running as the user service
+`openrazer-daemon.service`, this Bash wrapper temporarily stops it and starts it
+again on exit; it also works when pasted into fish:
+
+```sh
+bash -c '
+trap "systemctl --user start openrazer-daemon.service" EXIT
+systemctl --user stop openrazer-daemon.service || exit
+python3 scripts/inspect_haptic.py --firmware-version
+'
+```
+
+Use that wrapper only when the service was running beforehand; preserve its prior
+state otherwise. Close Polychromatic too. Strict command/echo/checksum matching
+remains enabled; an unrelated reply is not accepted as a response. Full paired
+and wheel sweeps can take tens of seconds because each HID exchange waits before
+polling and state is read repeatedly. Progress output identifies the current phase.
+
+### Controlled standard-mode tests
+
+Close the GUI before these trials. Each backs up current state before writes,
+collects physical observations and restores the captured stage list/selection:
+
+```sh
+python3 scripts/haptic_test.py guided
+python3 scripts/haptic_test.py trial --position 1
+python3 scripts/haptic_test.py trial --order 85 81 --position 2
+```
+
+Order arguments are hexadecimal preset IDs; position is one-based within that
+list. These are stage-only operations. Hardware observations cover all five
+named preset feels/cycling and explicit Standard/Ultra-fine/reordered-list USB
+persistence. The desktop flow is implemented and covered by automated Qt tests;
+it has not had a separate physical GUI trial.
+
+After any interruption, read the printed private directory's `plan.json`. Use
+only the same helper and that trial's recovery route if restoration is pending:
+
+```sh
+python3 scripts/haptic_test.py restore --directory /path/to/pending/trial
+```
+
+Keep the twelve-button plate attached. Do not rebuild the helper during an
+outstanding trial. Readback does not prove physical feel, click output or USB
+persistence; record those observations separately.
+
+### Deferred Custom research
+
+Custom editing is not available. The historical `haptic-table-probe`,
+`haptic-upload-replay`, `haptic-independent-replay` and
+`haptic-unit-velocity-trial` CLI apply routes are blocked before file/device
+access. Their `--restore` routes remain for existing matching private journals;
+do not start new Custom trials. Research scripts and fault tests are retained
+for future work, not as a supported editing API.
+
+The unchanged replays acknowledged transfers and matched existing visible data,
+but changed velocity uploads read back unchanged. A separate save/flash gate is
+still unresolved. Unknown pre-replay originals cannot be reconstructed from
+aliased backups; neither host defaults nor another slot's curves are an assumed
+original. See [protocol findings](../inspection/HAPTIC_WHEEL.md) and
+[firmware findings](../inspection/HAPTIC_FIRMWARE.md). Custom work is deferred;
+TODO #4 is next.

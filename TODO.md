@@ -116,20 +116,43 @@ Goal: a secondary assignment layer available while holding a designated button.
 ## 3. HyperScroll Pro haptic wheel
 
 Goal: configure wheel feel, beyond remapping the scroll-mode button.
+**Standard modes are implemented. Custom editing is deferred at the user's request.**
+Continue with #4 next; do not resume Custom hardware experiments automatically.
 
-- [ ] Research chunk: trace the native HapticScroll handlers, stage settings and
-      metadata. Recover request/reply formats and per-connection capabilities.
-- [ ] Read-only chunk: report current stage, enabled stages/order, browsing mode,
-      tension, steps and custom curves where supported.
-- [ ] Basic settings chunk: support built-in stage selection and enabled-stage
-      order, with durable settings backups and verified recovery.
-- [ ] Custom settings chunk: expose tension (Synapse documents 0–100), steps
-      (8–96 per revolution), and separate upward/downward haptic curves. Verify
-      firmware bounds rather than treating UI ranges as a complete wire spec.
-- [ ] UI chunk: provide understandable presets and custom controls, with separate
-      binding defaults and wheel-settings defaults.
-- [ ] Hardware chunk: verify tactile changes, stage cycling and persistence one
-      setting at a time; restore original settings between experiments.
+- [x] Research and read-only capture: wired native formats, preset names, mixed
+      endian fields, table chunking, stage IDs versus enabled-list positions,
+      metadata and receiver gating documented. Unknown bytes are retained.
+      Inactive metadata rejection is explicit unknown state. Firmware reports
+      1.2 with no patch. See [wheel protocol](inspection/HAPTIC_WHEEL.md) and
+      [firmware investigation](inspection/HAPTIC_FIRMWARE.md).
+- [x] Standard mode engine/session: Standard, Distinct, Ultra-fine, Adaptive and
+      Smooth Scroll selection, enabled cycle list/order, durable paired/wheel
+      checkpoints, stale checks, failed-ack rollback and exact restoration.
+      Saving standard modes writes no curve, metadata or binding values.
+- [x] Standard mode desktop UI: descriptions, enable/reorder, active selection,
+      draft-only wheel defaults, stored/draft separation and backup restoration.
+      Existing Custom entries are preserved/read-only; unknown modes block saves.
+      Invalid drafts keep the last read, unchanged saves skip writes, and closing
+      cannot interrupt an operation. See [desktop wheel guide](docs/WHEEL.md).
+- [x] Built-in tactile trial: all five named feels and five-press cycling passed,
+      with normal scrolling/primary clicks and original Smooth feel restored.
+      Standard/Ultra-fine reconnect and reordered [85,81] persistence explicitly
+      passed; do not infer every mode's persistence from these observations.
+- [ ] Additional desktop physical verification of the new Wheel settings dialog.
+      The engine paths have controlled hardware evidence; desktop interactions
+      have automated Qt/failure coverage, not a separate physical GUI trial.
+- [ ] **Deferred Custom:** establish the save/commit lifecycle and independently
+      verify changed cached/flash/operational data plus recovery before exposing
+      tension, steps or up/down curves. Stored-profile table getters alias CW;
+      selector-zero reads can expose flash rather than uncommitted cache.
+      Candidate velocity uploads acknowledged but read back unchanged, so Custom
+      selection was blocked and current visible state restored. Historical
+      pre-replay independent values are unknown. Do not substitute defaults.
+      New custom probe/upload/replay applies are disabled; recovery routes remain.
+- [ ] **Deferred Custom UI/physical checks:** implement verified bounds and curve
+      generation, separate metadata intent from actual tables, and test one
+      changed parameter at a time with physical/reconnect/restoration observations.
+      Synapse's 0–100 tension and8–96 steps are UI ranges, not proven device bounds.
 
 ## 4. Onboard macros and richer playback
 
@@ -235,3 +258,27 @@ these merely to claim Synapse parity.
 Keep proprietary payloads, private hardware captures and backups untracked.
 Publish source and protocol findings, following the repository's source-only
 distribution policy.
+
+## Future: firmware version checking and updates
+
+- [ ] Show the device-reported firmware version and distinguish it from an
+      updater package version. The wired wheel-research diagnostic now reads
+      `00/81` twice with identity/state guards; it exposes two raw bytes and
+      does not invent a patch number. Wired hardware returned 01 02 (1.2),
+      with unchanged wheel/mapping checks. GUI integration remains pending. Other connections/models need their own verification.
+- [ ] Add an explicit Check for firmware updates action using official model-
+      and connection-specific Razer metadata. Show source, target version and
+      package identity; handle stale/offline metadata and partial version reports.
+      Never equate a newer package with a compatible image automatically.
+- [ ] Research Linux firmware-update transport and recovery independently of
+      settings writes. Document mouse/receiver images, bootloader identities,
+      package/image integrity, update order, power-loss recovery, version checks
+      and settings preservation before implementing any flashing support.
+- [ ] If a safe supported update path is established, offer an explicit user-
+      initiated update with progress, interruption handling and post-update
+      verification. No background flashing, automatic bootloader entry or
+      proprietary updater execution. Distribution remains source-only; firmware
+      payloads are not committed or bundled.
+
+[Firmware research and remaining limits](inspection/HAPTIC_FIRMWARE.md) records
+current static findings. Adding this roadmap does not enable firmware writes.

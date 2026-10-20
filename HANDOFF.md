@@ -1,10 +1,142 @@
 # NagaLibre development handoff
 
-Read [AGENTS.md](AGENTS.md) for standing instructions. This file records the
-current implementation, evidence, and remaining work. User setup belongs in
+Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
-## Current state
+## Current checkpoint and next chat
+
+The user asked to finish standard wheel modes, defer Custom, tidy the repository,
+commit and push. **Next work is TODO #4: onboard macros and richer playback.**
+Do not resume Custom haptic experiments without a new request. #3 remains open
+only for the deferred Custom/editor work and additional physical GUI coverage.
+No hardware writes were performed during this commit cleanup.
+
+## Standard wheel modes
+
+Wired Naga V2 Pro with its twelve-button plate now has a separate **Wheel settings**
+dialog for Standard (`0x81`), Distinct (`0x82`), Ultra-fine (`0x83`), Adaptive (`0x84`)
+and Smooth Scroll (`0x85`). It reads current active mode and enabled cycle order, supports
+checking/reordering standard modes and choosing the active mode, and shows a
+plain-language description. Stage IDs differ from enabled-list positions.
+Defaults are a local draft; button-binding defaults are separate. Unchanged saves
+are skipped. Invalid drafts preserve the last read. Unknown stages make the
+snapshot read-only. Existing Custom entries remain enabled/read-only and are
+preserved by standard defaults/saves; a currently active Custom mode is reported
+without silently replacing the draft with a standard mode. It cannot be newly
+selected through this standard-only UI. Read-only diagnostics are collapsed.
+
+The GUI stops software remaps before opening wheel settings. The engine/session
+prepares a durable all-slot paired-mapping and readable wheel backup, rechecks
+stale snapshots before writes, and verifies exact untouched records. Only the
+stage list/selection setters are used; curves, metadata, bindings and device mode
+are not written by this flow. Failed acknowledgements trigger rollback, because
+the write may have landed. Closing is prevented during a wheel operation. A
+successful save stops the helper and retains actual readback until the next read.
+Inactive metadata status3 is explicit negative evidence, not verified empty data.
+
+User hardware observations establish all five named preset feels, five-press
+cycling back to Standard, normal primary clicks/scrolling and return to original
+Smooth feel after restoration. Standard and Ultra-fine USB persistence were
+explicitly confirmed; do not generalize that to every mode. Reordered [85,81]
+position2 persistence was confirmed. The dialog's full desktop physical flow has
+not been separately tested; Qt tests cover the five choices, drafts, cycle
+positions, Custom preservation, backup-before-commit and failures.
+See [docs/WHEEL.md](docs/WHEEL.md) for the standard-mode workflow.
+
+## Custom haptics: deferred, apply routes blocked
+
+Host/firmware findings are in [inspection/HAPTIC_WHEEL.md](inspection/HAPTIC_WHEEL.md)
+and [inspection/HAPTIC_FIRMWARE.md](inspection/HAPTIC_FIRMWARE.md). Firmware reports
+major/minor 1.2 (raw `01 02`); patch/exact image identity is unknown. The two extracted
+official images are not claimed to match it. No updater was executed/flashed.
+
+Stored-profile CCW/velocity getters alias CW in the tested device. Selector zero
+returned distinct CCW/velocity on untouched slot 2 (43/43/5 points), while stored
+replies aliased. Original slot 1 and all captured state were restored exactly.
+Selector-zero offsets are retained but its source can point to flash, not a
+newly changed RAM cache. Capture format haptic_independent_checkpoint preserves
+both sources plus all-slot paired/reported state. It is not a full firmware image
+or an independent backup of inactive curves/unavailable metadata.
+
+The earlier full replay used aliased bytes before that limitation was resolved.
+Historical independent CCW/velocity were never captured and cannot be claimed
+restorable. Current slot 1 has CW-prefix velocity through both getters; do not
+replace it with slot 2 curves or host defaults as an assumed original. Metadata
+records editor intent, not proof of a corresponding waveform.
+
+Changed-value trials received all upload acknowledgements but selector-zero
+velocity remained the original prefix instead of (-720,1),(0,1),(720,1). Only
+table index 2 and its exact `15/84` record differed. Verification stopped BEFORE
+Custom selection; no changed-value feel test occurred. Original recovery packets
+acknowledged and visible captured state matched. Pending cache/driver buffers
+were not independently read. Unchanged replays prove acknowledged transfers and
+matching existing readback, not that changed values are applied or committed.
+
+Extracted 2.61.01 copies upload data into RAM cache and schedules dirty-page work,
+but Custom flash writes require a separate gate at RAM200050c0 bit0. The save
+lifecycle is unresolved. Do not guess reset/mode/factory-reset commands, packet
+lengths, metadata changes or alternate selectors to bypass this. All historical
+Custom apply/probe/replay CLI routes are blocked before files/device access;
+--restore remains available for existing journals. Stage-only standard saves
+remain enabled. The experiment code and fault tests are retained as research,
+not a supported Custom editor. New mismatch diagnostics preserve exact expected/
+observed State in user-owned 0600 applied.json before recovery, without serials
+or unrelated mapping payloads. Never loosen exact comparisons to accept a trial.
+
+## Private hardware evidence index
+
+All paths below are directory basenames under the user's private NagaLibre config
+directory; they are untracked and must stay local. No outstanding write/recovery
+plan was found during cleanup: eight restored_exactly, one restored_captured_state,
+and one preparation-only plan that never reached a write. Preserve the evidence.
+
+| Private directory suffix | Evidence |
+| --- | --- |
+| haptic-inspection-1792499161590139308 | Initial active1, position5, IDs81..85, 45/45/3 reported points, metadata40; paired mappings unchanged |
+| haptic-stage-trial-1792500518847200835 | Standard ratcheting, clicks/reconnect passed; exact captured restoration |
+| haptic-stage-trial-1792501208155478224 | [85,81] position2, defined ratcheting and persistence; original scrolling restored |
+| haptic-stage-trial-1792502191055814000 | Guided five named feels/cycling; original Smooth/scroll/clicks returned between presets |
+| haptic-table-replay-1792503875132265771 | Isolated table write rejected status3; captured readback unchanged; do not rerun |
+| haptic-inspection-1792504804230433475 | Repeated firmware bytes01 02; no patch getter |
+| haptic-upload-replay-1792506242913409977 | Legacy unchanged full upload acknowledged; independent preservation NOT established |
+| haptic-stage-trial-1792506565035451711 | Existing Custom selection felt smooth; normal scrolling/clicks, reconnect and original Smooth return confirmed |
+| haptic-table-views-1792521064666936169 | Empty failed read-only attempt; unrelated07/80 reply during02/8c, likely competing controller |
+| haptic-table-views-1792521370834215784 | Stored/zero views stable/equal on slot 1, both velocity prefixes; mappings unchanged |
+| haptic-slot-comparison-1792524816142847278 | Slot2 stored/zero equality[true,false,false], independent velocity/CCW; exact original-slot restoration |
+| haptic-independent-checkpoint-1792525289956879242 | Current active1 checkpoint,45/45/3, both views equal; SHA256 b8644306e433033cbb06dde03f6d50537a4d6dfef82240300700eefb32e8d416 |
+| haptic-independent-replay-1792525948540335436 | Two14-packet sequences acknowledged, existing visible readback exact; no changed-save proof |
+| haptic-custom-trial-1792526784193479822 | Generic candidate mismatch before selection, acknowledged exact visible restoration |
+| haptic-custom-trial-1792527201929626567 | Exact expected/observed velocity mismatch captured; safe stop before selection and visible restoration |
+
+Live control requests conflict with OpenRazer/Polychromatic. Keep strict report
+correlation; close other controllers for any future authorized test. The user
+shell is fish, so service/trap snippets must be wrapped in bash -c. The execution
+environment currently reports CachyOS/Arch; inspect it before package/service
+commands. Never assume the global Fedora guidance describes this runtime.
+
+## Starting TODO #4
+
+Research native onboard macro inventory, capacity, IDs, event/delay encoding,
+allocation/upload/binding/deletion and checksums/chunking. Managed macro models
+are not the wire protocol. Begin with static/read-only work and document it in
+inspection/. Current mapping/wheel backups do NOT back up macro payloads; establish
+a separate durable recovery contract before writes. Never delete existing slots,
+macros or shared references. Limit cleanup to allocations made by the experiment.
+Keep software macros supported while determining hardware capabilities.
+
+## Validation for this checkpoint
+
+Use the standard commands in AGENTS.md with the current stable toolchain.
+Final validation passed: 141 Rust tests, 164 Python/Qt tests, cargo fmt --check,
+Clippy with warnings denied, debug/release builds, example-config validation and
+diff whitespace checks. The Qt process bridge covers read/save/helper exit/
+reconnect/restore with mock hardware; the offscreen dialog layout was inspected.
+Prior counts in historical sections belong to their earlier checkpoints.
+Build artifacts, private plans/backups, Python caches and proprietary inspection
+payloads remain ignored and must not enter the commit. Distribution stays
+source-only; no releases, binary assets, history rewriting or firmware updates.
+
+## Existing bindings and Hypershift (previous checkpoint)
 
 GUI implementation is complete for the wired twelve-button active-slot scope.
 Normal/Hypershift drafts, normal-bank trigger action, sparse keep/disabled actions,
@@ -666,7 +798,7 @@ structures are not the USB wire format. Native multi-step allocation/upload/
 delete encoding remains unknown. Do not claim onboard sequences are implemented;
 the software engine remains the available sequence path.
 
-## Validation and local environment
+## Historical validation and local environment
 
 The source-only cleanup passed 28 Rust and 23 Python/Qt tests, Clippy with
 warnings denied and formatting. New lookup regressions ensure old root/dist

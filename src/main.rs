@@ -31,6 +31,57 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Fixed velocity Custom trial; use scripts/trial_haptic_custom.py.
+    #[command(hide = true)]
+    HapticUnitVelocityTrial {
+        #[arg(long)]
+        checkpoint: PathBuf,
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        restore: bool,
+    },
+    /// Complete original upload using independent active-table verification; use its script.
+    #[command(hide = true)]
+    HapticIndependentReplay {
+        #[arg(long)]
+        checkpoint: PathBuf,
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        restore: bool,
+    },
+    /// Complete original custom-settings upload; use scripts/replay_haptic_upload.py.
+    #[command(hide = true)]
+    HapticUploadReplay {
+        #[arg(long)]
+        backup: PathBuf,
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        restore: bool,
+    },
+    /// Controlled replay of original custom-table points; use scripts/probe_haptic_table.py.
+    #[command(hide = true)]
+    HapticTableProbe {
+        #[arg(long)]
+        backup: PathBuf,
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        restore: bool,
+    },
+    /// Read the wired wheel-research target's firmware version twice; no settings writes.
+    HapticFirmware,
+    /// Read active stored and volatile Custom table views twice; no settings writes.
+    HapticTableViews,
+    /// Capture active selector-zero tables and all-slot paired/reported state; getters only.
+    HapticIndependentCheckpoint,
+    /// Inspect HyperScroll wheel state twice; never changes settings (wired, twelve-button plate).
+    HapticRead {
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
+        slot: Option<u8>,
+    },
     #[command(hide = true)]
     OnboardLayerWriteProbe {
         #[arg(long)]
@@ -253,6 +304,88 @@ fn main() -> Result<()> {
                 "Temporary slot removed; original tracked state verified. See private journal for defaults."
             );
         }
+        Command::HapticUnitVelocityTrial {
+            checkpoint,
+            journal,
+            restore,
+        } => {
+            anyhow::ensure!(
+                restore,
+                "Custom trial apply is blocked: hardware acknowledged the candidate but independent velocity stayed unchanged. Resolve the save/commit path before another write trial. Existing trial recovery remains available with --restore."
+            );
+            let checkpoint = serde_json::from_slice(&fs::read(checkpoint)?)?;
+            let report = onboard::hidraw::connect()?.trial_haptic_unit_velocity(
+                &checkpoint,
+                &journal,
+                restore,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::HapticIndependentReplay {
+            checkpoint,
+            journal,
+            restore,
+        } => {
+            anyhow::ensure!(
+                restore,
+                "Custom table replay apply is deferred while the save/commit lifecycle is unresolved. Existing recovery remains available with --restore."
+            );
+            let checkpoint = serde_json::from_slice(&fs::read(checkpoint)?)?;
+            let report = onboard::hidraw::connect()?.replay_independent_haptic_upload(
+                &checkpoint,
+                &journal,
+                restore,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::HapticUploadReplay {
+            backup,
+            journal,
+            restore,
+        } => {
+            anyhow::ensure!(
+                restore,
+                "Legacy Custom upload apply is disabled because stored table getters can alias. Existing recovery remains available with --restore."
+            );
+            let backup = serde_json::from_slice(&fs::read(backup)?)?;
+            let report =
+                onboard::hidraw::connect()?.replay_haptic_upload(&backup, &journal, restore)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::HapticTableProbe {
+            backup,
+            journal,
+            restore,
+        } => {
+            anyhow::ensure!(
+                restore,
+                "Isolated Custom table probes are disabled; the firmware requires a complete upload. Existing recovery remains available with --restore."
+            );
+            let backup = serde_json::from_slice(&fs::read(backup)?)?;
+            let report =
+                onboard::hidraw::connect()?.probe_haptic_table(&backup, &journal, restore)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::HapticTableViews => println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &onboard::hidraw::connect()?.inspect_haptic_table_views()?
+            )?
+        ),
+        Command::HapticIndependentCheckpoint => println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &onboard::hidraw::connect()?.inspect_haptic_independent_checkpoint()?
+            )?
+        ),
+        Command::HapticFirmware => println!(
+            "{}",
+            serde_json::to_string_pretty(&onboard::hidraw::connect()?.inspect_haptic_firmware()?)?
+        ),
+        Command::HapticRead { slot } => println!(
+            "{}",
+            serde_json::to_string_pretty(&onboard::hidraw::connect()?.inspect_haptic(slot)?)?
+        ),
         Command::OnboardSlots => println!(
             "{}",
             serde_json::to_string_pretty(&onboard::hidraw::connect()?.slot_inventory()?)?

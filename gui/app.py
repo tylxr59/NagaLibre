@@ -239,6 +239,10 @@ class Window(QMainWindow):
         self.restore_button = QPushButton("Restore backup…")
         self.restore_button.clicked.connect(self.restore_backup)
         storage_row.addWidget(self.restore_button)
+        self.wheel_settings_button = QPushButton("Wheel settings…")
+        self.wheel_settings_button.setToolTip("Configure HyperScroll stages separately from button bindings. Opening stops software remaps.")
+        self.wheel_settings_button.clicked.connect(self.open_wheel_settings)
+        storage_row.addWidget(self.wheel_settings_button)
         layout.addLayout(storage_row)
         self.slot_summary = QLabel("Slot capacity: unread")
         self.slot_summary.setWordWrap(True)
@@ -771,8 +775,21 @@ class Window(QMainWindow):
             return f"{name}\nStored: {self.stored_text(index)}\nDraft: {draft}"
         return f"{index + 1}\n{draft}"
 
+    def open_wheel_settings(self):
+        from haptic import WheelDialog
+        self.commit_fields()
+        self.backend.shutdown()
+        self.snapshot = self.paired_snapshot = None
+        self.hardware_saved = None
+        dialog = WheelDialog(self.path, self)
+        dialog.read()
+        dialog.exec()
+        self.refresh_hardware_view()
+
     def refresh_hardware_view(self, *args):
         hardware = self.is_hardware()
+        self.wheel_settings_button.setEnabled(not self.hardware_busy and self.backend.ready
+                                              and getattr(self.backend, "haptic_settings", False))
         snapshot = self.current_snapshot()
         layer_visible = hardware and self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12"
         self.layer.setVisible(layer_visible)

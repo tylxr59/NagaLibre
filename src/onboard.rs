@@ -2,6 +2,12 @@
 pub mod activation;
 pub mod creation;
 pub mod echo_recovery;
+pub mod haptic;
+pub mod haptic_custom_trial;
+pub mod haptic_probe;
+pub mod haptic_transaction;
+pub mod haptic_upload_replay;
+pub mod haptic_views;
 pub mod hidraw;
 pub mod layer_transaction;
 pub mod layer_write_probe;

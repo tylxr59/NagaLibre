@@ -32,12 +32,14 @@ Hardware verification below refers to the Naga V2 Pro.
 | 2.4 GHz receiver | Twelve-button onboard save, physical shortcut/mouse outputs, power/reconnect persistence and exact restore tested |
 | Bluetooth onboard programming | Unsupported |
 | New onboard slots | Wired Naga V2 Pro, 12-button plate |
+| Standard wheel modes | Five HyperScroll presets, active selection and cycle order over USB; preset feels/cycling physically tested, desktop flow covered by automated tests; Custom editing deferred |
 | DPI stage values and RGB settings | Not implemented |
 | Multi-step macros stored on the mouse | Not implemented; use software mode |
 | Hypershift assignments | Normal/Hypershift GUI drafts and paired backups; wired twelve-button GUI save, hold/release, reconnect and exact restore verified |
 
 See [the Hypershift desktop guide](docs/HYPERSHIFT.md) for layer editing, migration,
-backups and the verification procedure.
+backups and the verification procedure. The [standard wheel guide](docs/WHEEL.md)
+covers preset selection, cycle order and wheel-stage backups.
 
 This is a project under active development. Start with the USB cable and the
 12-button plate for the best-tested setup.
