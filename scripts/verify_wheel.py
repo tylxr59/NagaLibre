@@ -54,7 +54,7 @@ def trial(directory, control, ask=input, prepare_trial=prepare, stage=run_stage)
                     durable_plan(report, observations)
                     break
                 except ValueError as error:
-                    if not str(error).startswith("No matching reply to mouse command "):
+                    if "No matching reply to mouse command " not in str(error):
                         raise
                     errors.append(str(error))
                     durable_plan(directory / "readback_errors.json", errors)

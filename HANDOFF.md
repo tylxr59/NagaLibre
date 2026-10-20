@@ -6,9 +6,268 @@ current implementation, evidence, and remaining work. User setup belongs in
 
 ## Current state
 
+GUI implementation is complete for the wired twelve-button active-slot scope.
+Normal/Hypershift drafts, normal-bank trigger action, sparse keep/disabled actions,
+stored/draft separation and explicit stored-to-draft copy are implemented.
+Secondary drafts start as Keep stored binding. Version-1 local profiles migrate
+in memory to v2 without rewriting files or changing hardware; normal edits,
+learned inputs, other plates and macro drafts survive. Unsupported secondary
+macros/nested triggers are rejected. See docs/HYPERSHIFT.md for user workflows.
+
+Wired GUI reads/saves use paired session commands; receiver/older helpers keep
+their normal-only path and cannot send Hypershift writes. Saves fsync all-slot
+paired backups before token acknowledgement and stop the helper after success.
+Restore backup accepts paired backups or routes legacy normal backups through a
+normal-only paired transaction preserving fresh secondary actions. Diagnostic
+exports cannot be used as backups. Unknown actions stay Keep stored binding.
+
+Paired existing-slot activation now captures/verifies every initialized bank,
+retains actual selector tags and rolls back lost acknowledgements without mapping
+writes. Creation backs up/verifies existing secondary banks too; zero normal tags
+are still required, with an explicit refusal before allocation otherwise. New
+secondary allocation defaults remain unverified; no existing slots are deleted.
+These extended slot paths have software fault coverage, not new hardware proof.
+
+The desktop is covered through real QProcess mock-helper save, exit, reconnect
+and restore; tests cover migration, independent drafts, nested-trigger rejection,
+unknown raw preservation, receiver gating, paired activation and failed fsync.
+`check_hypershift_gui.py` supplies getter-only independent all-slot checks for
+prepare/staged/saved/restored, including normal primary/middle checks. The user
+completed all four checks through the GUI: staging left the mouse unchanged,
+saved DPI trigger/secondary grid-1 B matched with every other scoped record and
+slot exact, and GUI restoration recovered every original paired record, echo,
+primary check, slot and device state exactly. The user confirmed physical
+hold/release, primary clicks, USB reconnect persistence and original outputs/DPI
+cycling after restoration all passed. This closes section 2 for wired 00a7 with
+the twelve-button plate and this trigger/action combination. Receiver Hypershift
+and other combinations remain unverified. Current tests: 91 Rust, 101 Python/Qt. Formatting,
+Clippy, debug/release builds, example-config validation and diff whitespace checks
+all passed. The updated release helper is built for the launcher. No new live settings writes were performed
+by the agent while implementing this GUI.
+
+Earlier firmware-only physical result: wired 00a7/twelve-button Hypershift held trial passed.
+The user confirmed Hypershift produced the expected results: normal grid 1 = key 1,
+hold DPI + grid 1 = B, release back to normal. Apply and verify readbacks passed;
+all other scoped records/slots were exact. Restore reported exact original paired
+records and actual echoes; persisted status is `restored`, and backup/plan hashes
+were independently checked. The user subsequently confirmed primary clicks, Hypershift after USB reconnect,
+and original physical outputs after restoration all passed. This completes the
+wired physical checks for this trigger/action combination. Receiver Hypershift
+remains unverified.
+GUI normal/secondary editing, profile migration and desktop verification are
+complete for the scope described above. Do not rerun the completed trial plans. The historical failures below are
+resolved and are retained for protocol/recovery provenance.
+
+Latest hardware result: the smaller automatic write probe passed. On wired 00a7,
+secondary grid 1 returned B (`02 02 00 05 00 00 00`) while selector 0 retained key 1
+(`02 02 00 1e 00 00 00`). Both replied with selector byte 1. All other tracked state
+was unchanged; exact original paired records and echoes across backed-up slots
+were restored before helper exit. Private status/result and backup/plan hashes
+were independently checked. No trigger was assigned. This proves distinct
+requested action records despite the shared returned tag for this control/write.
+It does not prove physical held/release behavior or a universal tag rule.
+
+The paired reader now retains `normal_echoes` alongside secondary echoes. Only
+wired scoped normal controls accept 0/1; ordinary normal snapshots, receiver
+normal reads and primary queries remain strict. Both passes compare every actual
+echo, and stale checks preserve them. Early paired exports omitted normal echoes
+because the normal reader required all-zero echoes; deserialization supplies
+that documented legacy meaning. Writers predict last-selector tags only for
+intentionally changed controls and compare the final metadata exactly. Restore
+and rollback can replay an unchanged original record to restore its tag; saved
+normal/secondary tags must agree before such a replay. Changed/untouched action
+verification rules remain semantic/exact respectively. Lost acknowledgements
+are still restored and checked, including when the saved starting tag was 1.
+
+The physical held trial runner is updated to check both sets of echoes. Use a
+fresh directory (`hypershift-held-test`), keep GUI closed, and never rerun the old
+completed plans. The wired trigger/held trial has now passed as recorded above.
+GUI support and the remaining explicitly separated observations are next. Current
+validation: 85 Rust and 86 Python tests, formatting, Clippy and source builds.
+
+**Recovery result:** persisted runner state now reports `restored_exactly`, and
+the original trial status is `restored`, referencing its private echo-recovery
+attempt. These statuses are written only after successful helper verification
+of the complete paired backup. The root-owned helper journal could not be read
+without sudo. The user subsequently confirmed original grid-1 output, DPI cycling,
+left/right/middle clicks and repeated checks after USB reconnect all passed.
+Recovery is complete. Hypershift hold/release behavior remains unverified. Do not
+retry the old apply or echo recovery; resolve selector-write semantics before a
+new trial.
+
+Current follow-up: native storage setter/canonical keyboard encoder and actual
+transport vtables were re-traced; see inspection/HYPERSHIFT.md for RVAs and the
+unresolved runtime transaction flag. No simple argument-order or length mismatch
+was found. Shared per-control returned selector metadata is a hypothesis, not yet
+proven; existing normal reads remain strict.
+
+A new smaller diagnostic is built in the debug helper:
+`python3 scripts/probe_layer_write.py`. It creates a NEW private all-slot paired
+backup, performs one secondary grid-1 B write, observes both requested selectors,
+then always restores original secondary followed by original normal grid-1
+records and verifies the full paired backup before helper exit. No trigger is
+assigned. It uses the existing established mapping addresses/transaction only.
+Its user checkpoint and create-new root journal precede writes; run cannot be
+repeated in the same directory. `restore` is a separate restoration-only path
+for interrupted attempts, with fresh identity/unrelated-state/plate guards and
+no new B write. Current validation: 81 Rust/85 Python tests, formatting, Clippy
+and debug build at that point. Both earlier trial statuses were subsequently
+checked restored before rebuilding the release helper for the fresh held trial.
+Do not reuse the old completed plans with the rebuilt helper.
+This probe subsequently passed as recorded above. Physical held/release testing
+and GUI feature work remain pending.
+
+Previous failure and recovery implementation details follow:
+
+The first Hypershift apply was attempted and failed.
+Normal slot-1/grid-1 getter (request selector 0) received a valid reply echoing
+selector 1. The strict normal reader blocked verification and exact rollback;
+At that point restoration was not established and the trial journal was
+`applying`; the successful recovery above supersedes that state. Original
+and pre-write recovery backups were independently compared equal, covering slots
+1/2/3; original engine/runner/session/backup hashes still match the saved plan.
+Keep `target/release/naga-macros`, `scripts/hypershift_test.py` and
+`scripts/onboard_controlled_test.py` unchanged until recovery: rebuilding the
+release helper or editing the runner would invalidate the existing trial.
+No apply retries. User was instructed to release buttons, reconnect USB and run
+the existing `hypershift_test.py restore`. Reconnect/restore failed with the
+same normal grid-1 echo mismatch. The subsequent selector capture passed in 2.5s:
+all 35 scoped action records matched their respective backup bytes, including
+normal primary clicks. Grid 1 echoed 1 for both requested selectors; all other
+echoes were 0. Capture checksum was independently verified. This narrows the
+observed active-slot difference to grid-1 echo metadata; it does not prove the
+other slots or physical behavior restored.
+
+A separate read-only recovery path is built at `target/debug/naga-macros`:
+`python3 scripts/inspect_layer_recovery.py`. It queries the active slot's three
+normal primary records and all sixteen permitted addresses with selectors 0/1,
+repeats the sweeps, checks identity/mode/inventory/plate stability, and retains
+requested/returned selectors plus exact raw bytes. It never infers bank identity,
+never writes settings, and its envelope cannot be accepted by any restore path.
+It saves separate private evidence without modifying the active trial. Use this
+if reconnect-and-restore still fails. Other slots are not captured by this probe.
+The release helper remains the original checksum-bound build; do not run a
+release rebuild while this recovery is pending. Recovery diagnostic validation:
+73 Rust and 79 Python/Qt tests, formatting, Clippy and debug build passed.
+Reverse echoes remain preserved evidence, never normal-bank readback acceptance.
+
+A narrowly scoped recovery is now built in the debug helper:
+`python3 scripts/recover_layer_echo.py`. It preserves the original checksum-bound
+trial/release helper and uses a separate unprivileged fsynced input/checkpoint
+plus a helper-side create-new fsynced journal. The engine rechecks the supplied
+capture against fresh double sweeps, requires every action byte to match the
+paired backup with only grid-1 echoes 1, and checks both banks/middle click in
+other initialized slots. It repeats the guard after the journal, then writes
+ONLY the original normal slot-1/grid-1 record with selector 0. It never replays a
+selector-1 write. All backed-up banks, actual echo metadata and normal primary
+checks must verify exactly before success. A failed acknowledgement still runs
+the full verification; failed verification cannot report restoration or retry.
+The unprivileged runner marks the old trial restored only after engine success.
+Persisted runner status now records successful exact recovery as noted above. Validation: 77 Rust/82 Python tests,
+formatting, Clippy and debug build passed; original release/runner/backup hashes
+were kept intact. User sudo and physical checks are still required.
+
+The long apply duration follows from many redundant all-slot double reads plus
+strict-echo timeouts during verification/recovery. Optimize after restoration,
+without weakening stale checks. The reverse-echo failure is new hardware evidence;
+selector-1 writes and exact recovery are not hardware verified.
+
+Historical implementation status follows (superseded by the failure above):
+
+Hypershift research, read-only tooling and the bounded transaction engine are
+implemented. GUI editing remains disabled. The controlled write trial failed as described above. See [inspection/HYPERSHIFT.md](inspection/HYPERSHIFT.md)
+for controller hashes, addresses, provenance and limits. Native wired/receiver
+encoders use mapping layer 0/1 with unchanged wire IDs; the trigger encoder emits
+category 0c, length 1, data 01. These are host protocol traces, not proof of
+firmware bank selection, restrictions, held/release behavior or persistence.
+
+Latest hardware evidence: both wired 00a7 and receiver 00a8 returned valid
+status-2, transaction-1f, 02/8c, length-10, checksum-valid responses echoing layer 0
+for layer-1 requests. The initial strict reader rejected these, first at primary
+left click and then at grid 1. Secondary primary queries stay outside scope;
+normal primary checks remain. No settings writes were requested.
+
+The wired forensic capture subsequently completed both passes of all sixteen
+scoped records and checked normal state/plate unchanged. Its private checksum
+was independently checked. Twelve records matched normal exactly. Grid 1/2
+returned the same keys with declared length 1 instead of 2. The wheel tilts
+returned category 0e records (native repeated horizontal scroll, parameter 0014)
+instead of normal F13/F14. Their nonstandard length and trailing bytes are retained
+exactly. This demonstrates selector-dependent record data; physical Hypershift
+hold/release behavior is still unverified.
+
+The official getter copies payloads after header/status/checksum validation
+without checking argument echoes. Combined with the captured distinct data, this
+supports a model-specific zero-echo reader for 00a7/00a8. The layer reader now
+permits echo 0/1 and preserves each actual echo alongside request-selected records;
+other echoes fail, and all transport/slot/button/length/state/plate checks remain.
+Normal readers and writers retain their strict echo checks. The parsed wired export subsequently passed all sixteen scoped records with
+all zero-layer echoes retained; its checksum was independently verified. Grid
+keys, repeated horizontal tilt records and the wheel-mode/DPI bindings parsed
+correctly. This is readback evidence, not physical held/release verification.
+
+The transaction engine now backs up both banks and normal middle click in every
+initialized slot. Its initial scope is wired 00a7, active slot, normal mode and
+twelve-button plate. Sparse edits allow supported keyboard/mouse/disabled actions
+and the traced category-0c trigger in the normal bank only. Unknown untouched
+records remain exact. Mode, activation and inventory writers are absent from this
+path. Secondary primary records remain unknown and are never written.
+
+Paired backups use a distinct `paired_mapping_backup` envelope. All-slot stale
+checks precede commit; changed actions verify semantically while untouched and
+restored records verify exact bytes. Secondary writes precede the normal trigger.
+Lost acknowledgements enter recovery; recovery compares both banks/all slots,
+restores secondary before normal to handle unexpected setter aliasing, and checks
+all original records exactly. Primary/state changes or failed recovery remain
+explicit failures; those records are never rewritten.
+
+Session layer commands use the existing one-shot commit-token handshake.
+`scripts/hypershift_test.py prepare|apply|verify|restore` is the unprivileged
+staged client: private fsynced original/all-slot and per-attempt recovery backups,
+engine/runner/checksum binding, durable apply-attempt journal and no apply retries.
+It tests secondary grid 1 = B and normal DPI button = held Hypershift, then exact
+restoration. Preparation sends getters only. Next: run its preparation, then
+apply, physical hold/release/click checks, reconnect, verify and restore. A secondary write was attempted; see the active recovery task above.
+
+Tools and boundaries:
+
+- `onboard-layers [--slot 1..5]` double-reads the normal snapshot and sixteen
+  request-selected secondary records, retaining per-control echo metadata. The
+  V2 Pro-specific zero-echo handling is described above. Normal primary records
+  stay included; the
+  secondary export has `primary_inspected: false` and no invented primary data.
+  Unknown record encodings preserve raw metadata. Existing normal snapshots and
+  legacy session saves are unchanged and remain layer 0. Layer transactions use
+  separate session commands and a distinct paired backup envelope.
+- `onboard-layer-probe [--slot N]` is a separate forensic path for these mismatched
+  replies. It retains transport/header/status/checksum and slot/button checks,
+  recording requested versus echoed layer and all seven raw record bytes.
+  Comparisons with normal records and repeat reads are exact; normal state and
+  plate must remain unchanged. Its envelope is always `unverified_layer_replies`
+  with `secondary_verified: false`, without a Hypershift-bank field. It cannot
+  deserialize as a Snapshot or LayerReadback and no writer accepts it.
+- `python3 scripts/inspect_layers.py [--probe] [--slot N]` invokes only the
+  corresponding getter through local sudo. It saves fsynced private evidence,
+  prints a checksum and summaries without printing the serial. `--probe` stores
+  `unverified-replies.json`; ordinary mode parses the request-selected bank and
+  retains the observed echo metadata under the bounded V2 Pro policy above.
+  Fully quit the GUI before either. Both forensic and parsed wired captures are
+  complete. No guessed selector values or mode changes
+  have been introduced.
+
+Validation: 71 Rust and 77 Python/Qt tests passed, including ordinary-reader
+rejection of wrong echoes, product-scoped zero-echo handling, actual captured
+encoding/action differences, unverified preservation of both normal-identical and differing
+candidate records, rejection of unstable bytes/state/plates, envelope separation,
+legacy normal-only writes, paired-bank stale checks, lost acknowledgements,
+setter aliasing, failed recovery, exact raw restoration and backup-before-token
+client failures.
+Formatting, Clippy, debug/release builds and the example config check also passed.
+Sudo still requires the user's local terminal authentication.
+
 TODO section 1 is complete for the requested session scope. The user explicitly
 deferred six-/two-button physical mapping tests; those remain unverified and
-should not block the next active feature, Hypershift research. Receiver software
+should not block Hypershift work. Receiver software
 remapping and untested action/connection combinations remain outside this evidence.
 
 Verified on the user's Naga V2 Pro with the twelve-button plate:

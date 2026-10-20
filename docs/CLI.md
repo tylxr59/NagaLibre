@@ -210,3 +210,202 @@ python3 scripts/backup_onboard.py
 Run this as your regular user. It invokes sudo only for the Rust getter, writes
 the backup under your NagaLibre config directory, and prints its checksum.
 Use the Qt app to edit bindings, reset the grid, or restore a backup.
+
+### Inspect Hypershift records
+
+With the twelve-button plate attached, fully quit the GUI and run:
+
+```sh
+python3 scripts/inspect_layers.py --slot 1
+```
+
+This uses `sudo ./target/release/naga-macros onboard-layers --slot 1`, which
+only sends getters. It reads the normal and secondary banks twice, checks the
+plate and tracked state, and saves a private diagnostic export under the
+NagaLibre config directory. Omit `--slot` to use the same selection as
+`onboard-read`. Raw CLI output includes the serial; the wrapper prints action
+summaries and a checksum instead.
+
+The envelope contains `normal` (the existing snapshot with primary-click checks)
+`normal_echoes` (the sixteen actual returned layer bytes for scoped normal
+requests), and `hypershift` (requested layer 1 grid and auxiliary records,
+`primary_inspected: false`, plus per-control `echoes`).
+Secondary primary records are omitted because their getter timed out in the
+first hardware attempt; their state remains unknown. Unknown encodings retain raw bytes.
+This export is not accepted by Restore backup. The [desktop Hypershift flow](HYPERSHIFT.md)
+uses separate paired backups and transactions. The controlled wired trial below
+also implements bounded trigger/secondary writes and paired restoration. Getter
+success will not prove physical hold/release behavior or persistence. See the
+[protocol investigation](../inspection/HYPERSHIFT.md) for evidence limits.
+
+Both tested connections echo layer 0 for a layer-1 request. A wired capture
+established stable, distinct tilt records despite that echo. The V2 Pro layer
+reader handles this bounded quirk and retains the observed echoes; ordinary
+mapping reads remain strict. To collect explicitly unverified raw evidence:
+
+```sh
+python3 scripts/inspect_layers.py --probe --slot 1
+```
+
+This separately labeled, read-only diagnostic records requested/returned layers
+and exact reply records, comparing them with the normal bank. It saves a private
+`unverified-replies.json`; it never identifies these bytes as verified secondary
+bindings and is not accepted by any save/restore path. Fully quit the GUI first.
+
+
+### Controlled wired Hypershift trial
+
+Keep USB and the twelve-button plate attached; fully quit the GUI. Begin with:
+
+```sh
+python3 scripts/hypershift_test.py prepare
+```
+
+Preparation sends getters only and saves both scoped banks of every initialized
+slot, normal primary-click checks and normal middle click under the private
+`hypershift-test` config directory. A parsed diagnostic export is not this backup.
+Use `--directory PATH` on every stage to select a fresh trial directory.
+
+The following stages change secondary grid 1 to B and the normal DPI button to
+the traced Hypershift trigger, leaving grid 1's normal action unchanged:
+
+```sh
+python3 scripts/hypershift_test.py apply
+```
+
+With the helper exited, check grid 1's original output, hold DPI and press grid 1
+for B, release DPI and check the original output again. Check left/right/middle
+clicks. Unplug/reconnect USB and repeat those observations before running:
+
+```sh
+python3 scripts/hypershift_test.py verify
+python3 scripts/hypershift_test.py restore
+```
+
+Check restored grid 1 output, DPI cycling and primary clicks afterward. Report
+physical results separately; readback alone cannot prove hold/release behavior.
+If apply fails, keep backups and run restore instead of repeating apply. The
+runner journals attempts and fsyncs recovery data before acknowledging a commit.
+Changing the engine or runner after preparation invalidates the saved trial.
+
+This initial writer requires wired 00a7, an active slot in normal mode and the
+twelve-button plate. It does not activate slots or change device mode. Receiver
+layer writes remain unverified. Wired physical held/release, primary clicks, USB
+reconnect and exact paired restoration passed. The GUI now restores paired and
+legacy normal-only backups with their respective scopes.
+
+Session clients use `onboard_layers_read` (`slot` optional),
+`onboard_layers_prepare` (`edits`: objects with `layer` 0/1 and `action`), or
+`onboard_layers_restore` (`backup`: paired envelope). Preparation returns
+`onboard_layers_prepared` with a backup covering all initialized slots and a
+one-shot token. Durably persist and fsync that backup before `onboard_commit`;
+success returns `onboard_layers_saved` with the paired target snapshot. The
+`hypershift_transactions` hello capability advertises the wired path. Existing
+normal-only commands and backups retain their meaning.
+
+
+If a failed layer trial reports a normal request echoing layer 1, restoration is
+not verified. Do not retry apply or overwrite its backups. Release all buttons,
+reconnect USB, and try the saved trial's restore stage first. Keep its original
+release helper and runner unchanged because their checksums bind the saved plan.
+
+For read-only recovery evidence if strict restore still fails, build the **debug**
+helper (`cargo build --locked`, without `--release`) and run:
+
+```sh
+python3 scripts/inspect_layer_recovery.py
+```
+
+This separate script uses `target/debug/naga-macros onboard-selector-inspect`.
+It double-reads the active slot's three normal primary records and sixteen scoped
+controls for each selector, retaining actual returned selectors and raw bytes.
+It checks identity, plate, inventory and mode stability and compares observations
+with the saved trial backup. It writes only a new private evidence file; it does
+not write mouse settings, change the trial files or claim restoration/bank identity.
+Other slots are not captured. Pass `--directory PATH` for a nondefault trial.
+
+
+When selector evidence shows the specific slot-1/grid-1 echo mismatch while all
+observed action bytes match the original backup, use the guarded recovery:
+
+```sh
+python3 scripts/recover_layer_echo.py
+```
+
+It selects the latest private selector capture (or `--evidence PATH`), checks it
+against fresh reads and the all-slot paired backup, saves durable recovery data,
+and sends one original normal-bank grid-1 record. It never applies a new
+Hypershift action. The helper verifies both banks and normal primary clicks in
+all backed-up slots exactly before reporting restoration. This can take about
+30 seconds. If it fails, keep its journal and collect new selector evidence;
+do not repeat recovery. After success, check grid 1, DPI cycling and primary
+clicks before and after USB reconnect. Physical observations remain separate
+from the verified stored records. Keep the original release helper unchanged.
+
+
+### Automatic secondary-write diagnostic
+
+After a previous trial is fully restored, the narrower protocol diagnostic is:
+
+```sh
+python3 scripts/probe_layer_write.py
+```
+
+Use USB, the twelve-button plate, active slot 1 and normal mode; close the GUI.
+The script uses the debug source build (`cargo build --locked`). It saves a fresh
+private paired backup for all initialized slots, writes secondary grid 1 = B,
+observes both requested selectors twice, and restores the exact original
+secondary and normal grid-1 records before the helper exits. No Hypershift trigger
+is assigned. It prints only the grid-1 observations and restoration summary;
+full evidence stays in the private `layer-write-probe` config directory.
+Allow roughly a minute including backup preparation. This tests stored-record selection, not physical
+hold/release behavior. Check original outputs and primary clicks afterward.
+
+Do not repeat `run` in that directory. If interrupted or restoration is unverified,
+keep all backups and use the restoration-only continuation:
+
+```sh
+python3 scripts/probe_layer_write.py restore
+```
+
+Pass the same `--directory PATH` to both stages for a custom directory. Restoration
+requires the original attempt journal and refuses changed identity or unrelated
+tracked state. It does not write B again. Keep the helper and runner unchanged
+until the attempt is restored; their hashes bind the saved probe plan.
+
+
+A successful isolated wired write probe confirmed selector-1 B with selector-0
+key 1 unchanged while both replies reported layer 1. The paired snapshot therefore
+retains normal-request echo metadata separately from action records. Wired paired
+control reads accept 0/1 and compare the actual values across reads; primary and
+normal-only reads remain strict. Receiver normal reads retain their earlier policy.
+Changed-control tag values are verified after saves and restored exactly from the
+paired backup. This may require replaying an unchanged original normal record.
+The wired GUI now uses paired snapshots. Keep it closed while running controlled
+trials, and restore those trials before starting unrelated desktop edits.
+Use a fresh `--directory ~/.config/NagaLibre/hypershift-held-test` for all stages;
+completed earlier plans and their helper checksums must not be reused.
+
+
+### Desktop Hypershift verification and protocol additions
+
+See [the desktop guide](HYPERSHIFT.md) for UI editing and the getter-only
+`check_hypershift_gui.py prepare|staged|saved|restored` sequence. This independent
+checker verifies all initialized slots and normal primary/middle records. GUI
+profile schema v2 adds sixteen secondary drafts; v1 migrates without writing
+files on load or changing settings. Secondary defaults preserve stored actions.
+
+`onboard_layers_restore_normal` accepts a legacy normal `Snapshot`, prepares an
+all-slot paired recovery backup and restores only its normal records. Fresh
+secondary actions are preserved exactly. It uses `onboard_layers_prepared` and
+`onboard_layers_saved`, with the existing durable-backup/token handshake.
+
+After a wired paired read, `onboard_activate` prepares
+`onboard_layers_activation_prepared` with an all-slot paired backup and token.
+`onboard_commit` then returns `onboard_layers_activated`. Both banks and actual
+echoes are checked for all initialized slots; activation writes no mappings.
+Paired slot creation adds `paired_backup` to `onboard_creation_prepared`; save
+both it and the original allocation backup before acknowledging the token. The
+allocator still requires zero normal tags and refuses configured Hypershift
+states before allocation. Existing secondary banks are verified after allocation
+and cleanup. Receiver and legacy protocol paths retain their earlier behavior.

@@ -24,6 +24,18 @@ pub fn emit(value: Value) {
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    OnboardLayersRestoreNormal {
+        backup: onboard::Snapshot,
+    },
+    OnboardLayersRead {
+        slot: Option<u8>,
+    },
+    OnboardLayersPrepare {
+        edits: Vec<onboard::layer_transaction::LayerEdit>,
+    },
+    OnboardLayersRestore {
+        backup: onboard::layer_transaction::LayerBackup,
+    },
     OnboardActivate {
         slot: u8,
     },
@@ -54,6 +66,8 @@ enum Command {
 }
 
 enum HardwarePlan {
+    LayerActivation(Box<onboard::activation::PreparedLayerActivation>),
+    Layers(Box<onboard::layer_transaction::PreparedLayers>),
     Activation(onboard::activation::PreparedActivation),
     Bindings(onboard::Prepared),
     Creation(onboard::creation::PreparedCreation),
@@ -173,11 +187,13 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         "slot_creation":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "slot_activation":device.is_some_and(|d| d.onboard),
         "wheel_controls":device.is_some_and(|d| d.onboard),
+        "hypershift_transactions":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "device_error":selection.as_ref().err().map(|e| format!("{e:#}"))}),
     );
     let mut active: Option<Worker> = None;
     let mut hardware: Option<onboard::Mouse<onboard::hidraw::Hidraw>> = None;
     let mut snapshot: Option<onboard::Snapshot> = None;
+    let mut layer_snapshot = None;
     let mut prepared: Option<(String, HardwarePlan)> = None;
     let mut watching_plate = false;
     let mut next_plate = Instant::now();
@@ -200,6 +216,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                 }
                 prepared = None;
                 snapshot = None;
+                layer_snapshot = None;
                 emit(event.clone());
                 last_plate = Some(event);
             }
@@ -227,7 +244,11 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         }
         if matches!(
             command,
-            Command::OnboardRead { .. }
+            Command::OnboardLayersRead { .. }
+                | Command::OnboardLayersRestoreNormal { .. }
+                | Command::OnboardLayersPrepare { .. }
+                | Command::OnboardLayersRestore { .. }
+                | Command::OnboardRead { .. }
                 | Command::OnboardActivate { .. }
                 | Command::OnboardCreate { .. }
                 | Command::OnboardRestore { .. }
@@ -245,12 +266,97 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             }
             let result = (|| -> Result<()> {
                 match command {
+                    Command::OnboardLayersRead { slot } => {
+                        prepared = None;
+                        snapshot = None;
+                        layer_snapshot = None;
+                        hardware = None;
+                        let mut mouse = onboard::hidraw::connect()?;
+                        let read = mouse.read_layers(slot)?;
+                        emit(json!({"type":"onboard_layers_snapshot", "snapshot":read}));
+                        snapshot = Some(read.normal.clone());
+                        layer_snapshot = Some(read);
+                        hardware = Some(mouse);
+                    }
+                    Command::OnboardLayersPrepare { edits } => {
+                        prepared = None;
+                        let before = layer_snapshot
+                            .as_ref()
+                            .context("Read both banks before preparing layer edits")?;
+                        let plan = hardware
+                            .as_mut()
+                            .context("Hardware connection lost")?
+                            .prepare_layers(before, edits)?;
+                        let token = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_nanos()
+                            .to_string();
+                        emit(
+                            json!({"type":"onboard_layers_prepared", "token":token, "backup":plan.backup()}),
+                        );
+                        prepared = Some((token, HardwarePlan::Layers(Box::new(plan))));
+                    }
+                    Command::OnboardLayersRestore { backup } => {
+                        prepared = None;
+                        snapshot = None;
+                        layer_snapshot = None;
+                        if hardware.is_none() {
+                            hardware = Some(onboard::hidraw::connect()?);
+                        }
+                        let plan = hardware.as_mut().unwrap().prepare_layers_restore(&backup)?;
+                        let token = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_nanos()
+                            .to_string();
+                        emit(
+                            json!({"type":"onboard_layers_prepared", "token":token, "backup":plan.backup()}),
+                        );
+                        prepared = Some((token, HardwarePlan::Layers(Box::new(plan))));
+                    }
+                    Command::OnboardLayersRestoreNormal { backup } => {
+                        prepared = None;
+                        snapshot = None;
+                        layer_snapshot = None;
+                        if hardware.is_none() {
+                            hardware = Some(onboard::hidraw::connect()?);
+                        }
+                        let plan = hardware
+                            .as_mut()
+                            .unwrap()
+                            .prepare_layers_restore_normal(backup)?;
+                        let token = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_nanos()
+                            .to_string();
+                        emit(
+                            json!({"type":"onboard_layers_prepared", "token":token, "backup":plan.backup()}),
+                        );
+                        prepared = Some((token, HardwarePlan::Layers(Box::new(plan))));
+                    }
                     Command::OnboardActivate { slot } => {
                         prepared = None;
                         ensure!(
                             read_plate(&mut hardware)?.buttons == Some(12),
                             "Attach the 12-button plate before activating a slot"
                         );
+                        if let Some(known) = layer_snapshot
+                            .as_ref()
+                            .filter(|s| s.normal.device.product == 0xa7)
+                        {
+                            let plan = hardware
+                                .as_mut()
+                                .context("Hardware connection lost")?
+                                .prepare_layer_activation(known, slot)?;
+                            let token = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)?
+                                .as_nanos()
+                                .to_string();
+                            emit(
+                                json!({"type":"onboard_layers_activation_prepared", "token":token, "backup":plan.backup}),
+                            );
+                            prepared = Some((token, HardwarePlan::LayerActivation(Box::new(plan))));
+                            return Ok(());
+                        }
                         let before = snapshot
                             .as_ref()
                             .context("Read mouse slots before activation")?;
@@ -273,25 +379,31 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                             read_plate(&mut hardware)?.buttons == Some(12),
                             "Attach the 12-button plate before creating a slot"
                         );
-                        let before = snapshot
+                        let mouse = hardware.as_mut().context("Hardware connection lost")?;
+                        let plan = if let Some(known) = layer_snapshot
                             .as_ref()
-                            .context("Read mouse slots before creating a slot")?;
-                        let plan = hardware
-                            .as_mut()
-                            .context("Hardware connection lost")?
-                            .prepare_creation(before, slot)?;
+                            .filter(|s| s.normal.device.product == 0xa7)
+                        {
+                            mouse.prepare_layer_creation(known, slot)?
+                        } else {
+                            let before = snapshot
+                                .as_ref()
+                                .context("Read mouse slots before creating a slot")?;
+                            mouse.prepare_creation(before, slot)?
+                        };
                         let token = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)?
                             .as_nanos()
                             .to_string();
                         emit(
-                            json!({"type":"onboard_creation_prepared", "token":token, "backup":plan.backup}),
+                            json!({"type":"onboard_creation_prepared", "token":token, "backup":plan.backup, "paired_backup":plan.paired_backup}),
                         );
                         prepared = Some((token, HardwarePlan::Creation(plan)));
                     }
                     Command::OnboardRestore { backup } => {
                         prepared = None;
                         snapshot = None;
+                        layer_snapshot = None;
                         if hardware.is_none() {
                             hardware = Some(onboard::hidraw::connect()?);
                         }
@@ -306,6 +418,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                     Command::OnboardRead { slot } => {
                         prepared = None;
                         snapshot = None;
+                        layer_snapshot = None;
                         hardware = None;
                         let mut mouse = onboard::hidraw::connect()?;
                         let read = mouse.read(slot)?;
@@ -341,7 +454,10 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                         if watching_plate
                             || matches!(
                                 &plan,
-                                HardwarePlan::Creation(_) | HardwarePlan::Activation(_)
+                                HardwarePlan::Creation(_)
+                                    | HardwarePlan::Activation(_)
+                                    | HardwarePlan::Layers(_)
+                                    | HardwarePlan::LayerActivation(_)
                             )
                         {
                             ensure!(
@@ -355,7 +471,26 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                         );
                         let mouse = hardware.as_mut().context("Hardware connection lost")?;
                         snapshot = None;
+                        layer_snapshot = None;
+                        let plan = match plan {
+                            HardwarePlan::LayerActivation(plan) => {
+                                let after = mouse.commit_layer_activation(*plan)?;
+                                emit(json!({"type":"onboard_layers_activated","snapshot":after}));
+                                snapshot = Some(after.normal.clone());
+                                layer_snapshot = Some(after);
+                                return Ok(());
+                            }
+                            HardwarePlan::Layers(plan) => {
+                                let after = mouse.commit_layers(*plan)?;
+                                emit(json!({"type":"onboard_layers_saved", "snapshot":after}));
+                                layer_snapshot = Some(after);
+                                return Ok(());
+                            }
+                            plan => plan,
+                        };
                         let (after, event) = match plan {
+                            HardwarePlan::Layers(_) => unreachable!(),
+                            HardwarePlan::LayerActivation(_) => unreachable!(),
                             HardwarePlan::Activation(plan) => {
                                 (mouse.commit_activation(plan)?, "onboard_activated")
                             }
@@ -373,6 +508,8 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             })();
             if let Err(e) = result {
                 prepared = None;
+                snapshot = None;
+                layer_snapshot = None;
                 emit(json!({"type":"error","message":format!("{e:#}")}));
             }
             continue;
@@ -409,6 +546,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             hardware = None;
         }
         snapshot = None;
+        layer_snapshot = None;
         prepared = None;
         if let Some(worker) = active.take() {
             worker.stop();

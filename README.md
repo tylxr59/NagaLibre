@@ -34,6 +34,10 @@ Hardware verification below refers to the Naga V2 Pro.
 | New onboard slots | Wired Naga V2 Pro, 12-button plate |
 | DPI stage values and RGB settings | Not implemented |
 | Multi-step macros stored on the mouse | Not implemented; use software mode |
+| Hypershift assignments | Normal/Hypershift GUI drafts and paired backups; wired twelve-button GUI save, hold/release, reconnect and exact restore verified |
+
+See [the Hypershift desktop guide](docs/HYPERSHIFT.md) for layer editing, migration,
+backups and the verification procedure.
 
 This is a project under active development. Start with the USB cable and the
 12-button plate for the best-tested setup.

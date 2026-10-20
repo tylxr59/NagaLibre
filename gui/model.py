@@ -55,6 +55,10 @@ def default_button(index: int, plate: str, device="naga_v2_pro") -> dict:
     return {"trigger": DEVICE_MODELS[device]["defaults"]["plates"][plate]["keys"][index], "mode": "default", "value": "", "steps": []}
 
 
+def keep_binding():
+    return {"trigger": "", "mode": "keep", "value": "", "steps": []}
+
+
 def new_profile(device="naga_v2_pro") -> dict:
     layouts = DEVICE_MODELS[device]["plates"]
     profile = {"version": 1, "plate": layouts[0], "plates": {p: [default_button(i, p, device) for i in range(int(p))] for p in layouts}}
@@ -63,6 +67,9 @@ def new_profile(device="naga_v2_pro") -> dict:
         for buttons in profile["plates"].values():
             for button in buttons:
                 button["trigger"] = ""
+    if device == "naga_v2_pro":
+        profile.update(version=2, controls=[default_control() for _ in CONTROL_NAMES],
+                       hypershift=[keep_binding() for _ in range(16)])
     return profile
 
 
@@ -79,7 +86,7 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
     if value.get("device", "naga_v2_pro") != device:
         raise ValueError("This profile belongs to another mouse model.")
     layouts = DEVICE_MODELS[device]["plates"]
-    if value.get("version") != 1 or value.get("plate") not in layouts:
+    if value.get("version") not in (1, 2) or value.get("plate") not in layouts:
         raise ValueError("Unsupported profile format; the file was left untouched.")
     for plate in layouts:
         buttons = value["plates"][plate]
@@ -88,8 +95,10 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
         for button in buttons:
             if not isinstance(button, dict):
                 raise ValueError("Invalid button data.")
-            if button["mode"] not in ("default", "key", "shortcut", "macro"):
+            if button["mode"] not in ("default", "key", "shortcut", "macro", "keep", "disabled", "hypershift"):
                 raise ValueError("Unknown binding type.")
+            if button["mode"] == "hypershift" and (device != "naga_v2_pro" or plate != "12"):
+                raise ValueError("Hypershift triggers require the Naga V2 Pro twelve-button plate.")
             if not isinstance(button["trigger"], str) or not isinstance(button["value"], str) or not isinstance(button["steps"], list):
                 raise ValueError("Invalid button data.")
             for step in button["steps"]:
@@ -104,7 +113,7 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
     if not isinstance(controls, list) or (controls and len(controls) not in (3, count)) or (controls and not count):
         raise ValueError("Invalid wheel controls.")
     for control in controls:
-        if not isinstance(control, dict) or control.get("mode") not in ("default", "factory", "key", "shortcut", "macro"):
+        if not isinstance(control, dict) or control.get("mode") not in ("default", "factory", "key", "shortcut", "macro", "keep", "disabled", "hypershift"):
             raise ValueError("Invalid wheel control binding.")
         if not isinstance(control.get("trigger"), str) or not isinstance(control.get("value"), str) or not isinstance(control.get("steps"), list):
             raise ValueError("Invalid wheel control data.")
@@ -112,6 +121,20 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
         # Existing three-control drafts predate the DPI button. Preserve every
         # edit and append pass-through controls; never silently restore defaults.
         value["controls"] = controls + [default_control() for _ in range(count - len(controls))]
+    if device == "naga_v2_pro":
+        secondary = value.get("hypershift", [keep_binding() for _ in range(16)])
+        if not isinstance(secondary, list) or len(secondary) != 16:
+            raise ValueError("Invalid Hypershift draft.")
+        for button in secondary:
+            if (not isinstance(button, dict) or button.get("mode") not in ("keep", "key", "shortcut", "disabled")
+                    or not isinstance(button.get("trigger"), str) or not isinstance(button.get("value"), str)
+                    or not isinstance(button.get("steps"), list)):
+                raise ValueError("Invalid Hypershift binding; nested triggers and macros are unsupported.")
+        if not value.get("controls"):
+            value["controls"] = [default_control() for _ in CONTROL_NAMES]
+        value.update(version=2, hypershift=secondary)
+    elif "hypershift" in value:
+        raise ValueError("Hypershift drafts are only supported for Naga V2 Pro.")
     return value
 
 
@@ -141,8 +164,10 @@ def runtime_config(profile: dict) -> str:
             if trigger in seen:
                 raise ValueError(f"Buttons share input {trigger}. Learn each button separately.")
             seen.add(trigger)
-        if button["mode"] == "default":
+        if button["mode"] in ("default", "keep"):
             continue
+        if button["mode"] in ("hypershift", "disabled", "factory"):
+            raise ValueError("This binding requires Mouse memory mode; it is not a software macro.")
         if trigger in PROTECTED_INPUTS:
             raise ValueError("Main mouse buttons cannot be side-button inputs. Reset the plate or use Learn input to select a side button.")
         if not trigger:
@@ -185,6 +210,12 @@ def reset_plate(profile: dict, plate: str) -> None:
 
 
 def binding_label(button: dict) -> str:
+    if button["mode"] == "keep":
+        return "Keep stored binding"
+    if button["mode"] == "hypershift":
+        return "Hold for Hypershift"
+    if button["mode"] == "disabled":
+        return "Disabled"
     if button["mode"] == "factory":
         return "Factory default"
     if button["mode"] == "default":

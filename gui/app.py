@@ -15,15 +15,16 @@ from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit, QPushButton, QStackedWidget, QSystemTrayIcon, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QKeySequenceEdit, QFileDialog,
+    QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QKeySequenceEdit, QFileDialog, QScrollArea, QFrame, QSizePolicy,
 )
 
-from onboard import hardware_buttons, hardware_controls, write_backup, write_creation_backup, stored_label, FACTORY_CONTROL_LABELS
+from onboard import (hardware_buttons, hardware_controls, write_backup, write_creation_backup,
+                     stored_label, FACTORY_CONTROL_LABELS, layer_edits, draft_from_record, write_layer_backup)
 from backend import Backend, backend_path
 from support import device_issue_url
 from model import (
     binding_label, config_path, default_button, display_key, key_code, load_profile,
-    new_profile, reset_plate, runtime_config, save_profile, shortcut, PROTECTED_INPUTS, DEVICE_MODELS, CONTROL_NAMES, default_control,
+    new_profile, reset_plate, runtime_config, save_profile, shortcut, PROTECTED_INPUTS, DEVICE_MODELS, CONTROL_NAMES, default_control, keep_binding,
 )
 
 
@@ -132,6 +133,23 @@ class MacroDialog(QDialog):
         self.accept()
 
 
+class BindingTile(QPushButton):
+    """Keep the physical grid visible; full stored/draft text stays in the tooltip."""
+    def setText(self, text):
+        self.full_text = text
+        self.setToolTip(text)
+        self.render_text()
+
+    def render_text(self):
+        width = max(60, self.width() - 12)
+        super().setText("\n".join(self.fontMetrics().elidedText(line, Qt.TextElideMode.ElideRight, width)
+                                  for line in getattr(self, "full_text", "").splitlines()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.render_text()
+
+
 class Window(QMainWindow):
     def __init__(self, profile_path=None):
         super().__init__()
@@ -157,6 +175,7 @@ class Window(QMainWindow):
         self.hardware_busy = False
         self.hardware_saved = None
         self.snapshot = None
+        self.paired_snapshot = None
         self.save_after_read = False
         self.applying = False
         self.fault = False
@@ -236,13 +255,27 @@ class Window(QMainWindow):
         self.plate.setCurrentIndex(self.plate.findData(self.profile["plate"]))
         self.plate.currentIndexChanged.connect(self.change_plate)
         left_layout.addWidget(self.plate)
+        self.layer = QComboBox()
+        self.layer.addItem("Normal layer", 0)
+        self.layer.addItem("Hypershift · while held", 1)
+        self.layer.currentIndexChanged.connect(self.change_layer)
+        left_layout.addWidget(self.layer)
+        self.use_stored_button = QPushButton("Use stored bindings as draft")
+        self.use_stored_button.setToolTip("Copy both stored layers into your local draft. Unknown actions stay set to Keep stored binding.")
+        self.use_stored_button.clicked.connect(self.use_stored_draft)
+        left_layout.addWidget(self.use_stored_button)
         self.plate_hint = QLabel("Connect mouse to detect the attached plate automatically.")
         self.plate_hint.setWordWrap(True)
         left_layout.addWidget(self.plate_hint)
         self.grid_host = QWidget()
         self.grid = QGridLayout(self.grid_host)
         self.grid.setContentsMargins(0, 10, 0, 10)
-        left_layout.addWidget(self.grid_host, 1)
+        self.grid_scroll = QScrollArea()
+        self.grid_scroll.setWidgetResizable(True)
+        self.grid_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.grid_scroll.setMinimumHeight(180)
+        self.grid_scroll.setWidget(self.grid_host)
+        left_layout.addWidget(self.grid_scroll, 1)
         self.last_input = QLabel("Last press: —")
         self.last_input.setWordWrap(True)
         left_layout.addWidget(self.last_input)
@@ -251,6 +284,7 @@ class Window(QMainWindow):
         left_layout.addWidget(self.reset_button)
         columns.addWidget(left, 1)
         editor = QGroupBox("Draft binding · local edits")
+        self.editor = editor
         edit_layout = QVBoxLayout(editor)
         self.button_title = QLabel()
         self.button_title.setStyleSheet("font-size: 20px; font-weight: 600;")
@@ -313,9 +347,19 @@ class Window(QMainWindow):
         factory_page = QLabel("Restore this control's default function. Click Save bindings to mouse to apply.")
         factory_page.setWordWrap(True)
         self.stack.addWidget(factory_page)
+        for label, mode, text in (
+            ("Keep stored binding", "keep", "Preserve the exact binding already stored on the mouse."),
+            ("Disabled", "disabled", "Disable this control in the selected layer."),
+            ("Hold for Hypershift", "hypershift", "Hold this normal-layer button to use Hypershift assignments; release it to return to normal."),
+        ):
+            self.mode.addItem(label, mode)
+            page = QLabel(text)
+            page.setWordWrap(True)
+            self.stack.addWidget(page)
         edit_layout.addWidget(self.stack)
         edit_layout.addStretch()
         per_button_reset = QPushButton("Use default for this button")
+        self.per_button_reset = per_button_reset
         per_button_reset.clicked.connect(self.reset_selected)
         edit_layout.addWidget(per_button_reset)
         columns.addWidget(editor, 1)
@@ -374,7 +418,40 @@ class Window(QMainWindow):
         self.learn_timer.setSingleShot(True)
         self.learn_timer.timeout.connect(self.cancel_learning)
 
+    def supports_layers(self):
+        return (self.device_model["id"] == "naga_v2_pro"
+                and self.backend.hypershift_transactions)
+
+    def editing_layer(self):
+        return int(self.layer.currentData() or 0) if (hasattr(self, "layer") and self.is_hardware()
+                    and self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12") else 0
+
+    def change_layer(self):
+        self.commit_fields()
+        self.cancel_learning()
+        self.rebuild_grid()
+        self.select_button(min(self.selected, len(self.buttons())-1), commit=False)
+
+    def use_stored_draft(self):
+        if self.paired_snapshot is None or self.current_snapshot() is None:
+            return
+        self.commit_fields()
+        normal = self.paired_snapshot["normal"]
+        old_normal = self.profile["plates"]["12"] + self.profile["controls"]
+        copied = [draft_from_record(b) for b in normal["buttons"] + normal["controls"]]
+        for before, after in zip(old_normal, copied):
+            after["trigger"] = before["trigger"]
+        self.profile["plates"]["12"] = copied[:12]
+        self.profile["controls"] = copied[12:]
+        bank = self.paired_snapshot["hypershift"]
+        self.profile["hypershift"] = [draft_from_record(b, secondary=True) for b in bank["buttons"] + bank["controls"]]
+        self.rebuild_grid()
+        self.select_button(self.selected, commit=False)
+        self.status.setText("Both stored layers copied into your local draft. Mouse settings are unchanged.")
+
     def buttons(self):
+        if self.editing_layer() == 1:
+            return self.profile["hypershift"]
         buttons = self.profile["plates"][self.profile["plate"]]
         if self.is_hardware() and self.profile["plate"] == "12" and self.device_model["id"] == "naga_v2_pro":
             if not self.profile.get("controls"):
@@ -437,7 +514,7 @@ class Window(QMainWindow):
         self.hardware_busy = busy
         for widget in (self.storage, self.slots, self.read_button, self.activate_button, self.create_button, self.restore_button,
                        self.apply_button, self.plate, self.reset_button, self.stop_button,
-                       self.connect_button):
+                       self.connect_button, self.layer, self.use_stored_button, self.editor, self.grid_host):
             widget.setEnabled(not busy)
         self.refresh_hardware_view()
 
@@ -445,7 +522,11 @@ class Window(QMainWindow):
         if hasattr(self, "editing_button"):
             self.commit_fields()
         self.profile["storage"] = self.storage.currentData()
+        self.layer.blockSignals(True)
+        self.layer.setCurrentIndex(0)
+        self.layer.blockSignals(False)
         self.snapshot = None
+        self.paired_snapshot = None
         self.hardware_saved = None
         self.save_after_read = False
         self.cancel_learning()
@@ -465,20 +546,33 @@ class Window(QMainWindow):
         self.status.setText("Mouse memory · read slots, edit your draft, then save to the mouse." if hardware else "Software mode · bindings need the background helper running.")
         self.refresh_hardware_view()
 
+    def connected_hardware_command(self, command):
+        command = dict(command)
+        if self.supports_layers():
+            if command["command"] == "onboard_read":
+                command["command"] = "onboard_layers_read"
+            elif command["command"] == "onboard_restore":
+                command["command"] = "onboard_layers_restore_normal"
+        elif command["command"].startswith("onboard_layers_"):
+            raise ValueError("Hypershift saves and paired restores require the wired USB connection and an updated helper.")
+        return command
+
     def hardware_command(self, command):
         if not self.device_model["onboard"]:
             raise ValueError("Mouse memory is not enabled for this model. Use Software mode and Learn input.")
         if self.backend.ready:
             if self.backend.protocol < 2:
                 raise ValueError("Update naga-macros to version 0.3.0 alongside the app.")
-            self.backend.send(command)
+            self.backend.send(self.connected_hardware_command(command))
         else:
             self.pending_onboard = command
             self.connect_mouse()
 
     def read_mouse(self):
         try:
+            self.commit_fields()
             self.snapshot = None
+            self.paired_snapshot = None
             self.hardware_saved = None
             self.set_hardware_busy(True)
             self.status.setText("Reading onboard profiles… no settings are being changed.")
@@ -527,10 +621,18 @@ class Window(QMainWindow):
             return
         try:
             backup = json.loads(Path(path).read_text())
+            if not isinstance(backup, dict):
+                raise ValueError("Hardware backup must contain an object.")
             self.set_hardware_busy(True)
             self.hardware_saved = None
             self.status.setText("Preparing backup restoration…")
-            self.hardware_command({"command": "onboard_restore", "backup": backup})
+            if backup.get("kind") == "paired_mapping_backup":
+                command = "onboard_layers_restore"
+            elif "normal" in backup or "replies" in backup or "records" in backup or "kind" in backup:
+                raise ValueError("This diagnostic export is not a restorable mapping backup.")
+            else:
+                command = "onboard_restore"
+            self.hardware_command({"command": command, "backup": backup})
         except (ValueError, OSError) as error:
             self.set_hardware_busy(False)
             self.fail(error)
@@ -538,6 +640,8 @@ class Window(QMainWindow):
     def connection_changed(self, connected):
         self.connect_button.setText("Reconnect / rescan" if connected else "Connect mouse")
         if connected:
+            if not self.supports_layers():
+                self.layer.setCurrentIndex(0)
             if self.backend.device is not None:
                 self.select_device_model(self.backend.device["id"])
             if self.backend.protocol >= 3 and self.device_model["faceplate"]:
@@ -561,7 +665,11 @@ class Window(QMainWindow):
                     self.set_hardware_busy(False)
                     self.fail("Update naga-macros to version 0.3.0 alongside the app.")
                     return
-                self.backend.send(command)
+                try:
+                    self.backend.send(self.connected_hardware_command(command))
+                except ValueError as error:
+                    self.set_hardware_busy(False)
+                    self.fail(error)
             elif self.is_hardware():
                 self.read_mouse()
             elif self.pending_config is not None:
@@ -578,6 +686,7 @@ class Window(QMainWindow):
             self.pending_onboard = None
             if self.hardware_saved is None:
                 self.snapshot = None
+                self.paired_snapshot = None
             self.set_hardware_busy(False)
             self.cancel_learning()
             if self.hardware_saved is not None:
@@ -603,7 +712,7 @@ class Window(QMainWindow):
                     self.log(f"Saved profile could not be loaded: {error}. Saving is disabled to preserve it.")
             self.device_model = model
             self.pending_config = self.pending_onboard = None
-            self.snapshot = self.hardware_saved = None
+            self.snapshot = self.hardware_saved = self.paired_snapshot = None
             self.save_after_read = False
             self.cancel_learning()
             self.detected_module = None
@@ -644,6 +753,10 @@ class Window(QMainWindow):
         snapshot = self.current_snapshot()
         if snapshot is None:
             return "unread"
+        if self.editing_layer() == 1:
+            if self.paired_snapshot is None:
+                return "unread"
+            snapshot = self.paired_snapshot["hypershift"]
         record = next((b for b in snapshot["buttons"] + snapshot.get("controls", []) if b["button"] == index + 1), None)
         return stored_label(record) if record else "unknown"
 
@@ -661,6 +774,15 @@ class Window(QMainWindow):
     def refresh_hardware_view(self, *args):
         hardware = self.is_hardware()
         snapshot = self.current_snapshot()
+        layer_visible = hardware and self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12"
+        self.layer.setVisible(layer_visible)
+        self.layer.model().item(1).setEnabled(not self.backend.ready or self.supports_layers())
+        self.use_stored_button.setVisible(layer_visible)
+        self.use_stored_button.setEnabled(not self.hardware_busy and snapshot is not None and self.paired_snapshot is not None)
+        if self.supports_layers():
+            self.memory_hint.setText("Normal bindings work normally; hold a button assigned to Hypershift to use the second layer. Save applies both drafts to the active slot. Keep stored binding preserves unknown actions. Use stored bindings as draft starts from the mouse's current assignments.")
+        else:
+            self.memory_hint.setText("Save applies the normal draft. Connect by USB to edit Hypershift; secondary drafts are retained. Onboard macro sequences are unsupported.")
         if self.snapshot is None:
             self.slot_summary.setText("Slot capacity: unread")
         elif self.snapshot.get("slot_capacity") is not None:
@@ -668,12 +790,17 @@ class Window(QMainWindow):
         else:
             self.slot_summary.setText(f"{len(self.snapshot['slots'])} slots initialized · total capacity unavailable from this read.")
         self.apply_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
+        if self.supports_layers() and snapshot is not None:
+            self.apply_button.setEnabled(self.apply_button.isEnabled() and self.paired_snapshot is not None
+                                         and snapshot["slot"] == snapshot["active"] and snapshot.get("mode") == [0,0])
         selected = self.slots.currentData()
         self.activate_button.setEnabled(hardware and not self.hardware_busy and self.backend.ready
                                         and self.backend.slot_activation and self.snapshot is not None
                                         and selected in self.snapshot["slots"] and selected != self.snapshot["active"]
                                         and self.profile["plate"] == "12" and self.detected_module == 3)
         target = self.unused_slot()
+        self.create_button.setToolTip("Create an unused slot with factory bindings; the current slot stays active. Create slots before configuring Hypershift, or restore the paired backup first." if self.supports_layers()
+                                      else "Create an unused slot with factory bindings. The current slot stays active; save your draft separately.")
         self.create_button.setText(f"Create slot {target}" if target is not None else "Create slot")
         self.create_button.setEnabled(hardware and not self.hardware_busy and self.backend.ready
                                       and self.backend.slot_creation and target is not None
@@ -704,14 +831,17 @@ class Window(QMainWindow):
         count = len(self.buttons())
         columns = 3 if count in (6, 12) or count > 12 else 2
         for index, button in enumerate(self.buttons()):
-            tile = QPushButton(self.tile_text(index))
+            tile = BindingTile()
+            tile.setText(self.tile_text(index))
             tile.setMinimumHeight(64)
+            tile.setMinimumWidth(96)
+            tile.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             tile.setCheckable(True)
             tile.setChecked(index == self.selected)
             tile.clicked.connect(lambda checked=False, i=index: self.select_button(i))
             self.grid.addWidget(tile, index // columns, index % columns)
             self.tiles.append(tile)
-        self.reset_button.setText("Restore defaults")
+        self.reset_button.setText("Clear Hypershift draft" if self.editing_layer() else "Restore defaults")
         self.reset_button.setToolTip("Restore this layout's draft defaults, including wheel and DPI button bindings. Save applies the draft to mouse memory.")
 
     def select_button(self, index, commit=True):
@@ -722,10 +852,27 @@ class Window(QMainWindow):
         self.loading = True
         button = self.current()
         self.editing_button = button
-        self.button_title.setText(CONTROL_NAMES[index - 12] if index >= 12 else f"Button {index + 1}")
+        name = CONTROL_NAMES[index - 12] if index >= 12 else f"Button {index + 1}"
+        self.button_title.setText(("Hypershift · " if self.editing_layer() else "Normal · ") + name if self.is_hardware() else name)
         self.mode.setItemText(0, "Keep stored binding" if index >= 12 else "Default / pass through")
         self.default_page.setText("Preserve this control's currently stored binding. Choose Factory default to restore its standard function." if index >= 12 else "Mouse memory: restore this position’s factory key. Software: pass the current input through.")
-        self.mode.model().item(self.mode.findData("factory")).setEnabled(index >= 12)
+        secondary = self.editing_layer() == 1
+        if secondary:
+            self.mode.setItemText(0, "Normal default (unavailable)")
+            self.default_page.setText("Choose Keep stored binding to preserve this secondary action.")
+        self.mode.model().item(self.mode.findData("default")).setEnabled(not secondary)
+        self.mode.model().item(self.mode.findData("factory")).setEnabled(index >= 12 and not secondary and self.is_hardware())
+        self.mode.model().item(self.mode.findData("hypershift")).setEnabled(self.is_hardware() and not secondary
+            and self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12" and (not self.backend.ready or self.supports_layers()))
+        self.mode.model().item(self.mode.findData("disabled")).setEnabled(self.is_hardware())
+        self.mode.model().item(self.mode.findData("keep")).setEnabled(secondary or not self.is_hardware() or not self.backend.ready or self.supports_layers())
+        self.mode.model().item(self.mode.findData("macro")).setEnabled(not self.is_hardware())
+        for mode, hidden in (("default", secondary), ("factory", secondary or index < 12 or not self.is_hardware()),
+                             ("hypershift", secondary or not self.is_hardware()), ("macro", self.is_hardware()),
+                             ("keep", not secondary and (index >= 12 or not self.is_hardware())),
+                             ("disabled", not self.is_hardware())):
+            self.mode.view().setRowHidden(self.mode.findData(mode), hidden)
+        self.per_button_reset.setText("Keep stored for this button" if secondary else "Use default for this button")
         self.trigger.setText(button["trigger"])
         self.mode.setCurrentIndex(self.mode.findData(button["mode"]))
         self.stack.setCurrentIndex(self.mode.currentIndex())
@@ -761,6 +908,7 @@ class Window(QMainWindow):
         self.cancel_learning()
         self.pending_config = None
         self.snapshot = None
+        self.paired_snapshot = None
         self.hardware_saved = None
         self.save_after_read = False
         self.applying = False
@@ -788,6 +936,7 @@ class Window(QMainWindow):
         else:
             self.plate_detection = "unknown"
             self.snapshot = None
+            self.paired_snapshot = None
             self.plate_hint.setText("No faceplate attached." if self.detected_module == 0 else f"Unrecognized faceplate ID {self.detected_module}.")
             self.status.setText("Attach a supported faceplate to apply bindings.")
         if not self.is_hardware() and self.backend.ready:
@@ -816,9 +965,11 @@ class Window(QMainWindow):
         kind = message.get("type")
         if kind == "faceplate":
             self.detected_plate(message)
-        elif kind in ("onboard_snapshot", "onboard_created", "onboard_activated"):
+        elif kind in ("onboard_layers_snapshot", "onboard_layers_activated", "onboard_snapshot", "onboard_created", "onboard_activated"):
+            self.commit_fields()
             self.fault = False
-            self.snapshot = message["snapshot"]
+            self.paired_snapshot = message["snapshot"] if kind in ("onboard_layers_snapshot", "onboard_layers_activated") else None
+            self.snapshot = self.paired_snapshot["normal"] if self.paired_snapshot else message["snapshot"]
             snapshot = self.snapshot
             self.slots.clear()
             capacity = snapshot.get("slot_capacity")
@@ -839,30 +990,46 @@ class Window(QMainWindow):
                 self.status.setText(f"Created slot {snapshot['slot']} with factory bindings · slot {snapshot['active']} remains active. Save your draft to use the new slot.")
             elif kind == "onboard_activated":
                 self.status.setText(f"Slot {snapshot['slot']} active · using stored bindings. Your draft is unchanged; you can quit NagaLibre.")
+            if self.supports_layers() and kind in ("onboard_created", "onboard_activated"):
+                self.read_mouse()
+                return
+            if kind == "onboard_layers_activated":
+                self.status.setText(f"Slot {snapshot['slot']} active · both stored layers verified unchanged; local drafts are unchanged.")
+            elif self.supports_layers():
+                self.status.setText(f"Read both layers in slot {snapshot['slot']} · " +
+                    ("local drafts are unchanged; save applies both drafts." if snapshot["slot"] == snapshot["active"]
+                     else "activate this slot before saving layer drafts."))
+            self.select_button(self.selected, commit=False)
             if self.save_after_read:
                 self.save_after_read = False
                 self.apply()
-        elif kind in ("onboard_prepared", "onboard_creation_prepared", "onboard_activation_prepared"):
+        elif kind in ("onboard_layers_prepared", "onboard_layers_activation_prepared", "onboard_prepared", "onboard_creation_prepared", "onboard_activation_prepared"):
             try:
                 creating = kind == "onboard_creation_prepared"
-                writer = write_creation_backup if creating else write_backup
+                writer = write_layer_backup if kind in ("onboard_layers_prepared", "onboard_layers_activation_prepared") else (write_creation_backup if creating else write_backup)
                 path = writer(self.path, message["backup"], message["token"])
+                if creating and message.get("paired_backup") is not None:
+                    paired_path = write_layer_backup(self.path, message["paired_backup"], message["token"])
+                    self.log(f"Both-layer backup saved before slot creation: {paired_path}")
                 if kind == "onboard_activation_prepared":
                     previous_path = write_backup(self.path, message["previous"], message["token"])
                     self.log(f"Previous active-slot backup saved: {previous_path}")
                 self.log(f"Hardware backup saved: {path}")
                 self.status.setText("Backups saved. Creating and verifying the new slot…" if creating else "Backup saved. Writing and verifying side bindings…")
-                if kind == "onboard_activation_prepared":
+                if kind in ("onboard_activation_prepared", "onboard_layers_activation_prepared"):
                     self.status.setText("Backups saved. Activating stored bindings…")
+                elif kind == "onboard_layers_prepared":
+                    self.status.setText("Both layers backed up. Writing and verifying paired bindings…")
                 self.backend.send({"command": "onboard_commit", "token": message["token"]})
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.fault = True
                 self.set_hardware_busy(False)
                 self.fail(f"Backup failed; mouse was not changed: {error}")
                 self.backend.shutdown()
-        elif kind == "onboard_saved":
+        elif kind in ("onboard_layers_saved", "onboard_saved"):
             self.fault = False
-            self.snapshot = message["snapshot"]
+            self.paired_snapshot = message["snapshot"] if kind == "onboard_layers_saved" else None
+            self.snapshot = self.paired_snapshot["normal"] if self.paired_snapshot else message["snapshot"]
             self.hardware_saved = self.snapshot["slot"]
             self.save_after_read = False
             self.set_hardware_busy(False)
@@ -870,6 +1037,7 @@ class Window(QMainWindow):
         elif kind == "error":
             self.fault = True
             self.snapshot = None
+            self.paired_snapshot = None
             self.save_after_read = False
             self.set_hardware_busy(False)
             self.applying = False
@@ -922,7 +1090,9 @@ class Window(QMainWindow):
     def reset_selected(self):
         self.commit_fields()
         trigger = self.current()["trigger"]
-        if self.selected >= 12:
+        if self.editing_layer() == 1:
+            self.profile["hypershift"][self.selected] = keep_binding()
+        elif self.selected >= 12:
             self.profile["controls"][self.selected - 12] = default_control(factory=True)
         else:
             self.profile["plates"][self.profile["plate"]][self.selected] = default_button(self.selected, self.profile["plate"], self.device_model["id"])
@@ -960,7 +1130,9 @@ class Window(QMainWindow):
                 raise ValueError("Wait for a supported faceplate to be detected before applying bindings.")
             self.commit_fields()
             if self.is_hardware():
-                buttons = hardware_buttons(self.profile)
+                paired = self.supports_layers()
+                edits = layer_edits(self.profile) if paired else None
+                buttons = None if paired else hardware_buttons(self.profile)
                 self.persist()
                 self.rebuild_grid()
                 self.hardware_saved = None
@@ -971,6 +1143,11 @@ class Window(QMainWindow):
                     return
                 self.set_hardware_busy(True)
                 self.status.setText("Checking current mouse state before backup…")
+                if paired:
+                    if self.paired_snapshot is None or self.snapshot["slot"] != self.snapshot["active"] or self.snapshot.get("mode") != [0,0]:
+                        raise ValueError("Read both layers of the active slot in normal mode before saving. Activate another slot separately if needed.")
+                    self.hardware_command({"command": "onboard_layers_prepare", "edits": edits})
+                    return
                 command = {"command": "onboard_prepare", "buttons": buttons}
                 controls = hardware_controls(self.profile)
                 if controls:
@@ -1015,6 +1192,12 @@ class Window(QMainWindow):
         if not self.is_hardware():
             self.stop_remapping()
         self.commit_fields()
+        if self.editing_layer() == 1:
+            self.profile["hypershift"] = [keep_binding() for _ in range(16)]
+            self.rebuild_grid()
+            self.select_button(self.selected, commit=False)
+            self.status.setText("Hypershift draft cleared. Stored secondary bindings will be kept; the mouse is unchanged.")
+            return
         reset_plate(self.profile, self.profile["plate"])
         if self.is_hardware() and self.profile["plate"] == "12" and self.device_model["id"] == "naga_v2_pro":
             self.profile["controls"] = [default_control(factory=True) for _ in CONTROL_NAMES]

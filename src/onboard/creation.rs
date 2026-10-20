@@ -4,9 +4,33 @@ use anyhow::Context;
 
 pub struct PreparedCreation {
     pub backup: slot_trial::Plan,
+    pub paired_backup: Option<super::layer_transaction::LayerBackup>,
 }
 
 impl<T: Transport> Mouse<T> {
+    pub fn prepare_layer_creation(
+        &mut self,
+        known: &super::layers::LayerReadback,
+        target: u8,
+    ) -> Result<PreparedCreation> {
+        let active = self.read_layers(None)?;
+        let backup = self.capture_layer_backup(&active)?;
+        ensure!(
+            backup.slots.iter().any(|s| &s.state == known),
+            "Mouse changed before slot creation"
+        );
+        ensure!(
+            backup
+                .slots
+                .iter()
+                .all(|s| s.state.normal_echoes.iter().all(|e| e.layer == 0)),
+            "Create slots before configuring Hypershift, or restore the paired backup first. Existing Hypershift slots are kept"
+        );
+        let mut plan = self.prepare_creation(&known.normal, target)?;
+        plan.paired_backup = Some(backup);
+        Ok(plan)
+    }
+
     pub fn prepare_creation(&mut self, before: &Snapshot, target: u8) -> Result<PreparedCreation> {
         ensure!(
             &self.read(Some(before.slot))? == before,
@@ -23,12 +47,19 @@ impl<T: Transport> Mouse<T> {
             snapshots,
         };
         self.check_trial_plan(&backup)?;
-        Ok(PreparedCreation { backup })
+        Ok(PreparedCreation {
+            backup,
+            paired_backup: None,
+        })
     }
 
     /// Called only after the GUI has durably saved all prepared snapshots.
     /// Keep the previous slot active. Never write any button records.
     pub fn commit_creation(&mut self, prepared: PreparedCreation) -> Result<Snapshot> {
+        let paired = prepared.paired_backup;
+        if let Some(before) = &paired {
+            self.check_layer_backup(before)?;
+        }
         let plan = prepared.backup;
         self.check_trial_plan(&plan)?;
         let result = (|| -> Result<Snapshot> {
@@ -74,6 +105,13 @@ impl<T: Transport> Mouse<T> {
                     before.slot
                 );
             }
+            if let Some(before) = &paired {
+                let mut expected = before.clone();
+                for slot in &mut expected.slots {
+                    slot.state.normal.slots = after.slots.clone();
+                }
+                self.check_layer_backup(&expected)?;
+            }
             Ok(after)
         })();
         match result {
@@ -81,6 +119,9 @@ impl<T: Transport> Mouse<T> {
             Err(error) => {
                 self.cleanup_created_slot(&plan).with_context(||
                     format!("Creation failed ({error:#}); cleanup incomplete. Keep the backup and inspect mouse state before retrying"))?;
+                if let Some(before) = &paired {
+                    self.check_layer_backup(before).context("New slot cleaned up, but original paired records could not be verified. Keep both backups")?;
+                }
                 bail!(
                     "Creation failed: {error:#}. New slot removed and original tracked state verified."
                 )

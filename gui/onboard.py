@@ -58,6 +58,10 @@ def hardware_buttons(profile):
             if len(defaults) != 12:
                 raise ValueError("No verified onboard defaults for this model.")
             action = {"category": defaults[i]["category"], "data": list(defaults[i]["data"])}
+        elif mode == "disabled":
+            action = {"category": 0, "data": []}
+        elif mode in ("keep", "hypershift"):
+            raise ValueError("This draft needs the wired paired-layer save path. Connect by USB to preserve stored grid actions or assign Hypershift.")
         elif mode == "key":
             code = key_code(button["value"])
             action = {"category": 1, "data": [MOUSE_KEYS[code]]} if code in MOUSE_KEYS else keyboard_action([code])
@@ -74,11 +78,15 @@ def hardware_controls(profile):
     definitions = DEVICE_MODELS[profile.get("device", "naga_v2_pro")]["defaults"]["controls"]
     for index, button in enumerate(profile.get("controls", [])):
         mode = button["mode"]
-        if mode == "default":
+        if mode in ("default", "keep"):
             continue  # Preserve exact stored action, including firmware functions.
         if mode == "factory":
             binding = definitions[index]["binding"]
             action = {"category": binding["category"], "data": list(binding["data"])}
+        elif mode == "disabled":
+            action = {"category": 0, "data": []}
+        elif mode == "hypershift":
+            raise ValueError("Hypershift assignments require the wired paired-layer save path.")
         elif mode == "key":
             code = key_code(button["value"])
             action = {"category": 1, "data": [MOUSE_KEYS[code]]} if code in MOUSE_KEYS else keyboard_action([code])
@@ -124,6 +132,8 @@ def write_creation_backup(profile_path: Path, plan: dict, token: str) -> Path:
 def stored_label(record):
     """Describe an actual firmware record without guessing unknown categories."""
     category, data = record.get("category"), record.get("data", [])
+    if category == 12 and data == [1]:
+        return "Hold for Hypershift"
     if category == 0 and not data:
         return "Disabled"
     if category == 1 and len(data) == 1:
@@ -141,3 +151,82 @@ def stored_label(record):
             parts.append(display_key(key) if key else f"HID {data[1]:02x}")
         return "+".join(parts) or "No key"
     return f"Action {category:02x}: " + bytes(data).hex()
+
+
+def layer_edits(profile):
+    """Translate sparse paired drafts; never manufacture unknown stored actions."""
+    if profile.get("device", "naga_v2_pro") != "naga_v2_pro" or profile["plate"] != "12":
+        raise ValueError("Hypershift editing requires the Naga V2 Pro twelve-button plate.")
+    normal = profile["plates"]["12"] + profile.get("controls", [])
+    secondary = profile.get("hypershift", [])
+    if len(normal) != 16 or len(secondary) != 16:
+        raise ValueError("Both layer drafts must contain all sixteen controls.")
+    result = []
+    for layer, buttons in enumerate((normal, secondary)):
+        for index, button in enumerate(buttons):
+            mode = button["mode"]
+            if mode == "keep" or (layer == 0 and index >= 12 and mode == "default"):
+                continue
+            if mode in ("default", "factory") and layer == 0:
+                binding = (DEVICE_MODELS["naga_v2_pro"]["defaults"]["plates"]["12"]["bindings"][index]
+                           if index < 12 else DEVICE_MODELS["naga_v2_pro"]["defaults"]["controls"][index-12]["binding"])
+                action = {"category": binding["category"], "data": list(binding["data"])}
+            elif mode == "hypershift" and layer == 0:
+                action = {"category": 12, "data": [1]}
+            elif mode == "disabled":
+                action = {"category": 0, "data": []}
+            elif mode == "key":
+                code = key_code(button["value"])
+                action = {"category": 1, "data": [MOUSE_KEYS[code]]} if code in MOUSE_KEYS else keyboard_action([code])
+            elif mode == "shortcut":
+                action = keyboard_action(shortcut(button["value"]))
+            else:
+                raise ValueError("Layers support keys, shortcuts, disabled actions and a normal-layer Hypershift trigger; macros and nested triggers are unsupported.")
+            result.append({"layer": layer, "action": {"button": index+1, **action}})
+    return result
+
+
+def draft_from_record(record, secondary=False):
+    """Known actions become editable; everything else stays explicitly preserved."""
+    from model import keep_binding
+    draft = keep_binding()
+    category, data = record["category"], record["data"]
+    if category == 12 and data == [1] and not secondary:
+        draft["mode"] = "hypershift"
+    elif category == 0 and data == []:
+        draft["mode"] = "disabled"
+    elif category == 1 and len(data) == 1 and 1 <= data[0] <= 5:
+        draft.update(mode="key", value=next(k for k, v in MOUSE_KEYS.items() if v == data[0]))
+    elif category == 2 and len(data) == 2:
+        keys = [key for key, mask in MODIFIERS.items() if data[0] & mask]
+        key = next((key for key, usage in HID_KEYS.items() if usage == data[1]), None)
+        if data[1] and key is None:
+            return draft
+        if key:
+            keys.append(key)
+        if keys:
+            draft.update(mode="key" if len(keys) == 1 else "shortcut", value="+".join(keys))
+    if not secondary and record["button"] >= 13:
+        if draft["mode"] == "keep":
+            draft["mode"] = "default"
+        definition = DEVICE_MODELS["naga_v2_pro"]["defaults"]["controls"][record["button"]-13]
+        if category == definition["binding"]["category"] and data == definition["binding"]["data"]:
+            draft["mode"] = "factory"
+    return draft
+
+
+def write_layer_backup(profile_path, backup, token):
+    if backup.get("format") != 1 or backup.get("kind") != "paired_mapping_backup" or not backup.get("slots"):
+        raise ValueError("Invalid paired mapping backup.")
+    if not token.isdecimal() or len(token) > 40:
+        raise ValueError("Invalid hardware backup token.")
+    first = backup["slots"][0]["state"]["normal"]
+    serial = re.sub(r"[^A-Za-z0-9_-]", "_", first["device"]["serial"])
+    path = profile_path.parent / "backups" / f"{serial}-both-layers-{token}.json"
+    save_profile(path, backup)
+    fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    return path

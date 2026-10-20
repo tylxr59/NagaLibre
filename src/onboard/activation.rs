@@ -7,7 +7,72 @@ pub struct PreparedActivation {
     pub previous: Snapshot,
 }
 
+pub struct PreparedLayerActivation {
+    pub backup: super::layer_transaction::LayerBackup,
+    target: u8,
+}
+
 impl<T: Transport> Mouse<T> {
+    pub fn prepare_layer_activation(
+        &mut self,
+        known: &super::layers::LayerReadback,
+        slot: u8,
+    ) -> Result<PreparedLayerActivation> {
+        slot_valid(slot)?;
+        let active = self.read_layers(None)?;
+        let backup = self.capture_layer_backup(&active)?;
+        ensure!(
+            backup.slots.iter().any(|s| &s.state == known),
+            "Paired state changed before activation"
+        );
+        let target = backup
+            .slots
+            .iter()
+            .find(|s| s.state.normal.slot == slot)
+            .context("Target slot is uninitialized")?;
+        ensure!(
+            slot != active.normal.active,
+            "Selected slot is already active"
+        );
+        Self::writable_snapshot(&target.state.normal)?;
+        ensure!(
+            target.middle.category == 1 && target.middle.data == [3],
+            "Target lacks standard middle click"
+        );
+        Ok(PreparedLayerActivation {
+            backup,
+            target: slot,
+        })
+    }
+
+    pub fn commit_layer_activation(
+        &mut self,
+        plan: PreparedLayerActivation,
+    ) -> Result<super::layers::LayerReadback> {
+        self.check_layer_backup(&plan.backup)?;
+        let previous = plan.backup.slots[0].state.normal.active;
+        let result = (|| -> Result<super::layers::LayerReadback> {
+            self.activate(plan.target)?;
+            let mut expected = plan.backup.clone();
+            for slot in &mut expected.slots {
+                slot.state.normal.active = plan.target;
+            }
+            self.check_layer_backup(&expected)?;
+            self.read_layers(Some(plan.target))
+        })();
+        match result {
+            Ok(after) => Ok(after),
+            Err(error) => {
+                // A lost acknowledgement may have switched the active slot.
+                let _ = self.activate(previous);
+                self.check_layer_backup(&plan.backup).with_context(|| format!("Activation failed ({error:#}); previous active slot and paired records could not be verified. Keep the paired backup"))?;
+                bail!(
+                    "Activation failed ({error:#}); previous slot and all paired records restored and verified"
+                )
+            }
+        }
+    }
+
     pub fn prepare_activation(&mut self, known: &Snapshot, slot: u8) -> Result<PreparedActivation> {
         ensure!(
             &self.read(Some(known.slot))? == known,

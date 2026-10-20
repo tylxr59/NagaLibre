@@ -82,6 +82,9 @@ Full raw payloads remain available through `onboard-probe --slot 1`; this reads
 primary buttons and grid without setting mode, activating slots or writing.
 
 A button record is `[slot, button_id, hypershift, category, data_length, data…]`.
+The normal/secondary selector and trigger encoding are now independently traced
+in [HYPERSHIFT.md](HYPERSHIFT.md), with a separate read-only diagnostic export.
+All existing mapping writers still use the normal bank.
 Grid positions 1–12 address IDs `40`–`4b`. Category 2 encodes
 `[modifier_mask, USB_HID_keyboard_usage]`; category 1 encodes a mouse button.
 The mapping writer allows grid IDs plus the three explicitly mapped wheel controls

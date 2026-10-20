@@ -36,6 +36,7 @@ class Backend(QObject):
         self.slot_creation = False
         self.slot_activation = False
         self.wheel_controls = False
+        self.hypershift_transactions = False
         self.device = None
 
     def start(self):
@@ -85,6 +86,7 @@ class Backend(QObject):
                 self.slot_creation = self.protocol >= 4 and message.get("slot_creation") is True
                 self.slot_activation = self.protocol >= 4 and message.get("slot_activation") is True
                 self.wheel_controls = self.protocol >= 4 and message.get("wheel_controls") is True
+                self.hypershift_transactions = self.protocol >= 4 and message.get("hypershift_transactions") is True
                 self.device = message.get("device")
                 self.ready = True
                 self.connected.emit(True)

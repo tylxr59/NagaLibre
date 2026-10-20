@@ -31,6 +31,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(hide = true)]
+    OnboardLayerWriteProbe {
+        #[arg(long)]
+        backup: PathBuf,
+        #[arg(long)]
+        journal: PathBuf,
+        #[arg(long)]
+        restore: bool,
+    },
+    /// Narrow recovery of the captured normal grid-1 selector echo; use the recovery script.
+    #[command(hide = true)]
+    OnboardRecoverGridOneEcho {
+        #[arg(long)]
+        backup: PathBuf,
+        #[arg(long)]
+        evidence: PathBuf,
+        #[arg(long)]
+        journal: PathBuf,
+    },
+    /// Read-only recovery evidence retaining request/response selectors; never writes.
+    OnboardSelectorInspect,
     /// Controlled temporary-slot experiment; use scripts/slot_trial.py.
     #[command(hide = true)]
     OnboardSlotTrial {
@@ -60,6 +81,16 @@ enum Command {
     /// Read onboard slots and twelve side-button records without changing settings.
     OnboardRead {
         #[arg(long)]
+        slot: Option<u8>,
+    },
+    /// Inspect normal/Hypershift records on the twelve-button plate; never writes settings.
+    OnboardLayers {
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
+        slot: Option<u8>,
+    },
+    /// Capture unverified mapping reply echoes for research; never writes or verifies a secondary bank.
+    OnboardLayerProbe {
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
         slot: Option<u8>,
     },
     /// List event interfaces, including ones requiring elevated permissions.
@@ -282,6 +313,40 @@ fn main() -> Result<()> {
         Command::OnboardRead { slot } => {
             let snapshot = onboard::hidraw::connect()?.read(slot)?;
             println!("{}", serde_json::to_string_pretty(&snapshot)?);
+        }
+        Command::OnboardLayers { slot } => {
+            let readback = onboard::hidraw::connect()?.read_layers(slot)?;
+            println!("{}", serde_json::to_string_pretty(&readback)?);
+        }
+        Command::OnboardSelectorInspect => {
+            let evidence = onboard::hidraw::connect()?.inspect_mapping_selectors()?;
+            println!("{}", serde_json::to_string_pretty(&evidence)?);
+        }
+        Command::OnboardLayerWriteProbe {
+            backup,
+            journal,
+            restore,
+        } => {
+            let backup = serde_json::from_slice(&fs::read(backup)?)?;
+            let report =
+                onboard::hidraw::connect()?.layer_write_probe(&backup, &journal, restore)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::OnboardRecoverGridOneEcho {
+            backup,
+            evidence,
+            journal,
+        } => {
+            let backup = serde_json::from_slice(&fs::read(backup)?)?;
+            let evidence = serde_json::from_slice(&fs::read(evidence)?)?;
+            onboard::hidraw::connect()?.recover_grid_one_echo(&backup, &evidence, &journal)?;
+            println!(
+                "Exact original paired-bank records, echoes, slots and primary checks restored and verified."
+            );
+        }
+        Command::OnboardLayerProbe { slot } => {
+            let evidence = onboard::hidraw::connect()?.probe_layer_replies(slot)?;
+            println!("{}", serde_json::to_string_pretty(&evidence)?);
         }
         Command::Session => session::run(running)?,
         Command::List { json, all_razer } => {

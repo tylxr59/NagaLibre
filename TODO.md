@@ -70,17 +70,48 @@ Implementation does not imply every hardware path is verified.
 
 Goal: a secondary assignment layer available while holding a designated button.
 
-- [ ] Research chunk: document normal/Hypershift bank selection and the action
-      that activates Hypershift. Existing payloads carry a layer byte currently
-      fixed to zero; establish addressing and firmware restrictions first.
-- [ ] Read-only chunk: enumerate secondary-layer records and preserve unknown
+- [x] Research chunk: document normal/Hypershift bank selection and trigger
+      encoding from both Device167 wired/receiver controllers. Layer byte is
+      0/1 with unchanged button IDs; trigger category 0c/length 1/data 01.
+      [Protocol findings and unresolved firmware limits](inspection/HYPERSHIFT.md)
+      distinguish static evidence from unverified held/release behavior.
+- [x] Read-only chunk: enumerate secondary-layer records and preserve unknown
       actions in snapshots without changing existing normal-layer behavior.
-- [ ] Engine chunk: add layer-aware preparation, durable backups, stale checks,
+      Implemented `onboard-layers` and private `scripts/inspect_layers.py` export;
+      both-bank double reads, raw preservation and state/plate guards tested.
+      Wired forensic capture passed all sixteen scoped records twice; both
+      connections echo layer 0. Captured tilt actions differ from normal while
+      grid 1/2 differ only in wire encoding. Implemented a V2 Pro-specific
+      zero-echo reader that preserves observed echoes and exact raw bytes.
+      Secondary primary state is unknown. Legacy normal-only commands retain
+      their scope; the new wired GUI uses paired transactions.
+      Parsed wired export passed all sixteen records with echo 0 retained.
+      Wired held/release behavior subsequently passed the physical trial below.
+- [x] Engine chunk: add layer-aware preparation, durable backups, stale checks,
       changed-action writes, readback and exact rollback within permitted IDs.
-- [ ] UI chunk: expose normal/secondary drafts and a supported Hypershift trigger;
-      preserve both layers across saves and profile migration.
-- [ ] Hardware chunk: test one secondary assignment plus its trigger, verify
-      release returns to normal, then restore. Check reconnect persistence.
+      Initial scope: wired active slot, normal mode, twelve-button plate.
+      Both banks/all initialized slots backed up and checked. Session token and
+      private staged trial implemented. Wired isolated write and physical held
+      trial passed, followed by exact original paired restoration.
+- [x] UI chunk: normal/secondary drafts, normal-layer Hypershift trigger, sparse
+      keep/disabled actions, stored-to-draft copy, paired save/restore and v1→v2
+      profile migration implemented. Unknown raw actions are preserved. Backup
+      fsync failure prevents commit. Mock QProcess save/reconnect/restore passed.
+- [x] Hardware chunk: one wired secondary assignment plus its trigger, release
+      back to normal, and exact paired restoration. User confirmed expected
+      Hypershift physical results; apply/verify readbacks and restored status passed.
+      The reverse-echo failure, guarded recovery and successful isolated write
+      probe are documented in inspection/HYPERSHIFT.md.
+- [x] Confirm primary clicks, physical USB-reconnect persistence and physical
+      post-restore outputs for the held trial. User explicitly confirmed all
+      passed. Receiver Hypershift remains unverified.
+- [x] Final desktop physical check: `scripts/check_hypershift_gui.py`
+      prepare/staged/saved/restored passed through GUI edits and backup
+      restoration. Staging changed nothing; saved trigger/B and untouched state
+      verified; every original paired record, echo, slot and device state restored
+      exactly. User confirmed hold/release, primary clicks, USB reconnect and
+      original outputs/DPI cycling after restore. Wired twelve-button scope is
+      complete; receiver Hypershift remains unverified. See docs/HYPERSHIFT.md.
 
 ## 3. HyperScroll Pro haptic wheel
 

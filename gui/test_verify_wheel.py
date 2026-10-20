@@ -83,7 +83,8 @@ class GuidedWheelTests(unittest.TestCase):
                 # have completed, when reconnect verification opens a new stage.
                 if json.loads((self.directory / "status.json").read_text())["stage"] == "applied":
                     failed = True
-                    raise ValueError("No matching reply to mouse command 00/84; wake the mouse")
+                    raise ValueError("Reading slot 1, button 13 (wire 0x34), layer 0: "
+                                     "No matching reply to mouse command 02/8c; wake the mouse")
             return command(name, **arguments)
         self.session.command = fail_read
         results = self.run_trial(iter(["yes"] * 8))

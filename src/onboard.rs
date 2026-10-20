@@ -1,10 +1,14 @@
 //! Naga V2 Pro profiles. Writers allow only the grid and explicit auxiliary controls.
 pub mod activation;
 pub mod creation;
+pub mod echo_recovery;
 pub mod hidraw;
+pub mod layer_transaction;
+pub mod layer_write_probe;
+pub mod layers;
 pub mod slot_trial;
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -118,6 +122,12 @@ pub trait Transport {
 
 pub struct Mouse<T> {
     pub transport: T,
+}
+
+#[derive(Clone, Copy)]
+enum MappingLayer {
+    Normal = 0,
+    Hypershift = 1,
 }
 
 pub struct Prepared {
@@ -298,13 +308,33 @@ impl<T: Transport> Mouse<T> {
     }
 
     fn get_button(&mut self, slot: u8, id: u8, physical_number: u8) -> Result<Button> {
+        self.get_layer_button(slot, id, physical_number, MappingLayer::Normal)
+    }
+
+    fn get_layer_button(
+        &mut self,
+        slot: u8,
+        id: u8,
+        physical_number: u8,
+        layer: MappingLayer,
+    ) -> Result<Button> {
         let mut payload = [0; 10];
         payload[0] = slot;
         payload[1] = id;
-        let bytes = self.transport.exchange(2, 0x8c, &payload, 3)?;
+        payload[2] = layer as u8;
+        let bytes = self
+            .transport
+            .exchange(2, 0x8c, &payload, 3)
+            .with_context(|| {
+                format!(
+                    "Reading slot {slot}, button {physical_number} (wire {id:#04x}), layer {}",
+                    layer as u8
+                )
+            })?;
         ensure!(
             bytes.len() == 10 && bytes[..3] == payload[..3] && bytes[4] <= 5,
-            "Invalid button-table reply for slot {slot}, id {id:#x}"
+            "Invalid button-table reply for slot {slot}, id {id:#x}, layer {}",
+            layer as u8
         );
         Button::from_record(physical_number, bytes[3..10].try_into().unwrap())
     }
@@ -348,6 +378,21 @@ impl<T: Transport> Mouse<T> {
     }
 
     pub fn read(&mut self, slot: Option<u8>) -> Result<Snapshot> {
+        Ok(self.read_snapshot(slot, false)?.0)
+    }
+
+    fn read_with_layer_echoes(
+        &mut self,
+        slot: Option<u8>,
+    ) -> Result<(Snapshot, Vec<layers::LayerEcho>)> {
+        self.read_snapshot(slot, true)
+    }
+
+    fn read_snapshot(
+        &mut self,
+        slot: Option<u8>,
+        paired: bool,
+    ) -> Result<(Snapshot, Vec<layers::LayerEcho>)> {
         let mut device = self.transport.identity();
         let serial = self.transport.exchange(0, 0x82, &[0; 22], 0)?;
         ensure!(serial.len() == 22, "Invalid serial-number reply");
@@ -380,26 +425,60 @@ impl<T: Transport> Mouse<T> {
             "Slot {slot} is not initialized. No profile will be created or erased."
         );
         let primary = vec![self.get_button(slot, 1, 1)?, self.get_button(slot, 2, 2)?];
+        let mut echoes = Vec::new();
+        let mut read_control = |mouse: &mut Self, number: u8| -> Result<Button> {
+            let id = control_id(number)?;
+            if paired && device.product == 0xa7 {
+                // Wired hardware proved distinct requested action records even
+                // when both getters report the last secondary write's selector.
+                // This scope excludes primary reads and ordinary snapshots.
+                let mut request = [0; 10];
+                request[..2].copy_from_slice(&[slot, id]);
+                let bytes = mouse.transport.exchange(2,0x8c,&request,2)
+                    .with_context(|| format!("Reading slot {slot}, button {number} (wire {id:#04x}), requested layer 0"))?;
+                ensure!(
+                    bytes.len() == 10 && bytes[..2] == request[..2] && bytes[2] <= 1,
+                    "Invalid paired normal mapping reply"
+                );
+                echoes.push(layers::LayerEcho {
+                    button: number,
+                    layer: bytes[2],
+                });
+                Button::from_record(number, bytes[3..].try_into().unwrap())
+            } else {
+                let button = mouse.get_button(slot, id, number)?;
+                if paired {
+                    echoes.push(layers::LayerEcho {
+                        button: number,
+                        layer: 0,
+                    });
+                }
+                Ok(button)
+            }
+        };
         let buttons = (1..=12)
-            .map(|n| self.get_button(slot, 0x3f + n, n))
+            .map(|n| read_control(self, n))
             .collect::<Result<Vec<_>>>()?;
         let controls = crate::devices::naga_defaults()
             .controls
             .iter()
-            .map(|c| self.get_button(slot, control_id(c.button)?, c.button))
+            .map(|c| read_control(self, c.button))
             .collect::<Result<Vec<_>>>()?;
-        Ok(Snapshot {
-            format: 1,
-            device,
-            slots,
-            slot_capacity: Some(inventory.capacity),
-            active,
-            slot,
-            mode,
-            primary,
-            buttons,
-            controls,
-        })
+        Ok((
+            Snapshot {
+                format: 1,
+                device,
+                slots,
+                slot_capacity: Some(inventory.capacity),
+                active,
+                slot,
+                mode,
+                primary,
+                buttons,
+                controls,
+            },
+            echoes,
+        ))
     }
 
     pub fn prepare(&mut self, before: &Snapshot, mut desired: Vec<Button>) -> Result<Prepared> {
@@ -711,6 +790,7 @@ mod tests {
                     p.to_vec()
                 }
                 (2, 0x8c) => {
+                    assert_eq!(p[2], 0, "Normal reads must not select Hypershift");
                     let b = if p[0] == 3 && p[1] == 1 && self.blank_new_primary {
                         Button {
                             button: 1,
@@ -735,6 +815,7 @@ mod tests {
                     r
                 }
                 (2, 0x0c) => {
+                    assert_eq!(p[2], 0, "Existing writers must remain normal-only");
                     assert!(
                         (0x40..=0x4b).contains(&p[1]) || [0x34, 0x35, 0x6d, 0x60].contains(&p[1]),
                         "primary write attempted"
@@ -761,6 +842,1182 @@ mod tests {
                 _ => panic!("Unexpected command {class:x}/{cmd:x}"),
             })
         }
+    }
+
+    // Independent banks backed by captured noncanonical keyboard and tilt records.
+    struct BankFake {
+        slots: BTreeMap<u8, Fake>,
+        secondary: BTreeMap<(u8, u8), [u8; 7]>,
+        writes: Vec<(u8, u8, u8)>,
+        lose_ack: bool,
+        alias: bool,
+        reencode: bool,
+        block_restore: bool,
+        normal_echo_one: bool,
+        echo_stuck: bool,
+        tag_last_write: bool,
+        operations: Vec<(u8, u8, Vec<u8>)>,
+        corrupt_secondary_on_allocate: bool,
+    }
+    impl BankFake {
+        fn new() -> Self {
+            let slots: BTreeMap<_, _> = [1, 2]
+                .into_iter()
+                .map(|slot| (slot, Fake::captured_factory()))
+                .collect();
+            let mut secondary = BTreeMap::new();
+            for (slot, normal) in &slots {
+                for (id, button) in normal.buttons.iter().chain(&normal.controls) {
+                    let mut record = button.record().unwrap();
+                    if *id == 0x40 || *id == 0x41 {
+                        record[1] = 1;
+                    }
+                    if *id == 0x34 {
+                        record = [14, 1, 104, 0, 20, 0, 0];
+                    }
+                    secondary.insert((*slot, *id), record);
+                }
+            }
+            Self {
+                slots,
+                secondary,
+                writes: vec![],
+                lose_ack: false,
+                alias: false,
+                reencode: false,
+                block_restore: false,
+                normal_echo_one: false,
+                echo_stuck: false,
+                tag_last_write: true,
+                operations: vec![],
+                corrupt_secondary_on_allocate: false,
+            }
+        }
+    }
+    impl Transport for BankFake {
+        fn identity(&self) -> Identity {
+            self.slots[&1].identity()
+        }
+        fn exchange(&mut self, class: u8, cmd: u8, p: &[u8], echo: usize) -> Result<Vec<u8>> {
+            self.operations.push((class, cmd, p.to_vec()));
+            if (class, cmd) == (5, 2) {
+                let normal = Fake::captured_factory();
+                for (id, b) in normal.buttons.iter().chain(&normal.controls) {
+                    self.secondary.insert((p[0], *id), b.record()?);
+                }
+                self.slots.insert(p[0], normal);
+                if self.corrupt_secondary_on_allocate {
+                    self.secondary.get_mut(&(2, 0x34)).unwrap()[6] ^= 1;
+                }
+                return self
+                    .slots
+                    .get_mut(&1)
+                    .unwrap()
+                    .exchange(class, cmd, p, echo);
+            }
+            if (class, cmd) == (5, 3) {
+                let result = self
+                    .slots
+                    .get_mut(&1)
+                    .unwrap()
+                    .exchange(class, cmd, p, echo)?;
+                self.slots.remove(&p[0]);
+                self.secondary.retain(|(slot, _), _| *slot != p[0]);
+                return Ok(result);
+            }
+            if (class, cmd) == (0, 0xb9) {
+                return Ok(vec![3]);
+            }
+            if class == 2 && matches!(cmd, 0x8c | 0x0c) {
+                assert!(p[2] <= 1);
+                if cmd == 0x0c {
+                    assert!(
+                        (0x40..=0x4b).contains(&p[1]) || [0x34, 0x35, 0x6d, 0x60].contains(&p[1]),
+                        "primary write"
+                    );
+                    self.writes.push((p[0], p[2], p[1]));
+                    if self.block_restore && self.writes.len() > 1 {
+                        bail!("Recovery transport unavailable");
+                    }
+                }
+                if p[2] == 1 {
+                    if cmd == 0x0c {
+                        if self.tag_last_write && p[0] == 1 && p[1] == 0x40 {
+                            self.normal_echo_one = true;
+                        }
+                        if self.alias {
+                            let mut normal = p.to_vec();
+                            normal[2] = 0;
+                            self.slots
+                                .get_mut(&p[0])
+                                .unwrap()
+                                .exchange(class, cmd, &normal, echo)?;
+                        } else {
+                            let mut record: [u8; 7] = p[3..].try_into().unwrap();
+                            if self.reencode && record[0] == 2 {
+                                record[1] = 1;
+                            }
+                            self.secondary.insert((p[0], p[1]), record);
+                        }
+                        if self.lose_ack {
+                            self.lose_ack = false;
+                            bail!("Write landed but acknowledgement lost");
+                        }
+                    }
+                    let mut reply = p.to_vec();
+                    reply[2] = u8::from(self.normal_echo_one && p[0] == 1 && p[1] == 0x40);
+                    reply[3..].copy_from_slice(&self.secondary[&(p[0], p[1])]);
+                    return Ok(reply);
+                }
+                if cmd == 0x0c && p[0] == 1 && p[1] == 0x40 && !self.echo_stuck {
+                    self.normal_echo_one = false;
+                }
+                let mut result = self
+                    .slots
+                    .get_mut(&p[0])
+                    .unwrap()
+                    .exchange(class, cmd, p, echo)?;
+                if self.normal_echo_one && cmd == 0x8c && p[0] == 1 && p[1] == 0x40 {
+                    if echo >= 3 {
+                        bail!(
+                            "No matching reply to mouse command 02/8c; mapping echo: slot 1, wire button 0x40, layer 1"
+                        );
+                    }
+                    result[2] = 1;
+                }
+                return Ok(result);
+            }
+            self.slots
+                .get_mut(&1)
+                .unwrap()
+                .exchange(class, cmd, p, echo)
+        }
+    }
+    #[test]
+    fn selector_inspection_preserves_observed_reverse_echo_without_inventing_bank_identity() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        mouse.transport.normal_echo_one = true;
+        assert!(mouse.read(None).is_err());
+        let paired = mouse.read_layers(None).unwrap();
+        assert_eq!(paired.normal_echoes[0].layer, 1);
+        let evidence = mouse.inspect_mapping_selectors().unwrap();
+        assert_eq!(evidence["bank_identity_verified"], false);
+        let records = evidence["records"].as_array().unwrap();
+        assert_eq!(records.len(), 35); // 3 normal primary + 16 per selector.
+        let first = records
+            .iter()
+            .find(|r| r["wire"] == 0x40 && r["requested_layer"] == 0)
+            .unwrap();
+        assert_eq!(first["echoed_layer"], 1);
+        assert_eq!(first["record"], serde_json::json!([2, 2, 0, 30, 0, 0, 0]));
+        let secondary = records
+            .iter()
+            .find(|r| r["wire"] == 0x40 && r["requested_layer"] == 1)
+            .unwrap();
+        assert_eq!(secondary["echoed_layer"], 1);
+        assert_eq!(
+            secondary["record"],
+            serde_json::json!([2, 1, 0, 30, 0, 0, 0])
+        );
+        assert!(
+            serde_json::from_value::<layer_transaction::LayerBackup>(evidence.clone()).is_err()
+        );
+        assert!(serde_json::from_value::<layers::LayerReadback>(evidence).is_err());
+        assert!(mouse.transport.writes.is_empty());
+    }
+    #[test]
+    fn selector_inspection_rejects_changes_and_wrong_plates_without_writes() {
+        for bad_plate in [false, true] {
+            let mut transport = LayerFake::new();
+            transport.change_secondary = !bad_plate;
+            if bad_plate {
+                transport.initial_plate = 4;
+            }
+            let mut mouse = Mouse { transport };
+            assert!(mouse.inspect_mapping_selectors().is_err());
+            assert!(mouse.transport.normal.writes.is_empty());
+            assert!(
+                mouse
+                    .transport
+                    .requests
+                    .iter()
+                    .all(|(class, cmd, _)| (*class, *cmd) != (2, 0x0c))
+            );
+        }
+    }
+
+    #[test]
+    fn echo_recovery_writes_one_original_normal_record_and_checks_both_banks_even_on_lost_ack() {
+        for lose_ack in [false, true] {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let original = mouse.read_layers(None).unwrap();
+            let backup = mouse
+                .prepare_layers(&original, vec![])
+                .unwrap()
+                .backup()
+                .clone();
+            mouse.transport.normal_echo_one = true;
+            let evidence = mouse.inspect_mapping_selectors().unwrap();
+            if lose_ack {
+                mouse.transport.slots.get_mut(&1).unwrap().fail_once = Some(0x40);
+            }
+            let journal = trial_journal();
+            mouse
+                .recover_grid_one_echo(&backup, &evidence, &journal)
+                .unwrap();
+            assert_eq!(mouse.transport.writes, [(1, 0, 0x40)]);
+            assert_eq!(mouse.read_layers(None).unwrap(), original);
+            let text = std::fs::read_to_string(&journal).unwrap();
+            assert!(text.contains("paired_backup_restored_exactly"));
+            std::fs::remove_file(journal).unwrap();
+        }
+    }
+    #[test]
+    fn echo_recovery_refuses_stale_evidence_other_slot_changes_and_changed_actions() {
+        for case in 0..3 {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let original = mouse.read_layers(None).unwrap();
+            let backup = mouse
+                .prepare_layers(&original, vec![])
+                .unwrap()
+                .backup()
+                .clone();
+            mouse.transport.normal_echo_one = true;
+            let mut evidence = mouse.inspect_mapping_selectors().unwrap();
+            match case {
+                0 => {
+                    evidence["records"][3]["echoed_layer"] = serde_json::json!(0);
+                }
+                1 => {
+                    mouse.transport.secondary.get_mut(&(2, 0x34)).unwrap()[6] = 1;
+                }
+                _ => {
+                    mouse.transport.secondary.get_mut(&(1, 0x40)).unwrap()[3] = 5;
+                    evidence = mouse.inspect_mapping_selectors().unwrap();
+                }
+            }
+            let journal = trial_journal();
+            assert!(
+                mouse
+                    .recover_grid_one_echo(&backup, &evidence, &journal)
+                    .is_err()
+            );
+            assert!(mouse.transport.writes.is_empty());
+            assert!(!journal.exists());
+        }
+    }
+    #[test]
+    fn echo_recovery_existing_or_unwritable_journal_prevents_all_writes() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let original = mouse.read_layers(None).unwrap();
+        let backup = mouse
+            .prepare_layers(&original, vec![])
+            .unwrap()
+            .backup()
+            .clone();
+        mouse.transport.normal_echo_one = true;
+        let evidence = mouse.inspect_mapping_selectors().unwrap();
+        let journal = trial_journal();
+        std::fs::write(&journal, b"existing").unwrap();
+        for path in [journal.clone(), journal.join("missing/attempt.jsonl")] {
+            assert!(
+                mouse
+                    .recover_grid_one_echo(&backup, &evidence, &path)
+                    .is_err()
+            );
+        }
+        assert!(mouse.transport.writes.is_empty());
+        std::fs::remove_file(journal).unwrap();
+    }
+    #[test]
+    fn echo_recovery_never_retries_or_claims_success_if_normal_echo_remains_wrong() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let original = mouse.read_layers(None).unwrap();
+        let backup = mouse
+            .prepare_layers(&original, vec![])
+            .unwrap()
+            .backup()
+            .clone();
+        mouse.transport.normal_echo_one = true;
+        mouse.transport.echo_stuck = true;
+        let evidence = mouse.inspect_mapping_selectors().unwrap();
+        let journal = trial_journal();
+        let error = format!(
+            "{:#}",
+            mouse
+                .recover_grid_one_echo(&backup, &evidence, &journal)
+                .unwrap_err()
+        );
+        assert!(error.contains("restoration remains unverified"), "{error}");
+        assert!(
+            mouse
+                .recover_grid_one_echo(&backup, &evidence, &journal)
+                .is_err()
+        );
+        assert_eq!(mouse.transport.writes, [(1, 0, 0x40)]);
+        let text = std::fs::read_to_string(&journal).unwrap();
+        assert!(text.contains("repair_unverified"));
+        assert!(!text.contains("paired_backup_restored_exactly"));
+        std::fs::remove_file(journal).unwrap();
+    }
+
+    #[test]
+    fn write_probe_captures_shared_echo_but_separate_actions_then_restores_before_exit() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let backup = mouse
+            .prepare_layers(&before, vec![])
+            .unwrap()
+            .backup()
+            .clone();
+        mouse.transport.tag_last_write = true;
+        let journal = trial_journal();
+        let report = mouse.layer_write_probe(&backup, &journal, false).unwrap();
+        assert_eq!(report["restored_exactly"], true);
+        assert_eq!(report["result"]["observed_selector_1_b_only"], true);
+        let records = report["result"]["observations"]["records"]
+            .as_array()
+            .unwrap();
+        for record in records.iter().filter(|r| r["logical"] == 1) {
+            assert_eq!(record["echoed_layer"], 1);
+        }
+        assert_eq!(
+            mouse.transport.writes,
+            [(1, 1, 0x40), (1, 1, 0x40), (1, 0, 0x40)]
+        );
+        assert_eq!(mouse.read_layers(None).unwrap(), before);
+        assert!(mouse.layer_write_probe(&backup, &journal, false).is_err());
+        assert_eq!(mouse.transport.writes.len(), 3);
+        std::fs::remove_file(journal).unwrap();
+    }
+    #[test]
+    fn write_probe_restores_after_alias_or_lost_ack_and_never_claims_probe_passed() {
+        for alias in [false, true] {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let before = mouse.read_layers(None).unwrap();
+            let backup = mouse
+                .prepare_layers(&before, vec![])
+                .unwrap()
+                .backup()
+                .clone();
+            mouse.transport.tag_last_write = true;
+            mouse.transport.alias = alias;
+            mouse.transport.lose_ack = !alias;
+            let journal = trial_journal();
+            let error = format!(
+                "{:#}",
+                mouse
+                    .layer_write_probe(&backup, &journal, false)
+                    .unwrap_err()
+            );
+            assert!(error.contains("restored and verified"), "{error}");
+            assert_eq!(mouse.read_layers(None).unwrap(), before);
+            assert_eq!(mouse.transport.writes.len(), 3);
+            std::fs::remove_file(journal).unwrap();
+        }
+    }
+    #[test]
+    fn write_probe_stale_backups_and_unwritable_journal_prevent_mutations() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let backup = mouse
+            .prepare_layers(&before, vec![])
+            .unwrap()
+            .backup()
+            .clone();
+        let journal = trial_journal();
+        std::fs::write(&journal, b"existing").unwrap();
+        assert!(mouse.layer_write_probe(&backup, &journal, false).is_err());
+        std::fs::remove_file(&journal).unwrap();
+        mouse.transport.secondary.get_mut(&(2, 0x34)).unwrap()[6] = 1;
+        assert!(mouse.layer_write_probe(&backup, &journal, false).is_err());
+        assert!(mouse.transport.writes.is_empty());
+    }
+    #[test]
+    fn interrupted_probe_restore_never_reinstalls_b_and_rejects_unrelated_changes() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let backup = mouse
+            .prepare_layers(&before, vec![])
+            .unwrap()
+            .backup()
+            .clone();
+        mouse.transport.tag_last_write = true;
+        mouse.transport.echo_stuck = true;
+        let journal = trial_journal();
+        assert!(mouse.layer_write_probe(&backup, &journal, false).is_err());
+        mouse.transport.echo_stuck = false;
+        mouse.transport.secondary.get_mut(&(2, 0x34)).unwrap()[6] = 1;
+        let writes = mouse.transport.writes.len();
+        assert!(mouse.layer_write_probe(&backup, &journal, true).is_err());
+        assert_eq!(mouse.transport.writes.len(), writes);
+        mouse.transport.secondary.get_mut(&(2, 0x34)).unwrap()[6] = 0;
+        mouse.layer_write_probe(&backup, &journal, true).unwrap();
+        assert_eq!(mouse.read_layers(None).unwrap(), before);
+        assert_eq!(mouse.transport.writes.len(), 5);
+        std::fs::remove_file(journal).unwrap();
+    }
+
+    #[test]
+    fn paired_reader_keeps_primary_and_ordinary_reads_strict_and_receiver_scope_unchanged() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        mouse.transport.normal_echo_one = true;
+        assert!(mouse.read(None).is_err());
+        let read = mouse.read_layers(None).unwrap();
+        assert_eq!(read.normal_echoes[0].layer, 1);
+        assert_eq!(read.hypershift.echoes[0].layer, 1);
+        mouse.transport.slots.get_mut(&1).unwrap().product = 0xa8;
+        assert!(mouse.read_layers(None).is_err());
+        assert!(mouse.transport.writes.is_empty());
+    }
+    #[test]
+    fn paired_normal_echo_is_stale_state_and_missing_legacy_echoes_mean_strict_zero() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layers(&before, layer_edits()).unwrap();
+        mouse.transport.normal_echo_one = true;
+        assert!(mouse.commit_layers(plan).is_err());
+        assert!(mouse.transport.writes.is_empty());
+        let mut legacy = serde_json::to_value(&before).unwrap();
+        legacy.as_object_mut().unwrap().remove("normal_echoes");
+        assert_eq!(
+            serde_json::from_value::<layers::LayerReadback>(legacy).unwrap(),
+            before
+        );
+    }
+    #[test]
+    fn rollback_preserves_a_preexisting_secondary_tag_after_lost_normal_ack() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let initial = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layers(&initial, layer_edits()).unwrap();
+        let before = mouse.commit_layers(plan).unwrap();
+        assert_eq!(before.normal_echoes[0].layer, 1);
+        let plan = mouse
+            .prepare_layers(
+                &before,
+                vec![layer_transaction::LayerEdit {
+                    layer: 0,
+                    action: Button {
+                        button: 1,
+                        category: 2,
+                        data: vec![0, 6],
+                        raw_record: None,
+                    },
+                }],
+            )
+            .unwrap();
+        mouse.transport.slots.get_mut(&1).unwrap().fail_once = Some(0x40);
+        let error = format!("{:#}", mouse.commit_layers(plan).unwrap_err());
+        assert!(error.contains("restored and verified"), "{error}");
+        assert_eq!(mouse.read_layers(None).unwrap(), before);
+    }
+
+    #[test]
+    fn unexpected_tag_during_save_is_rejected_without_retrying_the_new_action() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layers(&before, layer_edits()).unwrap();
+        mouse.transport.tag_last_write = false;
+        assert!(mouse.commit_layers(plan).is_err());
+        assert_eq!(mouse.read_layers(None).unwrap(), before);
+        assert_eq!(
+            mouse
+                .transport
+                .writes
+                .iter()
+                .filter(|(_, layer, id)| *layer == 1 && *id == 0x40)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn paired_normal_factory_presets_are_position_scoped_and_secondary_functions_stay_rejected() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let edits: Vec<_> = crate::devices::naga_defaults()
+            .controls
+            .iter()
+            .map(|c| layer_transaction::LayerEdit {
+                layer: 0,
+                action: Button {
+                    button: c.button,
+                    category: c.binding.category,
+                    data: c.binding.data.clone(),
+                    raw_record: None,
+                },
+            })
+            .collect();
+        assert!(mouse.prepare_layers(&before, edits).is_ok());
+        for layer in [0, 1] {
+            let control = &crate::devices::naga_defaults().controls[3];
+            let bad = layer_transaction::LayerEdit {
+                layer,
+                action: Button {
+                    button: if layer == 0 { 1 } else { 16 },
+                    category: control.binding.category,
+                    data: control.binding.data.clone(),
+                    raw_record: None,
+                },
+            };
+            assert!(mouse.prepare_layers(&before, vec![bad]).is_err());
+        }
+        assert!(mouse.transport.writes.is_empty());
+    }
+    #[test]
+    fn legacy_normal_restore_uses_fresh_secondary_records_and_keeps_unknown_wire_bytes() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let original = mouse.read_layers(None).unwrap();
+        let legacy = original.normal.clone();
+        let plan = mouse.prepare_layers(&original, layer_edits()).unwrap();
+        let active = mouse.commit_layers(plan).unwrap();
+        let plan = mouse.prepare_layers_restore_normal(legacy.clone()).unwrap();
+        let after = mouse.commit_layers(plan).unwrap();
+        assert_eq!(after.normal, legacy);
+        assert_eq!(after.hypershift, active.hypershift);
+        assert_eq!(
+            after.hypershift.controls[0].record().unwrap(),
+            [14, 1, 104, 0, 20, 0, 0]
+        );
+        let mut old = legacy;
+        old.controls.clear();
+        old.buttons.reverse();
+        let plan = mouse.prepare_layers_restore_normal(old).unwrap();
+        assert_eq!(mouse.commit_layers(plan).unwrap(), after);
+    }
+
+    #[test]
+    fn paired_activation_keeps_hypershift_and_echoes_across_slot_switches_without_mapping_writes() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let initial = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layers(&initial, layer_edits()).unwrap();
+        let before = mouse.commit_layers(plan).unwrap();
+        let writes = mouse.transport.writes.len();
+        let plan = mouse.prepare_layer_activation(&before, 2).unwrap();
+        assert_eq!(plan.backup.slots.len(), 2);
+        let after = mouse.commit_layer_activation(plan).unwrap();
+        assert_eq!(after.normal.active, 2);
+        assert_eq!(after.normal.slot, 2);
+        let plan = mouse.prepare_layer_activation(&after, 1).unwrap();
+        assert_eq!(mouse.commit_layer_activation(plan).unwrap(), before);
+        assert_eq!(mouse.transport.writes.len(), writes);
+    }
+    #[test]
+    fn paired_activation_stale_secondary_refuses_and_lost_ack_restores_every_slot() {
+        for stale in [false, true] {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let before = mouse.read_layers(None).unwrap();
+            let plan = mouse.prepare_layer_activation(&before, 2).unwrap();
+            if stale {
+                mouse.transport.secondary.get_mut(&(2, 0x34)).unwrap()[6] ^= 1;
+            } else {
+                mouse.transport.slots.get_mut(&1).unwrap().fail_activations = 1;
+            }
+            let error = format!("{:#}", mouse.commit_layer_activation(plan).unwrap_err());
+            if !stale {
+                assert!(error.contains("restored and verified"), "{error}");
+            } else {
+                assert!(
+                    !mouse
+                        .transport
+                        .operations
+                        .iter()
+                        .any(|(c, cmd, _)| (*c, *cmd) == (5, 4))
+                );
+            }
+            assert!(mouse.transport.writes.is_empty());
+            assert_eq!(mouse.read_layers(None).unwrap(), before);
+        }
+    }
+    #[test]
+    fn paired_creation_backs_up_secondary_and_refuses_configured_hypershift_before_allocation() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layer_creation(&before, 3).unwrap();
+        assert!(plan.paired_backup.is_some());
+        let after = mouse.commit_creation(plan).unwrap();
+        assert!(after.slots.contains(&3));
+        assert!(mouse.transport.writes.is_empty());
+        let mut expected = before.clone();
+        expected.normal.slots = after.slots;
+        assert_eq!(mouse.read_layers(Some(1)).unwrap(), expected);
+        let plan = mouse.prepare_layers(&expected, layer_edits()).unwrap();
+        let configured = mouse.commit_layers(plan).unwrap();
+        assert!(mouse.prepare_layer_creation(&configured, 4).is_err());
+        assert!(
+            !mouse
+                .transport
+                .operations
+                .iter()
+                .any(|(c, cmd, p)| (*c, *cmd) == (5, 2) && p[0] == 4)
+        );
+    }
+    #[test]
+    fn paired_creation_cleanup_never_claims_unchanged_if_an_original_secondary_bank_changed() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layer_creation(&before, 3).unwrap();
+        mouse.transport.corrupt_secondary_on_allocate = true;
+        let error = format!("{:#}", mouse.commit_creation(plan).unwrap_err());
+        assert!(
+            error.contains("original paired records could not be verified"),
+            "{error}"
+        );
+        assert!(!mouse.transport.slots.contains_key(&3));
+        assert!(mouse.transport.writes.is_empty());
+    }
+
+    fn layer_edits() -> Vec<layer_transaction::LayerEdit> {
+        vec![
+            layer_transaction::LayerEdit {
+                layer: 1,
+                action: Button {
+                    button: 1,
+                    category: 2,
+                    data: vec![0, 5],
+                    raw_record: None,
+                },
+            },
+            layer_transaction::LayerEdit {
+                layer: 0,
+                action: Button {
+                    button: 16,
+                    category: 12,
+                    data: vec![1],
+                    raw_record: None,
+                },
+            },
+        ]
+    }
+    #[test]
+    fn paired_save_writes_secondary_then_trigger_and_restores_captured_raw_records() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layers(&before, layer_edits()).unwrap();
+        let backup = plan.backup().clone();
+        assert_eq!(backup.slots.len(), 2);
+        assert!(mouse.transport.writes.is_empty());
+        mouse.commit_layers(plan).unwrap();
+        assert_eq!(mouse.transport.writes, [(1, 1, 0x40), (1, 0, 0x60)]);
+        let plan = mouse.prepare_layers_restore(&backup).unwrap();
+        mouse.commit_layers(plan).unwrap();
+        assert_eq!(mouse.read_layers(None).unwrap(), before);
+        assert_eq!(
+            mouse.transport.secondary[&(1, 0x40)],
+            [2, 1, 0, 30, 0, 0, 0]
+        );
+        assert_eq!(
+            mouse.transport.secondary[&(1, 0x34)],
+            [14, 1, 104, 0, 20, 0, 0]
+        );
+    }
+    #[test]
+    fn paired_noop_preserves_noncanonical_wire_records_without_writes() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let edits = vec![layer_transaction::LayerEdit {
+            layer: 1,
+            action: Button {
+                raw_record: None,
+                ..before.hypershift.buttons[0].clone()
+            },
+        }];
+        let plan = mouse.prepare_layers(&before, edits).unwrap();
+        assert_eq!(mouse.commit_layers(plan).unwrap(), before);
+        assert!(mouse.transport.writes.is_empty());
+    }
+    #[test]
+    fn paired_commit_rejects_stale_raw_bytes_in_either_slot_or_bank() {
+        for (slot, layer) in [(1, 0), (1, 1), (2, 0), (2, 1)] {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let before = mouse.read_layers(None).unwrap();
+            let plan = mouse.prepare_layers(&before, layer_edits()).unwrap();
+            if layer == 1 {
+                mouse.transport.secondary.get_mut(&(slot, 0x34)).unwrap()[6] ^= 1;
+            } else {
+                mouse
+                    .transport
+                    .slots
+                    .get_mut(&slot)
+                    .unwrap()
+                    .controls
+                    .get_mut(&0x34)
+                    .unwrap()
+                    .data = vec![0, 5];
+            }
+            assert!(mouse.commit_layers(plan).is_err());
+            assert!(mouse.transport.writes.is_empty());
+        }
+    }
+    #[test]
+    fn paired_lost_ack_and_unexpected_bank_alias_restore_both_banks_exactly() {
+        for alias in [false, true] {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let before = mouse.read_layers(None).unwrap();
+            let plan = mouse.prepare_layers(&before, layer_edits()).unwrap();
+            mouse.transport.alias = alias;
+            mouse.transport.lose_ack = !alias;
+            let message = format!("{:#}", mouse.commit_layers(plan).unwrap_err());
+            assert!(message.contains("restored and verified"), "{message}");
+            assert_eq!(mouse.read_layers(None).unwrap(), before);
+        }
+    }
+    #[test]
+    fn paired_lost_trigger_ack_restores_already_written_secondary_and_trigger() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layers(&before, layer_edits()).unwrap();
+        mouse.transport.slots.get_mut(&1).unwrap().fail_once = Some(0x60);
+        let error = format!("{:#}", mouse.commit_layers(plan).unwrap_err());
+        assert!(error.contains("restored and verified"), "{error}");
+        assert_eq!(mouse.read_layers(None).unwrap(), before);
+        assert_eq!(
+            mouse.transport.writes,
+            [
+                (1, 1, 0x40),
+                (1, 0, 0x60),
+                (1, 1, 0x40),
+                (1, 0, 0x60),
+                (1, 0, 0x40)
+            ]
+        );
+    }
+
+    #[test]
+    fn paired_recovery_failure_keeps_explicit_incomplete_status() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layers(&before, layer_edits()).unwrap();
+        mouse.transport.lose_ack = true;
+        mouse.transport.block_restore = true;
+        let message = format!("{:#}", mouse.commit_layers(plan).unwrap_err());
+        assert!(message.contains("rollback could not be verified"));
+        assert!(!message.contains("restored and verified"));
+    }
+    #[test]
+    fn paired_changed_actions_accept_reencoding_but_restore_requires_exact_bytes() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        let plan = mouse.prepare_layers(&before, layer_edits()).unwrap();
+        let mut backup = plan.backup().clone();
+        mouse.transport.reencode = true;
+        mouse.commit_layers(plan).unwrap();
+        let changed = mouse.read_layers(None).unwrap();
+        // A canonical length-two backup cannot be restored by a setter that
+        // always rewrites it as length one. Semantic equality must not suffice.
+        backup.slots[0].state.hypershift.buttons[0].raw_record = None;
+        let restore = mouse.prepare_layers_restore(&backup).unwrap();
+        let message = format!("{:#}", mouse.commit_layers(restore).unwrap_err());
+        assert!(message.contains("restored and verified"), "{message}");
+        assert_eq!(mouse.read_layers(None).unwrap(), changed);
+    }
+    #[test]
+    fn paired_edits_reject_primary_nested_trigger_unknown_action_and_receiver() {
+        for (layer, button, category, data) in [
+            (0, 0, 2, vec![0, 5]),
+            (0, 17, 2, vec![0, 5]),
+            (1, 1, 12, vec![1]),
+            (1, 13, 14, vec![104]),
+        ] {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let before = mouse.read_layers(None).unwrap();
+            assert!(
+                mouse
+                    .prepare_layers(
+                        &before,
+                        vec![layer_transaction::LayerEdit {
+                            layer,
+                            action: Button {
+                                button,
+                                category,
+                                data,
+                                raw_record: None
+                            }
+                        }]
+                    )
+                    .is_err()
+            );
+            assert!(mouse.transport.writes.is_empty());
+        }
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        mouse.transport.slots.get_mut(&1).unwrap().product = 0xa8;
+        let before = mouse.read_layers(None).unwrap();
+        assert!(mouse.prepare_layers(&before, layer_edits()).is_err());
+        assert!(mouse.transport.writes.is_empty());
+    }
+    #[test]
+    fn paired_restore_rejects_diagnostic_envelope_and_different_device() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        assert!(
+            serde_json::from_value::<layer_transaction::LayerBackup>(
+                serde_json::to_value(&before).unwrap()
+            )
+            .is_err()
+        );
+        let plan = mouse.prepare_layers(&before, layer_edits()).unwrap();
+        let mut backup = plan.backup().clone();
+        backup.slots[0].state.normal.device.serial = "OTHER".into();
+        assert!(mouse.prepare_layers_restore(&backup).is_err());
+        assert!(mouse.transport.writes.is_empty());
+    }
+
+    struct LayerFake {
+        normal: Fake,
+        requests: Vec<(u8, u8, Vec<u8>)>,
+        reads: std::collections::BTreeMap<u8, usize>,
+        change_secondary: bool,
+        reply_layer: u8,
+        mirror_normal: bool,
+        change_active: bool,
+        change_plate: bool,
+        initial_plate: u8,
+        fail_secondary: bool,
+        plate_reads: usize,
+    }
+
+    impl LayerFake {
+        fn new() -> Self {
+            Self {
+                normal: Fake::captured_factory(),
+                requests: vec![],
+                reads: Default::default(),
+                change_secondary: false,
+                reply_layer: 1,
+                mirror_normal: false,
+                change_active: false,
+                change_plate: false,
+                initial_plate: 3,
+                fail_secondary: false,
+                plate_reads: 0,
+            }
+        }
+    }
+
+    impl Transport for LayerFake {
+        fn identity(&self) -> Identity {
+            self.normal.identity()
+        }
+        fn exchange(&mut self, class: u8, cmd: u8, p: &[u8], echo: usize) -> Result<Vec<u8>> {
+            self.requests.push((class, cmd, p.to_vec()));
+            match (class, cmd) {
+                (0, 0xb9) => {
+                    self.plate_reads += 1;
+                    Ok(vec![if self.change_plate && self.plate_reads > 1 {
+                        4
+                    } else {
+                        self.initial_plate
+                    }])
+                }
+                (2, 0x8c) if p[2] == 1 => {
+                    assert!(matches!(echo, 2 | 3));
+                    assert_eq!(p.len(), 10);
+                    assert_eq!(p[0], 1);
+                    // Live inspection failed on primary wire 01, layer 1.
+                    // Normal primary checks still work; secondary inspection
+                    // must remain scoped to the permitted sixteen controls.
+                    if p[1] <= 3 {
+                        bail!("No matching reply to mouse command 02/8c");
+                    }
+                    if self.fail_secondary {
+                        bail!("No matching reply to mouse command 02/8c");
+                    }
+                    let reads = self.reads.entry(p[1]).or_default();
+                    *reads += 1;
+                    // Synthetic secondary actions using the captured normal
+                    // length-one keyboard encoding and traced trigger format.
+                    let record = if self.mirror_normal {
+                        self.normal
+                            .controls
+                            .get(&p[1])
+                            .or_else(|| self.normal.buttons.get(&p[1]))
+                            .unwrap()
+                            .record()?
+                    } else {
+                        match p[1] {
+                            0x40 => [0x7e, 2, 0xde, 0xad, 0x11, 0x22, 0x33],
+                            0x41 => [2, 1, 0, 0x1f, 0, 0, 0],
+                            0x34 => [0x0c, 1, 1, 0, 0, 0, 0],
+                            _ => [0; 7],
+                        }
+                    };
+                    let mut reply = p.to_vec();
+                    reply[3..].copy_from_slice(&record);
+                    if self.change_secondary && *reads > 1 && p[1] == 0x40 {
+                        reply[9] ^= 1; // Same decoded action, different raw tail.
+                    }
+                    reply[2] = self.reply_layer;
+                    if self.change_active {
+                        self.normal.active = 2;
+                    }
+                    Ok(reply)
+                }
+                _ => self.normal.exchange(class, cmd, p, echo),
+            }
+        }
+    }
+
+    #[test]
+    fn layer_export_preserves_normal_capture_and_unknown_secondary_wire_bytes_without_writes() {
+        let original = Mouse {
+            transport: Fake::captured_factory(),
+        }
+        .read(None)
+        .unwrap();
+        let mut mouse = Mouse {
+            transport: LayerFake::new(),
+        };
+        let result = mouse.read_layers(None).unwrap();
+        assert_eq!(result.normal, original);
+        assert_eq!(result.hypershift.layer, 1);
+        assert!(!result.hypershift.primary_inspected);
+        assert_eq!(result.hypershift.buttons.len(), 12);
+        assert_eq!(result.hypershift.controls.len(), 4);
+        assert_eq!(result.hypershift.buttons[0].data, [0xde, 0xad]);
+        assert_eq!(
+            result.hypershift.buttons[0].raw_record,
+            Some([0x7e, 2, 0xde, 0xad, 0x11, 0x22, 0x33])
+        );
+        assert_eq!(result.hypershift.buttons[1].data, [0, 0x1f]);
+        assert!(result.hypershift.buttons[1].raw_record.is_some());
+        let value = serde_json::to_value(&result).unwrap();
+        assert_eq!(
+            serde_json::from_value::<layers::LayerReadback>(value.clone()).unwrap(),
+            result
+        );
+        assert!(serde_json::from_value::<Snapshot>(value).is_err());
+        assert!(mouse.transport.requests.iter().all(|(class, cmd, _)| {
+            matches!(
+                (class, cmd),
+                (0, 0x82 | 0x84 | 0xb9) | (5, 0x81 | 0x84) | (2, 0x8c)
+            )
+        }));
+        assert_eq!(mouse.transport.reads.len(), 16);
+        assert!(
+            mouse
+                .transport
+                .reads
+                .keys()
+                .all(|id| { (0x40..=0x4b).contains(id) || [0x34, 0x35, 0x6d, 0x60].contains(id) })
+        );
+        assert!(mouse.transport.reads.values().all(|reads| *reads == 2));
+        assert!(mouse.transport.normal.writes.is_empty());
+    }
+
+    #[test]
+    fn layer_inspection_rejects_wrong_bank_echo_and_changes_to_raw_state_active_slot_or_plate() {
+        for failure in 0..4 {
+            let mut transport = LayerFake::new();
+            transport.reply_layer = if failure == 0 { 2 } else { 1 };
+            transport.change_secondary = failure == 1;
+            transport.change_active = failure == 2;
+            transport.change_plate = failure == 3;
+            let mut mouse = Mouse { transport };
+            let error = format!("{:#}", mouse.read_layers(None).unwrap_err());
+            assert!(error.contains(match failure {
+                0 => "Unexpected secondary layer echo",
+                1 => "Hypershift records changed",
+                2 => "Normal bindings or device state changed",
+                _ => "Faceplate changed",
+            }));
+            assert!(mouse.transport.normal.writes.is_empty());
+        }
+    }
+
+    #[test]
+    fn layer_inspection_rejects_uninitialized_slots_before_secondary_reads() {
+        let mut mouse = Mouse {
+            transport: LayerFake::new(),
+        };
+        assert!(mouse.read_layers(Some(3)).is_err());
+        assert!(mouse.transport.reads.is_empty());
+        assert!(mouse.transport.normal.writes.is_empty());
+    }
+
+    #[test]
+    fn layer_getter_failures_identify_bank_slot_and_control_without_writes() {
+        let mut transport = LayerFake::new();
+        transport.fail_secondary = true;
+        let mut mouse = Mouse { transport };
+        let error = format!("{:#}", mouse.read_layers(None).unwrap_err());
+        assert!(error.contains("First Hypershift-bank read"));
+        assert!(error.contains("slot 1, button 1 (wire 0x40), layer 1"));
+        assert!(error.contains("No matching reply to mouse command 02/8c"));
+        assert!(mouse.transport.normal.writes.is_empty());
+    }
+
+    #[test]
+    fn layer_inspection_rejects_other_plates_before_reading_mapping_banks() {
+        for initial_plate in [0, 1, 4, 255] {
+            let mut transport = LayerFake::new();
+            transport.initial_plate = initial_plate;
+            let mut mouse = Mouse { transport };
+            assert!(mouse.read_layers(None).is_err());
+            assert_eq!(mouse.transport.requests.len(), 1);
+            assert!(mouse.transport.normal.writes.is_empty());
+        }
+    }
+
+    #[test]
+    fn v2_pro_zero_echo_is_preserved_and_forensic_envelopes_stay_unverified() {
+        for mirror_normal in [true, false] {
+            let mut transport = LayerFake::new();
+            transport.reply_layer = 0;
+            transport.mirror_normal = mirror_normal;
+            let mut mouse = Mouse { transport };
+            // General mapping readers keep all three echo checks. Only the
+            // V2 Pro layer-specific reader applies the documented zero quirk.
+            assert!(
+                mouse
+                    .get_layer_button(1, 0x40, 1, MappingLayer::Hypershift)
+                    .is_err()
+            );
+            let selected = mouse.read_layers(Some(1)).unwrap();
+            assert!(selected.hypershift.echoes.iter().all(|e| e.layer == 0));
+            let probe = mouse.probe_layer_replies(Some(1)).unwrap();
+            assert!(!probe.secondary_verified);
+            assert_eq!(probe.kind, "unverified_layer_replies");
+            assert_eq!(probe.replies.len(), 16);
+            assert!(
+                probe
+                    .replies
+                    .iter()
+                    .all(|r| r.requested_layer == 1 && r.echoed_layer == 0)
+            );
+            assert_eq!(
+                probe.replies.iter().all(|r| r.matches_normal_wire),
+                mirror_normal
+            );
+            let value = serde_json::to_value(&probe).unwrap();
+            assert!(serde_json::from_value::<Snapshot>(value.clone()).is_err());
+            assert!(serde_json::from_value::<layers::LayerReadback>(value.clone()).is_err());
+            assert_eq!(
+                serde_json::from_value::<layers::LayerReplyProbe>(value).unwrap(),
+                probe
+            );
+            assert!(mouse.transport.normal.writes.is_empty());
+            assert!(mouse.transport.requests.iter().all(|(c, cmd, _)| matches!(
+                (c, cmd),
+                (0, 0x82 | 0x84 | 0xb9) | (5, 0x81 | 0x84) | (2, 0x8c)
+            )));
+        }
+    }
+
+    #[test]
+    fn reply_probes_still_reject_unstable_bytes_and_changed_normal_state_or_plate() {
+        for failure in 0..3 {
+            let mut transport = LayerFake::new();
+            transport.reply_layer = 0;
+            transport.change_secondary = failure == 0;
+            transport.change_active = failure == 1;
+            transport.change_plate = failure == 2;
+            let mut mouse = Mouse { transport };
+            let error = format!("{:#}", mouse.probe_layer_replies(Some(1)).unwrap_err());
+            assert!(error.contains(match failure {
+                0 => "Diagnostic replies changed",
+                1 => "Normal state changed",
+                _ => "Faceplate changed",
+            }));
+            assert!(mouse.transport.normal.writes.is_empty());
+        }
+    }
+
+    #[test]
+    fn captured_layer_replies_distinguish_wire_only_changes_from_different_actions() {
+        // Sanitized records from the user's wired layer-1 request capture.
+        for (logical, normal, selected, same_action) in [
+            (1, [2, 2, 0, 0x1e, 0, 0, 0], [2, 1, 0, 0x1e, 0, 0, 0], true),
+            (2, [2, 2, 0, 0x1f, 0, 0, 0], [2, 1, 0, 0x1f, 0, 0, 0], true),
+            (
+                13,
+                [2, 2, 0, 0x68, 0, 0, 0],
+                [14, 1, 0x68, 0, 20, 0, 0],
+                false,
+            ),
+            (
+                14,
+                [2, 2, 0, 0x69, 0, 0, 0],
+                [14, 1, 0x69, 0, 20, 0, 0],
+                false,
+            ),
+        ] {
+            let before = Button::from_record(logical, normal).unwrap();
+            let after = Button::from_record(logical, selected).unwrap();
+            assert_eq!(before.same_action(&after), same_action);
+            assert_ne!(before.record().unwrap(), after.record().unwrap());
+            assert_eq!(after.record().unwrap(), selected);
+            assert!(after.raw_record.is_some());
+        }
+    }
+
+    #[test]
+    fn zero_layer_echo_quirk_is_not_applied_to_other_products() {
+        let mut transport = LayerFake::new();
+        transport.normal.product = 0x91;
+        transport.reply_layer = 0;
+        let mut mouse = Mouse { transport };
+        let error = format!("{:#}", mouse.read_layers(Some(1)).unwrap_err());
+        assert!(error.contains("restricted to Naga V2 Pro"));
+        assert!(mouse.transport.reads.is_empty());
+        assert!(mouse.transport.normal.writes.is_empty());
     }
 
     #[test]

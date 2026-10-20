@@ -57,6 +57,36 @@ fn reply(request: &[u8; SIZE], response: &[u8; SIZE], echo: usize) -> Result<Opt
     Ok(Some(response[9..9 + length].to_vec()))
 }
 
+/// Show transport metadata, and only a validated mapping-address echo. Never
+/// include action data, serial payloads or a whole feature report in errors.
+fn timeout_details(request: &[u8; SIZE], response: &[u8; SIZE]) -> String {
+    let checksum_ok = response[89] == response[3..89].iter().fold(0, |crc, byte| crc ^ byte);
+    let mut details = format!(
+        "last response: report {}, status {:#04x}, transaction {:#04x}, command {:02x}/{:02x}, length {}, checksum {}",
+        response[0],
+        response[1],
+        response[2],
+        response[7],
+        response[8],
+        response[6],
+        if checksum_ok { "valid" } else { "invalid" }
+    );
+    if request[7..9] == [2, 0x8c]
+        && response[0] == 0
+        && response[1] == 2
+        && response[2] == request[2]
+        && response[7..9] == request[7..9]
+        && (3..=80).contains(&response[6])
+        && checksum_ok
+    {
+        details.push_str(&format!(
+            "; mapping echo: slot {}, wire button {:#04x}, layer {}",
+            response[9], response[10], response[11]
+        ));
+    }
+    details
+}
+
 /// Recognize the report-ID-zero, 90-byte feature collection used by this mouse.
 /// HID globals can be stacked and a report may consist of multiple main items.
 fn control_descriptor(bytes: &[u8]) -> Result<bool> {
@@ -213,7 +243,8 @@ impl Transport for Hidraw {
             }
             if Instant::now() >= deadline {
                 bail!(
-                    "No matching reply to mouse command {class:02x}/{command:02x}; wake the mouse, use its cable, and retry"
+                    "No matching reply to mouse command {class:02x}/{command:02x}; {}",
+                    timeout_details(&packet, &response)
                 );
             }
         }
@@ -324,6 +355,27 @@ mod tests {
         response[10] = 0x40;
         assert!(reply(&packet, &response, 3).unwrap().is_none());
     }
+    #[test]
+    fn timeout_metadata_exposes_wrong_bank_echo_but_never_private_payloads() {
+        let packet = request(0x1f, 2, 0x8c, &[1, 0x40, 1, 0, 0, 0, 0, 0, 0, 0]).unwrap();
+        let mut response = packet;
+        response[1] = 2;
+        response[11] = 0;
+        response[12..18].copy_from_slice(b"SECRET");
+        response[89] = response[3..89].iter().fold(0, |a, b| a ^ b);
+        assert!(reply(&packet, &response, 3).unwrap().is_none());
+        let details = timeout_details(&packet, &response);
+        assert!(details.contains("mapping echo: slot 1, wire button 0x40, layer 0"));
+        assert!(!details.contains("SECRET"));
+        response[89] ^= 1;
+        let details = timeout_details(&packet, &response);
+        assert!(details.contains("checksum invalid"));
+        assert!(!details.contains("mapping echo"));
+        let serial = request(0x1f, 0, 0x82, b"SECRET").unwrap();
+        assert!(!timeout_details(&serial, &serial).contains("SECRET"));
+        assert!(!timeout_details(&serial, &serial).contains("mapping echo"));
+    }
+
     #[test]
     fn descriptor_requires_exact_feature_shape_and_handles_push_pop() {
         assert!(control_descriptor(&[0x75, 8, 0x95, 90, 0xb1, 2]).unwrap());
