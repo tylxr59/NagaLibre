@@ -3,6 +3,30 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## UI workspace refresh (2026-10-21)
+
+The Qt window now uses persistent sidebar navigation: Customize, Mouse memory,
+Scrolling, Macros and Diagnostics. Device connection, status, draft destination
+and slot selection stay visible; slot management/recovery and session logs no
+longer crowd the binding editor. Local draft saving and mouse/software application
+remain separate actions on Customize; Stop remapping remains global. Hardware
+mode hides the software-only input-learning row. Support hints mark Diagnostics.
+
+Organization was informed by the device/profile context and separate Customize
+and Scrolling areas in Razer's official
+[Naga V2 Pro guide](https://dl.razerzone.com/master-guides/RazerSynapse3/NAGAV2PRO-00000167-en.pdf).
+NagaLibre's wheel and native macro editors retain their existing independent
+sessions, backup/commit boundaries and close behavior; the new pages launch those
+editors. Navigation itself sends no device commands. Presentation helpers and
+theme live in `gui/workspace.py`; transaction behavior remains in existing modules.
+
+Validation: all 184 Python/Qt tests passed using the available system PySide6 and
+debug engine, including navigation/draft preservation, no-command navigation,
+fresh-read save gating and small-window scrolling. Offscreen renders of all five
+pages were inspected during development. No live mouse writes or desktop physical
+validation were performed for this UI change. Existing hardware evidence and
+limitations below still apply.
+
 ## Current checkpoint and next chat
 
 **Current work is TODO #4: onboard macros and richer playback.** Software

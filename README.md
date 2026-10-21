@@ -128,12 +128,24 @@ cargo build --release --locked
 
 ## Set up your buttons
 
+The sidebar groups tasks into **Customize**, **Mouse memory**, **Scrolling**,
+**Macros** and **Diagnostics**. Connection status, draft destination and the
+selected mouse slot stay at the top. Changing pages keeps your edits; it does
+not read or write the mouse.
+
+Use **Customize** for the button grid and draft editor. **Mouse memory** holds
+slot reading, activation, creation and backup restoration. **Scrolling** opens
+the wheel editor; **Macros** opens native sequence storage and playback.
+**Diagnostics** contains connection logs and the device support form.
+**Save draft** only saves local edits; the separate apply/save-to-mouse button
+activates them. **Stop remapping** and the Esc shortcut remain available on every page.
+
 ### Save bindings on the mouse
 
-1. Connect the mouse by USB and choose **Mouse memory**.
-2. Click **Connect mouse** / **Read slots**, then select an existing slot.
-3. Choose a numbered button and edit its key or shortcut in the draft editor.
-4. Click **Save 12 bindings to mouse** to apply the draft to the selected slot.
+1. Connect the mouse by USB and choose **Mouse memory** as the draft destination.
+2. Click **Connect mouse**, then select an existing slot. Use **Mouse memory → Read slots** to refresh it.
+3. In **Customize**, choose a numbered button and edit its key or shortcut in the draft editor.
+4. Click **Save bindings to mouse** to apply the draft to the selected slot.
 
 Each tile distinguishes **Stored** (read from that slot) from **Draft** (your
 local edits). Connecting reads stored bindings automatically. Returning to the twelve-button
@@ -146,7 +158,7 @@ The app saves a backup before writing and reads the result back to check it.
 After a successful save, it stops the helper. Saved bindings then work without
 NagaLibre running.
 
-For experimental native sequences, open **Onboard macros…** to edit playback,
+For experimental native sequences, open **Macros → Onboard macros…** to edit playback,
 inspect storage and save a fresh macro with journaled undo. Representative wired uploads, playback and desktop undo have passed physical
 tests; support remains experimental, with an intermittent activation issue under
 investigation. See [the macro guide](docs/MACROS.md)
@@ -183,7 +195,7 @@ slots from disabled, uninitialized entries—for example, “2 of 5 slots initia
 On the wired Naga V2 Pro with the 12-button plate, **Create slot** initializes the
 next unused slot with factory bindings and leaves the current slot active. The
 app backs up existing slots and checks the new defaults before selecting the new
-slot. Your draft stays unchanged; **Save 12 bindings to mouse** saves it to the new
+slot. Your draft stays unchanged; **Save bindings to mouse** saves it to the new
 slot and activates it. Creation is unavailable when all slots are initialized,
 over the receiver, or without a successful fresh read. Creating the first profile
 on a device with no initialized slots and deleting existing slots are unsupported.

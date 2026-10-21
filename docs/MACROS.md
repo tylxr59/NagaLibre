@@ -15,12 +15,12 @@ byte verification alone does not prove that a newly saved timeline is active.
 
 1. Build the current release engine and open NagaLibre in **Mouse memory** mode.
 2. Connect the wired mouse, select the intended slot and activate it.
-3. Open **Onboard macros…**. The dialog reads the active slot and macro inventory.
+3. Open **Macros → Onboard macros…**. The dialog reads the active slot and macro inventory.
 4. Choose the target and Normal or Hypershift layer, then **Edit sequence…**.
 5. Set a name and playback mode, then choose **Save macro to mouse**.
 
 Opening the dialog copies the selected button's draft sequence when present.
-Editing is local until Save. The ordinary **Save 12 bindings to mouse** action
+Editing is local until Save. The ordinary **Save bindings to mouse** action
 does not upload macro drafts; use the dedicated dialog for these sequences.
 Primary clicks are never available as mapping targets.
 

@@ -226,6 +226,52 @@ class QtFlow(unittest.TestCase):
             time.sleep(0.005)
         self.assertTrue(predicate())
 
+    def test_workspace_navigation_preserves_edits_without_device_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            window.scan_timer.stop()
+            window.show()
+            window.mode.setCurrentIndex(window.mode.findData("key"))
+            window.key_value.setText("B")
+            self.app.processEvents()
+            with patch.object(window.backend, "send") as send, patch.object(window.backend, "start") as start:
+                for index in range(1, 5):
+                    window.workspace.buttons[index].click()
+                    self.app.processEvents()
+                    self.assertEqual(window.workspace.pages.currentIndex(), index)
+                    self.assertTrue(window.stop_button.isVisible())
+                    self.assertFalse(window.apply_button.isVisible())
+                window.workspace.buttons[0].click()
+                self.app.processEvents()
+                self.assertEqual(window.key_value.text(), "B")
+                self.assertTrue(window.apply_button.isVisible())
+                self.assertFalse(window.apply_button.isEnabled())  # Still needs a fresh snapshot.
+                window.select_button(1)
+                self.assertEqual(window.buttons()[0]["value"], "B")
+                send.assert_not_called()
+                start.assert_not_called()
+
+    def test_workspace_small_window_keeps_save_controls_and_scrollable_editor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profiles.json")
+            window.scan_timer.stop()
+            window.resize(920, 640)
+            window.show()
+            self.app.processEvents()
+            scroll = window.workspace.pages.currentWidget()
+            self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
+            self.assertGreater(scroll.verticalScrollBar().maximum(), 0)
+            self.assertTrue(window.apply_button.isVisible())
+            self.assertTrue(window.stop_button.isVisible())
+            window.storage.setCurrentIndex(window.storage.findData("software"))
+            window.workspace.show_page(1)
+            self.app.processEvents()
+            self.assertTrue(window.memory_mode_hint.isVisible())
+            self.assertFalse(window.memory_slot_card.isVisible())
+            window.workspace.show_page(4)
+            self.app.processEvents()
+            self.assertTrue(window.logs.isVisible())
+
     def test_unknown_and_experimental_devices_offer_user_opened_support_form(self):
         with tempfile.TemporaryDirectory() as directory:
             window = Window(Path(directory) / "profiles.json")
