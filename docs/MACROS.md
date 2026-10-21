@@ -13,19 +13,31 @@ byte verification alone does not prove that a newly saved timeline is active.
 
 ## Create a macro
 
-1. Build the current release engine and open NagaLibre in **Mouse memory** mode.
-2. Connect the wired mouse, select the intended slot and activate it.
-3. Open **Macros → Onboard macros…**. The dialog reads the active slot and macro inventory.
-4. Choose the target and Normal or Hypershift layer, then **Edit sequence…**.
-5. Set a name and playback mode, then choose **Save macro to mouse**.
+1. Open **Macros → Open macro library… → My Macros**. No mouse connection or authentication is needed to author macros.
+2. Choose **New macro**, enter a name, and use **Add step** to enter keys, shortcuts and delays. Edit, remove or reorder rows directly.
+3. Choose a folder or type a new folder name, then **Save macro**. Search, rename through the Name field, duplicate or delete local macros from this view.
+4. Connect a wired Naga V2 Pro with its twelve-button plate. Select and activate the intended slot in Mouse memory.
+5. In the library, open **Key Binds** and choose **Read mouse**. Choose a saved macro, button, Normal or Hypershift layer and playback mode. Repeat count appears for counted playback only.
+6. Choose **Save to mouse** to upload a fresh entry and assign it to the selected button in the active slot.
 
-Opening the dialog copies the selected button's draft sequence when present.
-It shares the main window's authenticated helper, so opening or closing the editor
-does not require another authentication. Software remapping stops when storage
-is read. Successful saves and undo still end the helper session.
-Editing is local until Save. The ordinary **Save bindings to mouse** action
-does not upload macro drafts; use the dedicated dialog for these sequences.
-Primary clicks are never available as mapping targets.
+The reusable library is stored in `macros.json` beside the main `profiles.json`
+(by default `~/.config/NagaLibre/`). It is shared across device profiles.
+**Save macro** changes only the local library. Key Binds uses the saved version;
+unsaved editor changes are not uploaded. Local edits and deletion never change
+existing mouse allocations. Closing or switching macros offers Save, Discard or
+Cancel for unsaved edits. A corrupt or concurrently changed library is not overwritten.
+
+In Key Binds, **On mouse** shows read-only stored inventory and storage usage.
+**Details** contains support notes, backup/journal paths and operation logs.
+**Undo upload…** restores a saved transaction through its recovery journal.
+
+Opening the library copies the selected button's draft sequence when present.
+Library navigation does not start or stop the helper. Device operations share the
+main window's authenticated helper; software remapping stops when storage is read.
+Successful uploads and undo still end the helper session.
+The ordinary **Save bindings to mouse** action does not upload macro drafts.
+Primary clicks are never available as mapping targets. This editor does not yet
+provide event recording or import/export.
 
 Supported timelines contain standard keyboard keys/modifiers, shortcuts, five
 mouse-button outputs and millisecond waits. Every held output must be released.

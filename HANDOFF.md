@@ -3,6 +3,92 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Persistent macro library and separate assignment (2026-10-21)
+
+Implemented the Synapse 4 research direction in `gui/macro_library.py` and
+`gui/macro_workspace.py`. The main Macros launcher now opens My Macros offline:
+named sequences, searchable folder tree, folder selection/creation through an
+editable Folder field, rename through Name, duplicate, local deletion, inline
+editing, Save and Discard. Switching entries or closing with edits offers Save,
+Discard or Cancel. A selected button's existing macro draft seeds an unsaved item.
+
+The versioned local catalog is `macros.json` beside the base `profiles.json`,
+shared across device profiles. Writes use atomic replacement and file/directory
+fsync, with a file lock and stale-file comparison to avoid overwriting another
+window. Invalid/future catalogs are left untouched and disable local writes.
+Key Binds selects a saved catalog entry independently of unsaved editor changes;
+button/layer/playback apply to a fresh upload through the existing transaction
+implementation. Editing/deleting catalog entries never rewrites existing firmware
+allocations. On mouse inventory and Undo upload remain separate tools. No
+recorder, import/export, arbitrary firmware editing/deletion or USB performance
+parity is implied.
+
+Opening/closing local authoring does not start/read the helper or stop running
+software remaps. Read mouse is explicit in Key Binds; authentication reuses the
+shared helper when available. Hardware access still stops software output and
+invalidates main-window readback on return. Upload/undo preserves the existing
+backup-before-commit contract and ends the helper on success. Main Apply stays
+disabled while the modal workspace owns helper events.
+
+All 200 Python/Qt tests passed, including reopen/rename/duplicate/delete,
+atomic-write failure, corrupt/future/stale catalog preservation, offline helper
+isolation, unsaved cancellation/discard, saved-version assignment, shared helper
+lifecycle and backup-before-commit regressions. Offscreen renders checked both
+views at normal and minimum sizes; whitespace checks passed. Rust and device
+protocol behavior are unchanged. No live mouse operation was performed.
+
+## Actual Synapse 4 macro UI follow-up (2026-10-21)
+
+The user explicitly corrected the Synapse 3-only research and requested actual
+Synapse 4 inspection. The retained App Engine 4.0.827 ASAR identifies the Synapse 4
+host and its served dashboard route. Traced its live Webpack mapping chunks to
+the distinct `/synapse/macro/` frontend and statically inspected the current
+authoring, key-bind, assignment and CSS bundles. The macro route's Last-Modified
+was 2026-10-21 04:26:42 GMT. Full provenance, hashes, routes, component/action
+anchors and the NagaLibre comparison are in
+[inspection/SYNAPSE4_MACRO_UI.md](inspection/SYNAPSE4_MACRO_UI.md).
+
+Synapse 4 has separate My Macros, Key Binds and Help views. My Macros is a named
+host-side library with folders and an event editor; assignment selects an existing
+macro plus playback. The repetition field is conditional. The recent NagaLibre
+two-panel redesign matches the latter detail but still combines single-draft
+authoring with fresh onboard upload; it does not implement a reusable macro
+library. Next design direction is a persistent local catalog and separate
+assignment, retaining inventory/recovery as tools. Do not claim that adding a local
+library enables arbitrary existing-allocation editing/deletion or that frontend
+code proves native firmware behavior/performance.
+
+This follow-up changed research docs only. Verified artifact hashes, source
+references and local links; no Windows/frontend code execution, mouse requests or
+runtime changes. Existing user edits and the prior GUI redesign were preserved.
+
+## Macro editor organization (2026-10-21)
+
+The user requested a macro-menu cleanup guided by binary inspection. Direct
+metadata/CIL analysis of the retained official Synapse 3 shared UI assemblies
+confirmed separate authoring/assignment concerns and repeat-count visibility only
+for counted playback. Provenance, method RVAs, limits and design interpretation
+are in [inspection/MACRO_UI.md](inspection/MACRO_UI.md). The configured Ghidra
+project was locked and left untouched; managed IL was inspected directly. Do not
+claim this establishes current Synapse 4 screens or its firmware behavior.
+
+The onboard macro window now pairs an inline sequence editor with a compact
+button/layer/playback assignment panel. Stored inventory and diagnostics/support
+notes are behind On mouse and Details controls. Repeat count and the toggle stop
+hint are contextual. `gui/macro_editor.py` is shared with the existing software
+macro dialog; no new recorder, existing-macro editing or deletion is implied.
+Local form errors retain readback so correcting input does not trigger another
+mouse scan. Shared helper ownership, fresh-upload planning, durable backups,
+journals, scoped undo and hardware failure invalidation remain unchanged.
+
+Qt tests explicitly destroy closed standalone macro windows before QApplication
+teardown; the inline table exposed a shutdown crash when tests left Qt objects
+alive until interpreter cleanup. Offscreen renders were checked at normal and
+minimum window sizes. All 192 Python/Qt tests passed, including inline editing,
+contextual playback fields, local-error correction, shared helper lifecycle and
+backup-before-commit regressions. Whitespace checks passed. Rust behavior is
+unchanged. No live mouse operation was performed for this UI change.
+
 ## Editor read performance (2026-10-21)
 
 The user clarified that runtime latency, rather than transparent diagnostic text,

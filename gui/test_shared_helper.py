@@ -75,13 +75,16 @@ class SharedHelperTests(unittest.TestCase):
                     def visit(dialog):
                         self.assertIs(dialog.backend, window.backend)
                         self.assertIs(window.active_editor, dialog)
-                        self.assertIsNone(window.snapshot)
+                        if hasattr(dialog, "hardware_accessed"):
+                            self.assertFalse(dialog.hardware_accessed)
+                            dialog.read()
+                        else:
+                            self.assertIsNone(window.snapshot)
                         self.assertFalse(window.apply_button.isEnabled())
                         self.wait(lambda: dialog.snapshot is not None and not dialog.busy)
                         self.assertEqual(window.backend.process.processId(), pid)
                         before = commands().count("onboard_read")
                         window.backend.event.emit({"type": "faceplate", "module_id": 3, "buttons": 12})
-                        self.assertIsNone(window.snapshot)
                         window.backend.event.emit({"type": "error", "message": "editor-only failure"})
                         self.assertIn("editor-only failure", dialog.status.text())
                         self.assertFalse(window.fault)
@@ -109,6 +112,34 @@ class SharedHelperTests(unittest.TestCase):
                     window.quitting = True
                     window.close()
                     window.deleteLater()
+
+    def test_local_library_preserves_running_software_and_does_not_request_hardware(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / 'profile.json')
+            window.scan_timer.stop()
+            window.applying = True
+            window.pending_config = 'pending software configuration'
+
+            def visit(dialog):
+                self.assertFalse(dialog.hardware_accessed)
+                self.assertTrue(window.applying)
+                dialog.reject()
+                return 0
+
+            try:
+                self.assertTrue(window.onboard_macros_button.isEnabled())
+                with patch.object(window.backend, 'start') as start, \
+                     patch.object(window.backend, 'send') as send, \
+                     patch.object(OnboardMacrosDialog, 'exec', new=visit):
+                    window.open_onboard_macros()
+                    start.assert_not_called()
+                    send.assert_not_called()
+                self.assertTrue(window.applying)
+                self.assertEqual(window.pending_config, 'pending software configuration')
+            finally:
+                window.quitting = True
+                window.close()
+                window.deleteLater()
 
     def test_shared_close_detaches_handlers_and_busy_close_keeps_transaction(self):
         for dialog_type, backend_type in ((WheelDialog, WheelBackend), (OnboardMacrosDialog, MacroBackend)):
@@ -151,7 +182,7 @@ class SharedHelperTests(unittest.TestCase):
                     window.open_onboard_macros()
                     commands = lambda: [c.args[0]["command"] for c in send.call_args_list]
                     self.assertNotIn("onboard_read", commands())
-                    self.assertEqual(commands().count("macro_read"), 1)
+                    self.assertEqual(commands().count("macro_read"), 0)
                     self.assertIsNone(window.snapshot)
                     self.assertFalse(window.apply_button.isEnabled())
                     window.workspace.show_page(0)

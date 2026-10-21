@@ -165,8 +165,7 @@ The app saves a backup before writing and reads the result back to check it.
 After a successful save, it stops the helper. Saved bindings then work without
 NagaLibre running.
 
-For experimental native sequences, open **Macros → Onboard macros…** to edit playback,
-inspect storage and save a fresh macro with journaled undo. Representative wired uploads, playback and desktop undo have passed physical
+Create reusable local sequences in **Macros → Open macro library… → My Macros** without connecting the mouse. Save the macro, then use **Key Binds → Read mouse** to choose its button and playback and upload it with journaled undo. Representative wired uploads, playback and desktop undo have passed physical
 tests; support remains experimental, with an intermittent activation issue under
 investigation. See [the macro guide](docs/MACROS.md)
 for supported steps, storage limits and recovery.

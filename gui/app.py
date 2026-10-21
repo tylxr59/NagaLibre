@@ -14,8 +14,8 @@ from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopSer
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
-    QPlainTextEdit, QPushButton, QStackedWidget, QSystemTrayIcon, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QKeySequenceEdit, QFileDialog, QScrollArea, QFrame, QSizePolicy,
+    QPlainTextEdit, QPushButton, QStackedWidget, QSystemTrayIcon,
+    QVBoxLayout, QWidget, QKeySequenceEdit, QFileDialog, QScrollArea, QFrame, QSizePolicy,
     QStyle, QStyleOptionButton,
 )
 
@@ -24,9 +24,10 @@ from onboard import (hardware_buttons, hardware_controls, write_backup, write_cr
 from backend import Backend, backend_path
 from support import device_issue_url
 from workspace import Workspace, card, label as text_label
+from macro_editor import MacroEditor
 from model import (
-    binding_label, config_path, default_button, display_key, key_code, load_profile,
-    new_profile, reset_plate, runtime_config, save_profile, shortcut, PROTECTED_INPUTS, DEVICE_MODELS, CONTROL_NAMES, default_control, keep_binding,
+    binding_label, config_path, default_button, display_key, load_profile,
+    new_profile, reset_plate, runtime_config, save_profile, PROTECTED_INPUTS, DEVICE_MODELS, CONTROL_NAMES, default_control, keep_binding,
 )
 
 
@@ -49,82 +50,30 @@ def app_icon() -> QIcon:
 
 
 class MacroDialog(QDialog):
-    TYPES = [("Tap key", "tap"), ("Shortcut", "chord"), ("Wait (ms)", "wait_ms"), ("Hold key", "down"), ("Release key", "up")]
-
     def __init__(self, steps, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit macro")
         self.resize(570, 420)
         layout = QVBoxLayout(self)
-        help_label = QLabel("Actions play in order. Shortcuts use Ctrl+C style names.\nPair every Hold key with a Release key.")
-        layout.addWidget(help_label)
-        self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels(["Action", "Key / shortcut / milliseconds"])
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        layout.addWidget(self.table)
-        controls = QHBoxLayout()
-        for label, callback in [("Add step", lambda: self.add()), ("Remove", self.remove), ("Move up", lambda: self.move(-1)), ("Move down", lambda: self.move(1))]:
-            button = QPushButton(label)
-            button.clicked.connect(callback)
-            controls.addWidget(button)
-        layout.addLayout(controls)
+        self.sequence_editor = MacroEditor(steps, self)
+        self.table = self.sequence_editor.table
+        layout.addWidget(self.sequence_editor)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept_checked)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        for step in steps:
-            kind, value = next(iter(step.items()))
-            self.add(kind, "+".join(display_key(k) for k in value) if kind == "chord" else str(value))
-        if not steps:
-            self.add()
 
     def add(self, kind="tap", value=""):
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        combo = QComboBox()
-        for label, data in self.TYPES:
-            combo.addItem(label, data)
-        combo.setCurrentIndex(max(0, combo.findData(kind)))
-        self.table.setCellWidget(row, 0, combo)
-        self.table.setItem(row, 1, QTableWidgetItem(value))
-        self.table.setCurrentCell(row, 1)
+        self.sequence_editor.add(kind, value)
 
     def remove(self):
-        if self.table.currentRow() >= 0:
-            self.table.removeRow(self.table.currentRow())
+        self.sequence_editor.remove()
 
     def move(self, delta):
-        row = self.table.currentRow()
-        other = row + delta
-        if row < 0 or not 0 <= other < self.table.rowCount():
-            return
-        a, b = self.table.cellWidget(row, 0), self.table.cellWidget(other, 0)
-        first = a.currentIndex()
-        a.setCurrentIndex(b.currentIndex())
-        b.setCurrentIndex(first)
-        text = self.table.item(row, 1).text()
-        self.table.item(row, 1).setText(self.table.item(other, 1).text())
-        self.table.item(other, 1).setText(text)
-        self.table.setCurrentCell(other, 1)
+        self.sequence_editor.move(delta)
 
     def steps(self):
-        steps = []
-        for row in range(self.table.rowCount()):
-            kind = self.table.cellWidget(row, 0).currentData()
-            text = self.table.item(row, 1).text().strip()
-            if kind == "wait_ms":
-                value = int(text)
-                if not 0 <= value <= 60000:
-                    raise ValueError("Delays must be between 0 and 60000 ms.")
-            elif kind == "chord":
-                value = shortcut(text)
-            else:
-                value = key_code(text)
-            steps.append({kind: value})
-        if not steps:
-            raise ValueError("Add at least one macro action.")
-        return steps
+        return self.sequence_editor.steps()
 
     def accept_checked(self):
         try:
@@ -271,10 +220,10 @@ class Window(QMainWindow):
         scrolling.addWidget(self.wheel_availability)
         scrolling.addWidget(text_label("Custom curves are read-only. Standard stages can be edited while preserving your existing Custom settings.", "muted"))
         scrolling.addStretch()
-        self.onboard_macros_button = QPushButton("Onboard macros…")
-        self.onboard_macros_button.setToolTip("Upload sequences to mouse memory with a recoverable private transaction journal.")
+        self.onboard_macros_button = QPushButton("Open macro library…")
+        self.onboard_macros_button.setToolTip("Create local macros offline; assign saved sequences to mouse memory in Key Binds.")
         self.onboard_macros_button.clicked.connect(self.open_onboard_macros)
-        macro_card, macro_layout = card("Onboard sequences", "Edit key presses, shortcuts and delays. Choose once, counted, held, toggle or sequence playback, then bind the upload to a button and layer. The editor includes mouse inventory and Undo upload.")
+        macro_card, macro_layout = card("My Macros", "Create named macros, organize them in folders and reuse saved sequences. Key Binds assigns a saved macro to a mouse button with your chosen playback mode.")
         macro_layout.addWidget(self.onboard_macros_button, 0, Qt.AlignmentFlag.AlignLeft)
         macros.addWidget(macro_card)
         self.macro_availability = text_label("Connect a wired Naga V2 Pro with its twelve-button plate to use native macros.", "muted")
@@ -290,7 +239,7 @@ class Window(QMainWindow):
         self.slot_summary = QLabel("Slot capacity: unread")
         self.slot_summary.setWordWrap(True)
         slot_layout.insertWidget(1, self.slot_summary)
-        self.memory_hint = QLabel("Each tile shows the stored binding and local draft. Save applies the 12 side-button drafts and explicitly edited wheel controls. Keep stored binding preserves a wheel control. Use Onboard macros… to upload sequences separately.")
+        self.memory_hint = QLabel("Each tile shows the stored binding and local draft. Save applies the 12 side-button drafts and explicitly edited wheel controls. Keep stored binding preserves a wheel control. Use the macro library’s Key Binds view to upload saved sequences separately.")
         self.memory_hint.setWordWrap(True)
         self.memory_hint.setProperty("role", "muted")
         slot_layout.addWidget(self.memory_hint)
@@ -866,14 +815,15 @@ class Window(QMainWindow):
                 and self.plate_detection != "unknown"):
             self.read_mouse()
 
-    def run_hardware_editor(self, editor_type, **kwargs):
+    def run_hardware_editor(self, editor_type, *, auto_read=True, **kwargs):
         if self.hardware_busy or self.active_editor is not None:
             return
         self.commit_fields()
         self.cancel_learning()
-        self.pending_config = self.pending_onboard = None
-        self.save_after_read = self.applying = False
-        self.snapshot = self.paired_snapshot = self.hardware_saved = None
+        if auto_read:
+            self.pending_config = self.pending_onboard = None
+            self.save_after_read = self.applying = False
+            self.snapshot = self.paired_snapshot = self.hardware_saved = None
         dialog = editor_type(self.path, self, backend=self.backend, shared=True, **kwargs)
         self.active_editor = dialog
         self.editor_faceplate = None
@@ -881,10 +831,16 @@ class Window(QMainWindow):
         self.refresh_hardware_view()
         try:
             # The read command stops software output in the engine before accessing hardware.
-            dialog.read()
+            if auto_read:
+                dialog.read()
             dialog.exec()
         finally:
             dialog.detach_backend()
+            accessed = auto_read or getattr(dialog, "hardware_accessed", False) or self.editor_faceplate is not None
+            if accessed:
+                self.pending_config = self.pending_onboard = None
+                self.save_after_read = self.applying = False
+                self.snapshot = self.paired_snapshot = self.hardware_saved = None
             if dialog.saved:
                 # Successful firmware transactions end the engine session. Wait for EOF
                 # before considering any fresh reads, even if the final event arrived first.
@@ -894,7 +850,9 @@ class Window(QMainWindow):
                 self.detected_plate(self.editor_faceplate)
             self.active_editor = None
             self.editor_faceplate = None
-            if self.editor_reconnected and self.backend.ready and not dialog.saved:
+            if not accessed:
+                self.refresh_hardware_view()
+            elif self.editor_reconnected and self.backend.ready and not dialog.saved:
                 self.connection_changed(True)
             elif self.backend.ready and not dialog.saved and self.is_hardware() and self.profile["plate"] == "12":
                 self.refresh_visible_assignments()
@@ -912,24 +870,21 @@ class Window(QMainWindow):
         self.run_hardware_editor(WheelDialog)
 
     def open_onboard_macros(self):
-        from macro_storage import OnboardMacrosDialog
+        from macro_workspace import MacroWorkspaceDialog
         self.commit_fields()
         steps = self.current()["steps"] if self.current()["mode"] == "macro" else []
-        self.run_hardware_editor(OnboardMacrosDialog, steps=steps, button=self.selected + 1, layer=self.editing_layer())
+        self.run_hardware_editor(MacroWorkspaceDialog, auto_read=False, library_path=self.base_profile_path.parent / "macros.json", steps=steps, button=self.selected + 1, layer=self.editing_layer())
 
     def refresh_hardware_view(self, *args):
         hardware = self.is_hardware()
         self.wheel_settings_button.setEnabled(not self.hardware_busy and self.backend.ready
                                               and getattr(self.backend, "haptic_settings", False))
-        self.onboard_macros_button.setEnabled(not self.hardware_busy and self.backend.ready
-                                             and getattr(self.backend, "onboard_macros", False)
-                                             and self.profile["plate"] == "12")
+        self.onboard_macros_button.setEnabled(not self.hardware_busy and self.active_editor is None)
         self.wheel_availability.setText("Ready · open the wheel editor to read current stages. Opening the editor stops software remaps." if self.wheel_settings_button.isEnabled()
                                         else "Connect a wired Naga V2 Pro to configure wheel stages." if not self.hardware_busy
                                         else "Wait for the current mouse operation to finish.")
-        self.macro_availability.setText("Ready · open the macro editor to read storage. Opening the editor stops software remaps." if self.onboard_macros_button.isEnabled()
-                                        else "Connect a wired Naga V2 Pro with its twelve-button plate to use native macros." if not self.hardware_busy
-                                        else "Wait for the current mouse operation to finish.")
+        self.macro_availability.setText("Create and organize macros offline. In Key Binds, read the mouse before assigning a saved macro."
+                                        if not self.hardware_busy else "Wait for the current mouse operation to finish.")
         snapshot = self.current_snapshot()
         layer_visible = hardware and self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12"
         self.layer.setVisible(layer_visible)
@@ -946,7 +901,7 @@ class Window(QMainWindow):
             self.slot_summary.setText(f"{len(self.snapshot['slots'])} of {self.snapshot['slot_capacity']} slots initialized.")
         else:
             self.slot_summary.setText(f"{len(self.snapshot['slots'])} slots initialized · total capacity unavailable from this read.")
-        self.apply_button.setEnabled(not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
+        self.apply_button.setEnabled(self.active_editor is None and not self.hardware_busy and (not hardware or (self.backend.ready and snapshot is not None)))
         if self.supports_layers() and snapshot is not None:
             self.apply_button.setEnabled(self.apply_button.isEnabled() and self.paired_snapshot is not None
                                          and snapshot["slot"] == snapshot["active"] and snapshot.get("mode") == [0,0])

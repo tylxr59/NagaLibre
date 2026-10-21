@@ -43,8 +43,14 @@ QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top righ
 QComboBox::down-arrow { image: url("__DROPDOWN_ARROW__"); width: 10px; height: 6px; }
 QComboBox:disabled, QLineEdit:disabled { color: #788590; border-color: #303943; }
 QComboBox QAbstractItemView { color: #e6edf3; background: #202a32; selection-background-color: #28594d; }
-QPlainTextEdit, QTableWidget, QListWidget { color: #cbd6df; background: #12181e;
+QPlainTextEdit, QTableWidget, QListWidget, QTreeWidget { color: #cbd6df; background: #12181e;
     border: 1px solid #36434f; border-radius: 5px; selection-background-color: #28594d; }
+QTreeWidget::item { padding: 6px; }
+QTreeWidget::item:selected { background: #28594d; color: #e6edf3; }
+QTabWidget::pane { border: 0; background: #151a20; }
+QTabBar::tab { color: #a0aebb; background: #1c232b; padding: 10px 18px; border-bottom: 2px solid transparent; }
+QTabBar::tab:selected { color: #94e8ce; border-bottom-color: #71d8bd; }
+QTabBar::tab:hover { background: #28323d; }
 QHeaderView::section { color: #cbd6df; background: #28323d; border: 0; padding: 6px; }
 QScrollArea, QStackedWidget { background: transparent; border: 0; }
 QScrollBar:vertical { background: #151a20; width: 10px; margin: 0; }
@@ -78,7 +84,7 @@ class Workspace:
         ("Customize", "Button assignments", "Assignments and local drafts for your mouse buttons."),
         ("Mouse memory", "Profiles on your mouse", "Read, activate and manage onboard slots, or recover a saved backup."),
         ("Scrolling", "Wheel settings", "Manage HyperScroll stages independently of button assignments."),
-        ("Macros", "Macro sequences", "Create native sequences with playback controls and recoverable uploads."),
+        ("Macros", "Macro sequences", "Organize a local macro library and assign saved sequences to mouse buttons."),
         ("Diagnostics", "Connection & support", "Inspect session details and find help for your device."),
     )
 

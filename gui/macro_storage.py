@@ -11,10 +11,11 @@ import uuid
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
-    QTableWidgetItem, QVBoxLayout,
+    QTableWidgetItem, QVBoxLayout, QGroupBox, QHeaderView, QWidget,
 )
 from backend import Backend
-from model import CONTROL_NAMES, display_key, key_code, new_profile, runtime_config, save_profile
+from macro_editor import MacroEditor
+from model import CONTROL_NAMES, new_profile, runtime_config, save_profile
 from onboard import stored_label
 
 PLAYBACK = (("Once", "once"), ("Repeat a fixed count", "counted"),
@@ -80,46 +81,54 @@ class OnboardMacrosDialog(QDialog):
         self.pending = None
         self.last_journal = None
         self.setWindowTitle("Onboard macros")
-        self.resize(680, 690)
+        self.resize(980, 640)
+        self.setMinimumSize(840, 560)
         layout = QVBoxLayout(self)
-        note = QLabel("Experimental wired support · twelve-button plate. Uploads are read back before binding. "
-                      "Playback and reconnect behavior still need physical verification. "
-                      "Stop a toggle with its button before changing or undoing it.")
-        note.setWordWrap(True)
-        layout.addWidget(note)
-        self.status = QLabel("Read mouse storage to begin. Editing changes the local draft.")
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+        header = QHBoxLayout()
+        self.status = QLabel("Create a sequence and assign it to a button.")
         self.status.setWordWrap(True)
-        layout.addWidget(self.status)
-        row = QHBoxLayout()
-        self.read_button = QPushButton("Read mouse")
+        header.addWidget(self.status, 1)
+        self.read_button = QPushButton("Refresh")
         self.read_button.clicked.connect(self.read)
-        row.addWidget(self.read_button)
-        self.undo_button = QPushButton("Undo upload…")
-        self.undo_button.clicked.connect(self.undo)
-        row.addWidget(self.undo_button)
-        layout.addLayout(row)
-        self.capacity = QLabel("Storage: unread")
-        layout.addWidget(self.capacity)
-        self.inventory = QTableWidget(0, 3)
-        self.inventory.setHorizontalHeaderLabels(["Stored macro", "ID", "Sequence bytes"])
-        self.inventory.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.inventory.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.inventory)
+        header.addWidget(self.read_button)
+        layout.addLayout(header)
+
+        columns = self.columns = QHBoxLayout()
+        columns.setSpacing(16)
+        sequence_box = self.sequence_box = QGroupBox("Macro sequence")
+        sequence_layout = QVBoxLayout(sequence_box)
+        name_row = QFormLayout()
+        self.name = QLineEdit("New macro")
+        self.name.setMaxLength(100)
+        self.name.setToolTip("Macro names can use up to 100 UTF-8 bytes.")
+        name_row.addRow("Name", self.name)
+        sequence_layout.addLayout(name_row)
+        self.sequence_editor = MacroEditor(self._steps, add_blank=False)
+        sequence_layout.addWidget(self.sequence_editor, 1)
+        columns.addWidget(sequence_box, 2)
+
+        self.assignment = QGroupBox("Button assignment")
+        self.assignment.setMinimumWidth(240)
+        self.assignment.setMaximumWidth(300)
+        assignment_layout = QVBoxLayout(self.assignment)
         fields = QFormLayout()
+        self.fields = fields
+        fields.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        fields.setVerticalSpacing(10)
         self.target = QComboBox()
         for i in range(1, 17):
-            self.target.addItem(f"Grid {i}" if i <= 12 else CONTROL_NAMES[i - 13], i)
+            self.target.addItem(f"Button {i}" if i <= 12 else CONTROL_NAMES[i - 13], i)
         self.target.setCurrentIndex(max(0, min(15, button - 1)))
-        fields.addRow("Target", self.target)
+        fields.addRow("Button", self.target)
         self.layer = QComboBox()
         self.layer.addItems(["Normal", "Hypershift"])
         self.layer.setCurrentIndex(layer if layer in (0, 1) else 0)
         fields.addRow("Layer", self.layer)
         self.stored = QLabel("Stored binding: unread")
+        self.stored.setWordWrap(True)
         fields.addRow(self.stored)
-        self.name = QLineEdit("New macro")
-        self.name.setMaxLength(100)
-        fields.addRow("Name (100 UTF-8 bytes)", self.name)
         self.playback = QComboBox()
         for title, mode in PLAYBACK:
             self.playback.addItem(title, mode)
@@ -128,24 +137,67 @@ class OnboardMacrosDialog(QDialog):
         self.count.setRange(1, 255)
         self.count.setValue(3)
         fields.addRow("Repeat count", self.count)
-        layout.addLayout(fields)
-        self.edit_button = QPushButton("Edit sequence…")
-        self.edit_button.clicked.connect(self.edit)
-        layout.addWidget(self.edit_button)
-        self.sequence = QPlainTextEdit()
-        self.sequence.setReadOnly(True)
-        self.sequence.setMaximumHeight(110)
-        layout.addWidget(self.sequence)
-        self.save_button = QPushButton("Save macro to mouse")
+        assignment_layout.addLayout(fields)
+        self.playback_hint = QLabel("Press again to stop. Stop playback before changing this assignment.")
+        self.playback_hint.setWordWrap(True)
+        self.playback_hint.setProperty("role", "muted")
+        assignment_layout.addWidget(self.playback_hint)
+        assignment_layout.addStretch()
+        self.save_button = QPushButton("Save to mouse")
+        self.save_button.setProperty("role", "primary")
+        self.save_button.setToolTip("Save a new onboard macro and assign it to this button.")
         self.save_button.clicked.connect(self.save)
-        layout.addWidget(self.save_button)
-        self.log = QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setMaximumHeight(95)
-        layout.addWidget(self.log)
+        assignment_layout.addWidget(self.save_button)
+        columns.addWidget(self.assignment, 1)
+        layout.addLayout(columns, 1)
+
+        tools = QHBoxLayout()
+        self.inventory_button = QPushButton("On mouse")
+        self.inventory_button.setCheckable(True)
+        tools.addWidget(self.inventory_button)
+        self.details_button = QPushButton("Details")
+        self.details_button.setCheckable(True)
+        tools.addWidget(self.details_button)
+        self.undo_button = QPushButton("Undo upload…")
+        self.undo_button.clicked.connect(self.undo)
+        tools.addWidget(self.undo_button)
+        tools.addStretch()
         self.close_buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         self.close_buttons.rejected.connect(self.reject)
-        layout.addWidget(self.close_buttons)
+        tools.addWidget(self.close_buttons)
+        layout.addLayout(tools)
+
+        self.inventory_panel = QWidget()
+        inventory_layout = QVBoxLayout(self.inventory_panel)
+        inventory_layout.setContentsMargins(0, 0, 0, 0)
+        self.capacity = QLabel("Storage: unread")
+        inventory_layout.addWidget(self.capacity)
+        self.inventory = QTableWidget(0, 3)
+        self.inventory.setHorizontalHeaderLabels(["Stored macro", "ID", "Sequence bytes"])
+        self.inventory.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.inventory.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.inventory.verticalHeader().hide()
+        self.inventory.setMaximumHeight(140)
+        inventory_layout.addWidget(self.inventory)
+        self.inventory_panel.hide()
+        self.inventory_button.toggled.connect(self.inventory_panel.setVisible)
+        layout.addWidget(self.inventory_panel)
+
+        self.details_panel = QWidget()
+        detail_layout = QVBoxLayout(self.details_panel)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        note = QLabel("Experimental native macros · wired Naga V2 Pro, twelve-button plate. "
+                      "Representative playback and undo have been tested. Immediate activation can be intermittent; "
+                      "see docs/MACROS.md for current support and recovery.")
+        note.setWordWrap(True)
+        detail_layout.addWidget(note)
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumHeight(110)
+        detail_layout.addWidget(self.log)
+        self.details_panel.hide()
+        self.details_button.toggled.connect(self.details_panel.setVisible)
+        layout.addWidget(self.details_panel)
         self.target.currentIndexChanged.connect(self.show_binding)
         self.layer.currentIndexChanged.connect(self.show_binding)
         self.playback.currentIndexChanged.connect(lambda *_: self.set_busy(self.busy))
@@ -155,23 +207,20 @@ class OnboardMacrosDialog(QDialog):
         self.show_steps()
         self.set_busy(False)
 
+    @property
+    def steps(self):
+        if hasattr(self, "sequence_editor"):
+            return self.sequence_editor.steps()
+        return self._steps
+
+    @steps.setter
+    def steps(self, steps):
+        self._steps = copy.deepcopy(steps)
+        if hasattr(self, "sequence_editor"):
+            self.sequence_editor.set_steps(self._steps)
+
     def show_steps(self):
-        lines = []
-        for index, step in enumerate(self.steps, 1):
-            try:
-                if not isinstance(step, dict) or len(step) != 1:
-                    raise ValueError("Invalid sequence step")
-                kind, value = next(iter(step.items()))
-                if kind == "wait_ms":
-                    text = f"Wait {value} ms"
-                elif kind == "chord":
-                    text = "Shortcut " + "+".join(display_key(key_code(k)) for k in value)
-                else:
-                    text = {"tap": "Tap", "down": "Hold", "up": "Release"}[kind] + " " + display_key(key_code(value))
-            except (ValueError, KeyError, TypeError):
-                text = "Invalid step — edit the sequence"
-            lines.append(f"{index}. {text}")
-        self.sequence.setPlainText("\n".join(lines) if lines else "No sequence drafted")
+        self.sequence_editor.set_steps(self._steps)
 
     def show_binding(self, *_):
         text = "unread"
@@ -186,6 +235,7 @@ class OnboardMacrosDialog(QDialog):
     def invalidate(self):
         self.snapshot = None
         self.inventory.setRowCount(0)
+        self.inventory_button.setText("On mouse")
         self.capacity.setText("Storage: unread")
         self.show_binding()
 
@@ -195,17 +245,13 @@ class OnboardMacrosDialog(QDialog):
         self.read_button.setEnabled(not busy)
         self.undo_button.setEnabled(not busy)
         self.save_button.setEnabled(editable)
-        for widget in (self.target, self.layer, self.name, self.playback, self.edit_button):
+        for widget in (self.target, self.layer, self.name, self.playback, self.sequence_editor):
             widget.setEnabled(not busy)
-        self.count.setEnabled(not busy and self.playback.currentData() == "counted")
+        counted = self.playback.currentData() == "counted"
+        self.count.setEnabled(not busy and counted)
+        self.fields.setRowVisible(self.count, counted)
+        self.playback_hint.setVisible(self.playback.currentData() == "toggle")
         self.close_buttons.setEnabled(not busy)
-
-    def edit(self):
-        from app import MacroDialog
-        dialog = MacroDialog(self.steps, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.steps = dialog.steps()
-            self.show_steps()
 
     def send(self, message):
         if self.backend.ready:
@@ -245,24 +291,30 @@ class OnboardMacrosDialog(QDialog):
         except (OSError, ValueError) as error:
             self.error(error)
 
+    def assignment_macro(self):
+        return self.name.text(), self.steps
+
     def save(self):
         if self.busy or self.snapshot is None or self.saved:
             return
         try:
-            name = self.name.text()
+            name, steps = self.assignment_macro()
             if not name or len(name.encode("utf-8")) > 100 or "\0" in name:
                 raise ValueError("Name must contain 1–100 UTF-8 bytes without NUL.")
-            if not self.steps:
-                raise ValueError("Create a sequence first.")
             playback = {"mode": self.playback.currentData()}
             if playback["mode"] == "counted":
                 playback["count"] = self.count.value()
             request = {"trigger": "KEY_F24", "guid": str(uuid.uuid4()), "name": name,
                        "button": self.target.currentData(), "layer": self.layer.currentIndex(),
                        "playback": playback}
-            config = macro_config(self.steps)
+            config = macro_config(steps)
+        except (ValueError, KeyError, TypeError) as error:
+            # Local form errors do not make the last mouse read stale.
+            self.status.setText(str(error))
+            return
+        try:
             self.set_busy(True)
-            self.status.setText("Checking current storage and preparing a private recovery backup…")
+            self.status.setText("Saving macro…")
             self.send({"command": "macro_prepare", "config": config, "request": request})
         except (OSError, ValueError, KeyError, TypeError) as error:
             self.error(error)
@@ -275,7 +327,7 @@ class OnboardMacrosDialog(QDialog):
         self.saved = False
         self.invalidate()
         self.set_busy(True)
-        self.status.setText("Restoring original bindings before cleaning up this upload…")
+        self.status.setText("Undoing macro save…")
         try:
             self.send({"command": "macro_recover", "journal": path})
         except (OSError, ValueError) as error:
@@ -289,6 +341,7 @@ class OnboardMacrosDialog(QDialog):
             self.capacity.setText(f"{storage['stored_count']} / {storage['max_macros']} macro entries · "
                                   f"{storage['free_bytes']:,} bytes available · "
                                   f"{storage['reclaimable_bytes']:,} reclaimable (compaction disabled)")
+            self.inventory_button.setText(f"On mouse ({storage['stored_count']})")
             rows = inventory_rows(self.snapshot)
             self.inventory.setRowCount(len(rows))
             for row, values in enumerate(rows):
@@ -299,17 +352,17 @@ class OnboardMacrosDialog(QDialog):
             self.set_busy(False)
             if self.saved:
                 self.last_journal = message.get("journal", self.last_journal)
-                self.status.setText("Upload and binding read back; helper stopped. Playback remains experimental."
-                                    if kind == "macro_saved" else "Original macro contents and scoped bindings restored; owned allocation removed.")
+                self.status.setText("Macro saved to mouse."
+                                    if kind == "macro_saved" else "Original macro and button assignments restored.")
             else:
-                self.status.setText("Storage read. Existing macro contents are preserved; Save uploads a fresh entry.")
+                self.status.setText("Ready.")
         elif kind == "macro_prepared":
             try:
                 path, journal = write_macro_backup(self.profile_path, message["backup"], message["token"])
                 self.last_journal = str(journal)
                 self.log.appendPlainText(f"Private backup: {path}\nRecovery journal: {journal}")
                 self.backend.send({"command": "macro_commit", "token": message["token"], "journal": str(journal)})
-                self.status.setText("Uploading, verifying contents, then binding the sequence…")
+                self.status.setText("Saving macro…")
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.backend.shutdown()
                 self.error(f"Backup failed; no macro commit sent: {error}")

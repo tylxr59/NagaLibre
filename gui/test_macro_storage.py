@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 from backend import Backend
 from macro_storage import OnboardMacrosDialog, inventory_rows, macro_config, write_macro_backup
@@ -53,11 +53,19 @@ def backup():
 
 
 class MacroStorageGuiTests(unittest.TestCase):
+    def tearDown(self):
+        for widget in APP.topLevelWidgets():
+            if isinstance(widget, OnboardMacrosDialog):
+                widget.busy = False
+                widget.close()
+                widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        APP.processEvents()
+
     def dialog(self, root):
         engine = MockBackend()
         dialog = OnboardMacrosDialog(Path(root) / "profiles.json", backend=engine,
                                      steps=[{"tap": "KEY_B"}])
-        self.addCleanup(dialog.close)
         dialog.on_event({"type": "macro_snapshot", "snapshot": snapshot()})
         return dialog, engine
 
@@ -95,6 +103,56 @@ class MacroStorageGuiTests(unittest.TestCase):
             self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
             self.assertEqual(saved.parent.stat().st_mode & 0o777, 0o700)
             self.assertFalse(journal.exists())
+            dialog.on_event({"type": "macro_error", "message": "test complete"})
+
+    def test_inline_sequence_and_contextual_playback_keep_edits_local_until_save(self):
+        with tempfile.TemporaryDirectory() as root:
+            dialog, engine = self.dialog(root)
+            before = copy.deepcopy(dialog.snapshot)
+            editor = dialog.sequence_editor
+            editor.table.item(0, 1).setText("C")
+            editor.add("wait_ms", "250")
+            editor.add("chord", "Ctrl+V")
+            self.assertFalse(dialog.fields.isRowVisible(dialog.count))
+            dialog.playback.setCurrentIndex(dialog.playback.findData("counted"))
+            self.assertTrue(dialog.fields.isRowVisible(dialog.count))
+            dialog.playback.setCurrentIndex(dialog.playback.findData("once"))
+            self.assertFalse(dialog.fields.isRowVisible(dialog.count))
+            self.assertTrue(dialog.inventory_panel.isHidden())
+            self.assertTrue(dialog.details_panel.isHidden())
+            dialog.inventory_button.click()
+            dialog.details_button.click()
+            self.assertFalse(dialog.inventory_panel.isHidden())
+            self.assertFalse(dialog.details_panel.isHidden())
+            self.assertEqual(dialog.snapshot, before)
+            self.assertEqual(engine.messages, [])
+            dialog.save()
+            self.assertEqual([m["command"] for m in engine.messages], ["macro_prepare"])
+            self.assertIn("KEY_C", engine.messages[0]["config"])
+            self.assertIn("250", engine.messages[0]["config"])
+            self.assertIn("KEY_V", engine.messages[0]["config"])
+            self.assertFalse(editor.isEnabled())
+            dialog.on_event({"type": "macro_error", "message": "test complete"})
+
+    def test_local_validation_preserves_readback_for_correction_without_refresh(self):
+        with tempfile.TemporaryDirectory() as root:
+            dialog, engine = self.dialog(root)
+            before = copy.deepcopy(dialog.snapshot)
+            dialog.name.clear()
+            dialog.save()
+            self.assertEqual(dialog.snapshot, before)
+            self.assertEqual(engine.messages, [])
+            dialog.name.setText("Corrected")
+            action = dialog.sequence_editor.table.cellWidget(0, 0)
+            action.setCurrentIndex(action.findData("wait_ms"))
+            dialog.sequence_editor.table.item(0, 1).setText("not a delay")
+            dialog.save()
+            self.assertEqual(dialog.snapshot, before)
+            self.assertEqual(engine.messages, [])
+            action.setCurrentIndex(action.findData("tap"))
+            dialog.sequence_editor.table.item(0, 1).setText("B")
+            dialog.save()
+            self.assertEqual(engine.messages[-1]["command"], "macro_prepare")
             dialog.on_event({"type": "macro_error", "message": "test complete"})
 
     def test_backup_or_directory_fsync_failure_prevents_commit_and_stops_helper(self):
