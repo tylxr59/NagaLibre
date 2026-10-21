@@ -3,6 +3,50 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Delete selected owned macro (2026-10-21)
+
+Added Delete selected macro below the mouse storage table, separate from Restore
+macro backup. It removes only an unassigned NagaLibre upload with a matching
+helper-owned original journal; it preserves current mappings and the local
+library. The GUI searches its backups/macros upload journals (maximum 256) and
+asks confirmation with the selected name/ID. Assigned entries are refused with
+slot/layer/button references. Foreign entries, missing/changed provenance,
+unknown reference categories and nonstandard middle clicks are refused. Other
+plate and secondary-primary reference coverage remains incomplete, which is why
+general pre-existing macro deletion is still unavailable. No primary writes or
+new vendor probes are introduced.
+
+Session protocol 4 adds optional macro_deletion capability and
+macro_delete_prepare/macro_delete_commit commands with token acknowledgement.
+Preparation uses fresh complete comparisons. The GUI atomically fsyncs the
+deletion checkpoint before acknowledgement; the helper separately fsyncs a
+private deletion-intent journal, then rechecks freshness and ownership before a
+single 06/03 setter. Original upload journals remain locked during commit. Final
+readback verifies all scoped mappings/middle clicks and unrelated macro contents.
+Lost ACKs are resolved from readback; read failures report uncertain status and
+never blindly repeat deletion. Deletion checkpoints retain evidence but have no
+automatic restore/re-upload route. The confirmation states that there is no GUI
+undo and requests stopping running playback. The GUI ignores late/wrong prepared
+events so a disconnected or unrelated operation cannot acknowledge a commit.
+
+Validation: 187 Rust and 224 Python/Qt tests passed, including owned deletion,
+foreign/shared/unknown references, stale content/assignments/middle bytes, missing
+journals, durable intent failure, lost/pre-write ACK failures, failed readback,
+unrelated changes, GUI cancellation/capability/selection, fsync failure, disconnect
+and shared helper cleanup with library/draft preservation. Formatting, Clippy,
+debug/release builds, example validation and whitespace checks passed. The table
+and button were inspected offscreen. No live hardware requests were made; this
+selected-delete workflow is implemented but not hardware-verified. Restart the
+GUI to use the rebuilt helper.
+
+## Macro recovery label (2026-10-21)
+
+Renamed Undo upload to Restore macro backup, with a tooltip explaining that it
+restores pre-upload button assignments and removes only the owned upload using
+its recovery journal. It is independent of the selected inventory row. General
+existing-allocation deletion remains unsupported. Updated docs/MACROS.md; no
+transaction behavior changed. Macro-storage and embedded-workspace tests passed.
+
 ## Performance pass across transactions, input and GUI (2026-10-21)
 
 At the user's request, audited the save/read paths, software remapping/monitoring

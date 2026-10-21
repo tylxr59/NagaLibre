@@ -214,7 +214,9 @@ script handle this ordering and private files automatically.
 
 Undo restores scoped original bindings before deleting only its own allocation.
 Unrelated changes or uncertain ownership cause refusal; preserve the journal.
-Existing macros are preserved. Compaction, arbitrary macro deletion and complete
+Existing macros are preserved by upload/undo. The desktop additionally supports
+explicit deletion of unassigned NagaLibre uploads with their original journals;
+see [the macro guide](MACROS.md). Compaction, arbitrary macro deletion and complete
 profile restoration are unavailable. Storage free/reclaimable counters may differ
 after cleanup even when original contents match exactly.
 

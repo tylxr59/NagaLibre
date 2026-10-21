@@ -37,6 +37,14 @@ enum Command {
     MacroRecover {
         journal: std::path::PathBuf,
     },
+    MacroDeletePrepare {
+        id: u16,
+        journals: Vec<std::path::PathBuf>,
+    },
+    MacroDeleteCommit {
+        token: String,
+        journal: std::path::PathBuf,
+    },
     HapticRead {
         slot: Option<u8>,
     },
@@ -226,6 +234,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         "hypershift_transactions":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "haptic_settings":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "onboard_macros":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
+        "macro_deletion":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "device_error":selection.as_ref().err().map(|e| format!("{e:#}"))}),
     );
     let mut active: Option<Worker> = None;
@@ -236,6 +245,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
     let mut haptic_prepared = None;
     let mut macro_snapshot = None;
     let mut macro_prepared = None;
+    let mut macro_delete_prepared = None;
     let mut watching_plate = false;
     let mut next_plate = Instant::now();
     let mut last_plate = None;
@@ -261,6 +271,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                 layer_snapshot = None;
                 macro_snapshot = None;
                 macro_prepared = None;
+                macro_delete_prepared = None;
                 emit(event.clone());
                 last_plate = Some(event);
             }
@@ -281,6 +292,8 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                 | Command::MacroPrepare { .. }
                 | Command::MacroCommit { .. }
                 | Command::MacroRecover { .. }
+                | Command::MacroDeletePrepare { .. }
+                | Command::MacroDeleteCommit { .. }
         ) {
             if let Some(worker) = active.take() {
                 worker.stop();
@@ -291,7 +304,9 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             layer_snapshot = None;
             let finishes = matches!(
                 command,
-                Command::MacroCommit { .. } | Command::MacroRecover { .. }
+                Command::MacroCommit { .. }
+                    | Command::MacroRecover { .. }
+                    | Command::MacroDeleteCommit { .. }
             );
             let result = (|| -> Result<()> {
                 ensure!(
@@ -304,12 +319,14 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                 let mouse = hardware.as_mut().context("Hardware connection lost")?;
                 match command {
                     Command::MacroRead => {
+                        macro_delete_prepared = None;
                         macro_prepared = None;
                         let after = mouse.preview_macros()?;
                         emit(json!({"type":"macro_snapshot","snapshot":after,"preview":true}));
                         macro_snapshot = Some(after);
                     }
                     Command::MacroPrepare { config, request } => {
+                        macro_delete_prepared = None;
                         macro_prepared = None;
                         let known = macro_snapshot
                             .as_ref()
@@ -323,6 +340,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                         macro_prepared = Some((token, plan));
                     }
                     Command::MacroCommit { token, journal } => {
+                        macro_delete_prepared = None;
                         let (expected, plan) =
                             macro_prepared.take().context("No prepared macro upload")?;
                         ensure!(
@@ -334,10 +352,40 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                         emit(json!({"type":"macro_saved","snapshot":after,"journal":journal}));
                     }
                     Command::MacroRecover { journal } => {
+                        macro_delete_prepared = None;
                         macro_prepared = None;
                         macro_snapshot = None;
                         let after = mouse.recover_macro(&journal)?;
                         emit(json!({"type":"macro_recovered","snapshot":after,"journal":journal}));
+                    }
+                    Command::MacroDeletePrepare { id, journals } => {
+                        macro_prepared = None;
+                        macro_delete_prepared = None;
+                        let known = macro_snapshot
+                            .as_ref()
+                            .context("Read macro storage before deleting")?;
+                        let plan = mouse.prepare_macro_delete(known, id, &journals)?;
+                        let token = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_nanos()
+                            .to_string();
+                        emit(
+                            json!({"type":"macro_delete_prepared","token":token,"backup":plan.backup()}),
+                        );
+                        macro_delete_prepared = Some((token, plan));
+                    }
+                    Command::MacroDeleteCommit { token, journal } => {
+                        macro_prepared = None;
+                        let (expected, plan) = macro_delete_prepared
+                            .take()
+                            .context("No prepared macro deletion")?;
+                        ensure!(
+                            token == expected,
+                            "Macro deletion backup acknowledgement token differs"
+                        );
+                        macro_snapshot = None;
+                        let after = mouse.commit_macro_delete(plan, &journal)?;
+                        emit(json!({"type":"macro_deleted","snapshot":after,"journal":journal}));
                     }
                     _ => unreachable!(),
                 }
@@ -348,6 +396,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                 Ok(()) => {}
                 Err(error) => {
                     macro_prepared = None;
+                    macro_delete_prepared = None;
                     macro_snapshot = None;
                     hardware = None;
                     emit(json!({"type":"macro_error","message":format!("{error:#}")}));
@@ -356,6 +405,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             continue;
         }
         macro_prepared = None;
+        macro_delete_prepared = None;
         macro_snapshot = None;
         if matches!(
             command,

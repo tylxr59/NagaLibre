@@ -1,5 +1,6 @@
 //! Fresh-only macro uploads with durable intent, exact readback and owned cleanup.
-//! Existing macro entries are never overwritten, removed, compacted or formatted.
+//! Unassigned owned uploads can also be explicitly deleted after a fresh backup.
+//! Foreign entries are never overwritten, removed, compacted or formatted.
 use super::*;
 use std::{
     fs::{File, OpenOptions},
@@ -26,6 +27,28 @@ pub struct Backup {
 pub struct Prepared {
     backup: Backup,
     plan: macro_plan::Plan,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteBackup {
+    pub format: u8,
+    pub kind: String,
+    pub complete_profile: bool,
+    pub contents: macros::Checkpoint,
+    pub mappings: layer_transaction::LayerBackup,
+    pub id: u16,
+    pub source_journal: std::path::PathBuf,
+}
+
+pub struct PreparedDelete {
+    backup: DeleteBackup,
+}
+
+impl PreparedDelete {
+    pub fn backup(&self) -> &DeleteBackup {
+        &self.backup
+    }
 }
 
 impl Prepared {
@@ -111,6 +134,9 @@ impl Backup {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 enum Event {
+    DeletePrepared { backup: Box<DeleteBackup> },
+    DeletePending { id: u16 },
+    Deleted { id: u16 },
     Prepared { backup: Box<Backup> },
     PacketPending { index: usize },
     PacketAcknowledged { index: usize },
@@ -138,6 +164,15 @@ fn lock(file: &File) -> Result<()> {
 
 impl Journal {
     fn create(path: &Path, backup: &Backup) -> Result<Self> {
+        Self::create_event(
+            path,
+            &Event::Prepared {
+                backup: Box::new(backup.clone()),
+            },
+        )
+    }
+
+    fn create_event(path: &Path, event: &Event) -> Result<Self> {
         let parent = path
             .parent()
             .context("Macro journal needs a parent directory")?;
@@ -164,9 +199,7 @@ impl Journal {
             file,
             poisoned: false,
         };
-        result.record(&Event::Prepared {
-            backup: Box::new(backup.clone()),
-        })?;
+        result.record(event)?;
         File::open(parent)?.sync_all()?;
         Ok(result)
     }
@@ -348,6 +381,149 @@ fn target_mut(state: &mut layers::LayerReadback, layer: u8, button: u8) -> &mut 
 }
 
 impl<T: Transport> Mouse<T> {
+    /// Delete only an unassigned entry proven to be this app's upload. Our
+    /// mapping reader does not cover other plates or secondary primary clicks,
+    /// so an arbitrary pre-existing entry cannot be proven unreferenced.
+    pub fn prepare_macro_delete(
+        &mut self,
+        known: &macros::Inspection,
+        id: u16,
+        journals: &[std::path::PathBuf],
+    ) -> Result<PreparedDelete> {
+        ensure!(
+            !journals.is_empty() && journals.len() <= 256,
+            "Deletion requires this macro's NagaLibre upload journal (at most 256 candidates)"
+        );
+        let checkpoint = macros::Checkpoint::from_inspection(known.clone())?;
+        let entry = known
+            .storage
+            .entries
+            .iter()
+            .find(|e| e.id == id)
+            .context("Selected macro is no longer present; read storage again")?;
+        let refs: Vec<_> = macro_plan::references(known)?
+            .into_iter()
+            .filter(|r| r.id == id)
+            .collect();
+        ensure!(
+            refs.is_empty(),
+            "Macro is still assigned: {}. Change those bindings and save them before deleting it",
+            refs.iter()
+                .map(|r| format!(
+                    "slot {}, {} layer, {} {}",
+                    r.slot,
+                    if r.layer == 0 { "Normal" } else { "Hypershift" },
+                    if r.primary { "primary click" } else { "button" },
+                    r.button
+                ))
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        let source_journal = journals.iter().find(|path| owned_upload(path, entry, &known.guard).is_ok())
+            .context("Deletion is limited to NagaLibre uploads with their original helper-owned journal; this entry's ownership could not be verified")?.clone();
+        let active = known
+            .mappings
+            .iter()
+            .find(|m| m.normal.slot == known.guard.active)
+            .context("Active mappings missing")?;
+        let mappings = self.capture_layer_backup(active)?;
+        let backup = DeleteBackup {
+            format: 1,
+            kind: "onboard_macro_delete_backup".into(),
+            complete_profile: false,
+            contents: checkpoint,
+            mappings,
+            id,
+            source_journal,
+        };
+        self.check_macro_delete(&backup)?;
+        Ok(PreparedDelete { backup })
+    }
+
+    fn check_macro_delete(&mut self, backup: &DeleteBackup) -> Result<()> {
+        let fresh = self.inspect_macros()?;
+        backup.contents.check_fresh(&fresh)?;
+        ensure!(
+            !macro_plan::references(&fresh)?
+                .iter()
+                .any(|r| r.id == backup.id),
+            "Macro became assigned; deletion refused"
+        );
+        self.check_delete_mappings(backup, &fresh)
+    }
+
+    fn check_delete_mappings(
+        &mut self,
+        backup: &DeleteBackup,
+        fresh: &macros::Inspection,
+    ) -> Result<()> {
+        ensure!(
+            fresh.guard == backup.contents.inspection.guard
+                && fresh.mappings == backup.contents.inspection.mappings,
+            "Mouse state or button assignments changed during deletion"
+        );
+        for saved in &backup.mappings.slots {
+            ensure!(
+                saved.middle.category == 1
+                    && saved.middle.data == [3]
+                    && self.get_button(saved.state.normal.slot, 3, 3)? == saved.middle,
+                "Middle-click state changed or is outside deletion scope"
+            );
+        }
+        Ok(())
+    }
+
+    pub fn commit_macro_delete(
+        &mut self,
+        prepared: PreparedDelete,
+        path: &Path,
+    ) -> Result<macros::Inspection> {
+        let backup = prepared.backup;
+        let before = &backup.contents.inspection;
+        let entry = before
+            .storage
+            .entries
+            .iter()
+            .find(|e| e.id == backup.id)
+            .context("Selected entry missing from backup")?;
+        // Hold the original upload journal's exclusive lock until completion.
+        let _ownership = owned_upload(&backup.source_journal, entry, &before.guard)?;
+        let mut journal = Journal::create_event(
+            path,
+            &Event::DeletePrepared {
+                backup: Box::new(backup.clone()),
+            },
+        )?;
+        self.check_macro_delete(&backup)?;
+        journal.record(&Event::DeletePending { id: backup.id })?;
+        let acknowledgement = self.transport.exchange(6, 3, &backup.id.to_be_bytes(), 0);
+        // Never blindly retry deletion: even a failed ACK may have landed.
+        let after = self.inspect_macros().with_context(|| format!(
+            "Deletion status is uncertain; read macro storage again. Keep backup and journal {}", path.display()))?;
+        self.check_delete_mappings(&backup, &after)?;
+        let mut untouched = before.storage.clone();
+        untouched.entries.retain(|e| e.id != backup.id);
+        ensure!(
+            after.storage.max_macros == before.storage.max_macros
+                && after.storage.storage_bytes == before.storage.storage_bytes,
+            "Macro storage capacity changed during deletion"
+        );
+        if after.storage.entries.iter().any(|e| e.id == backup.id) {
+            ensure!(
+                entries(&after.storage) == entries(&before.storage),
+                "Macro deletion failed and storage changed; keep the backup"
+            );
+            acknowledgement.context("Macro deletion was rejected; original entries remain")?;
+            bail!("Mouse retained the selected macro; original entries remain");
+        }
+        ensure!(
+            entries(&after.storage) == entries(&untouched),
+            "An unrelated macro changed during deletion; keep the backup"
+        );
+        journal.record(&Event::Deleted { id: backup.id })?;
+        Ok(after)
+    }
+
     pub fn prepare_macro_backup(&mut self, backup: Backup) -> Result<Prepared> {
         let plan = backup.plan()?;
         self.check_macro_backup(&backup)?;
@@ -702,6 +878,20 @@ impl<T: Transport> Mouse<T> {
     }
 }
 
+fn owned_upload(path: &Path, entry: &macros::Entry, guard: &haptic::Guard) -> Result<Journal> {
+    let (journal, backup, progress) = Journal::open(path)?;
+    let plan = backup.plan()?;
+    ensure!(
+        progress.identified
+            && !progress.complete
+            && plan.entry == *entry
+            && backup.contents.inspection.guard.device.product == guard.device.product
+            && backup.contents.inspection.guard.device.serial == guard.device.serial,
+        "Selected macro does not match an owned upload from this mouse"
+    );
+    Ok(journal)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -956,6 +1146,221 @@ mod tests {
         assert_eq!(&mouse.transport.mappings, mappings);
         assert_eq!(&mouse.transport.macros, old);
         assert!(mouse.transport.echoes.values().all(|v| *v == 0));
+    }
+
+    #[test]
+    fn selected_delete_preserves_bindings_and_other_entries_and_resolves_lost_ack() -> Result<()> {
+        for failure in [None, Some(false), Some(true)] {
+            let temp = Temp::new();
+            let mut m = Mouse {
+                transport: Fake::new(),
+            };
+            let original = m.transport.mappings.clone();
+            let plan = prepared(&mut m, 0)?;
+            let id = plan.plan.entry.id;
+            m.commit_macro(plan, &temp.journal())?;
+            // Simulate a separate successful ordinary save unassigning it.
+            m.transport.mappings = original.clone();
+            let view = m.preview_macros()?;
+            let deletion = m.prepare_macro_delete(&view, id, &[temp.journal()])?;
+            assert_eq!(deletion.backup().contents.inspection, view);
+            let start = m.transport.writes.len();
+            if let Some(before) = failure {
+                m.transport.failures.insert(start + 1);
+                m.transport.fail_before = before;
+            }
+            let result = m.commit_macro_delete(deletion, &temp.0.join("delete.jsonl"));
+            if failure == Some(true) {
+                assert!(result.is_err());
+                assert_eq!(m.transport.macros.len(), 2);
+            } else {
+                assert_eq!(result?.storage.stored_count, 1);
+                assert!(!m.transport.macros.contains_key(&id));
+                assert_eq!(
+                    m.transport.macros[&99],
+                    view.storage
+                        .entries
+                        .iter()
+                        .find(|e| e.id == 99)
+                        .unwrap()
+                        .clone()
+                );
+                assert!(
+                    std::fs::read_to_string(temp.0.join("delete.jsonl"))?
+                        .contains("\"event\":\"deleted\"")
+                );
+            }
+            assert_eq!(m.transport.mappings, original);
+            assert_eq!(
+                &m.transport.writes[start..],
+                &[(6, 3, id.to_be_bytes().to_vec())]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn selected_delete_refuses_assigned_foreign_unknown_and_changed_entries() -> Result<()> {
+        for case in 0..7 {
+            let temp = Temp::new();
+            let mut m = Mouse {
+                transport: Fake::new(),
+            };
+            let original = m.transport.mappings.clone();
+            let plan = prepared(&mut m, 0)?;
+            let id = plan.plan.entry.id;
+            m.commit_macro(plan, &temp.journal())?;
+            if case != 0 {
+                m.transport.mappings = original;
+            }
+            let [hi, lo] = id.to_be_bytes();
+            match case {
+                1 => {
+                    m.transport
+                        .mappings
+                        .insert((2, 1, 0x41), [3, 3, hi, lo, 1, 0, 0]);
+                }
+                2 => {
+                    m.transport
+                        .mappings
+                        .insert((2, 0, 1), [3, 3, hi, lo, 1, 0, 0]);
+                }
+                3 => {
+                    m.transport
+                        .mappings
+                        .insert((2, 1, 0x41), [0xff, 0, 0, 0, 0, 0, 0]);
+                }
+                4 => {
+                    m.transport.macros.get_mut(&id).unwrap().metadata[0] ^= 1;
+                }
+                _ => {}
+            }
+            let view = m.preview_macros()?;
+            let start = m.transport.writes.len();
+            let journals = if case == 5 {
+                vec![]
+            } else {
+                vec![temp.journal()]
+            };
+            assert!(
+                m.prepare_macro_delete(&view, if case == 6 { 99 } else { id }, &journals)
+                    .is_err(),
+                "case {case}"
+            );
+            assert_eq!(m.transport.writes.len(), start);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn selected_delete_does_not_retry_on_failed_readback_or_unrelated_changes() -> Result<()> {
+        struct Fault {
+            inner: Fake,
+            removed: bool,
+            fail_read: bool,
+        }
+        impl Transport for Fault {
+            fn identity(&self) -> Identity {
+                self.inner.identity()
+            }
+            fn exchange(
+                &mut self,
+                class: u8,
+                command: u8,
+                p: &[u8],
+                echo: usize,
+            ) -> Result<Vec<u8>> {
+                if self.removed && self.fail_read && command & 0x80 != 0 {
+                    bail!("Readback unavailable");
+                }
+                let result = self.inner.exchange(class, command, p, echo);
+                if (class, command) == (6, 3) {
+                    self.removed = true;
+                    if !self.fail_read {
+                        self.inner.macros.get_mut(&99).unwrap().data[0] ^= 1;
+                    }
+                }
+                result
+            }
+        }
+        for fail_read in [false, true] {
+            let temp = Temp::new();
+            let mut m = Mouse {
+                transport: Fake::new(),
+            };
+            let original = m.transport.mappings.clone();
+            let plan = prepared(&mut m, 0)?;
+            let id = plan.plan.entry.id;
+            m.commit_macro(plan, &temp.journal())?;
+            m.transport.mappings = original.clone();
+            let mut m = Mouse {
+                transport: Fault {
+                    inner: m.transport,
+                    removed: false,
+                    fail_read,
+                },
+            };
+            let view = m.preview_macros()?;
+            let deletion = m.prepare_macro_delete(&view, id, &[temp.journal()])?;
+            let start = m.transport.inner.writes.len();
+            let error = m
+                .commit_macro_delete(deletion, &temp.0.join("delete.jsonl"))
+                .unwrap_err();
+            assert!(format!("{error:#}").contains(if fail_read {
+                "uncertain"
+            } else {
+                "unrelated"
+            }));
+            assert_eq!(
+                &m.transport.inner.writes[start..],
+                &[(6, 3, id.to_be_bytes().to_vec())]
+            );
+            assert_eq!(m.transport.inner.mappings, original);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn selected_delete_checks_freshness_and_durable_intent_before_any_write() -> Result<()> {
+        for case in 0..5 {
+            let temp = Temp::new();
+            let mut m = Mouse {
+                transport: Fake::new(),
+            };
+            let original = m.transport.mappings.clone();
+            let plan = prepared(&mut m, 0)?;
+            let id = plan.plan.entry.id;
+            m.commit_macro(plan, &temp.journal())?;
+            m.transport.mappings = original;
+            let view = m.preview_macros()?;
+            let deletion = m.prepare_macro_delete(&view, id, &[temp.journal()])?;
+            let start = m.transport.writes.len();
+            let [hi, lo] = id.to_be_bytes();
+            match case {
+                0 => m.transport.macros.get_mut(&99).unwrap().data.push(0),
+                1 => {
+                    m.transport
+                        .mappings
+                        .insert((2, 1, 0x41), [3, 3, hi, lo, 1, 0, 0]);
+                }
+                2 => m.transport.mappings.get_mut(&(2, 0, 3)).unwrap()[6] ^= 1,
+                3 => {
+                    std::fs::write(temp.0.join("delete.jsonl"), "existing journal")?;
+                }
+                4 => {
+                    std::fs::remove_file(temp.journal())?;
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                m.commit_macro_delete(deletion, &temp.0.join("delete.jsonl"))
+                    .is_err(),
+                "case {case}"
+            );
+            assert_eq!(m.transport.writes.len(), start);
+            assert!(m.transport.macros.contains_key(&id));
+        }
+        Ok(())
     }
 
     #[test]

@@ -12,7 +12,7 @@ from PySide6.QtCore import QElapsedTimer, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QGroupBox, QHeaderView, QWidget, QProgressBar,
+    QTableWidgetItem, QVBoxLayout, QGroupBox, QHeaderView, QWidget, QProgressBar, QMessageBox,
 )
 from backend import Backend
 from macro_editor import MacroEditor
@@ -32,20 +32,33 @@ def macro_config(steps):
 
 
 def write_macro_backup(profile_path, backup, token):
-    if not isinstance(token, str) or not token.isdecimal() or len(token) > 40:
-        raise ValueError("Invalid macro backup token")
     if (backup.get("format") != 1 or backup.get("kind") != "onboard_macro_transaction_backup"
             or backup.get("complete_profile") is not False
             or backup.get("contents", {}).get("kind") != "onboard_macro_storage_checkpoint"
             or backup.get("mappings", {}).get("kind") != "paired_mapping_backup"):
         raise ValueError("Not a macro content/mapping transaction backup")
+    return _write_macro_backup(profile_path, backup, token, 'macro')
+
+
+def write_macro_delete_backup(profile_path, backup, token):
+    if (backup.get('format') != 1 or backup.get('kind') != 'onboard_macro_delete_backup'
+            or backup.get('complete_profile') is not False
+            or backup.get('contents', {}).get('kind') != 'onboard_macro_storage_checkpoint'
+            or backup.get('mappings', {}).get('kind') != 'paired_mapping_backup'):
+        raise ValueError('Not a macro deletion backup')
+    return _write_macro_backup(profile_path, backup, token, 'macro-delete')
+
+
+def _write_macro_backup(profile_path, backup, token, label):
+    if not isinstance(token, str) or not token.isdecimal() or len(token) > 40:
+        raise ValueError("Invalid macro backup token")
     directory = Path(profile_path).parent / "backups" / "macros"
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     stat = directory.lstat()
     if directory.is_symlink() or stat.st_uid != os.geteuid() or stat.st_mode & 0o077:
         raise ValueError("Macro backups need a private directory owned by this user")
     serial = re.sub(r"[^A-Za-z0-9_-]", "_", backup["contents"]["inspection"]["guard"]["device"]["serial"])
-    path = directory / f"{serial}-macro-{token}.json"
+    path = directory / f"{serial}-{label}-{token}.json"
     if path.exists():
         raise ValueError("Macro backup token already exists")
     save_profile(path, backup)
@@ -82,6 +95,7 @@ class OnboardMacrosDialog(QDialog):
         self.busy = False
         self.saved = False
         self.pending = None
+        self.pending_write = None
         self.last_journal = None
         self.operation_phase = ''
         self.operation_elapsed = QElapsedTimer()
@@ -172,7 +186,10 @@ class OnboardMacrosDialog(QDialog):
         self.details_button = QPushButton("Details")
         self.details_button.setCheckable(True)
         tools.addWidget(self.details_button)
-        self.undo_button = QPushButton("Undo upload…")
+        self.undo_button = QPushButton("Restore macro backup…")
+        self.undo_button.setToolTip(
+            "Restore the button assignments from before a NagaLibre macro save and remove the macro it uploaded. "
+            "Requires that save's recovery journal; this does not delete the selected table row.")
         self.undo_button.clicked.connect(self.undo)
         tools.addWidget(self.undo_button)
         tools.addStretch()
@@ -189,12 +206,19 @@ class OnboardMacrosDialog(QDialog):
         self.inventory = QTableWidget(0, 3)
         self.inventory.setHorizontalHeaderLabels(["Stored macro", "ID", "Sequence bytes"])
         self.inventory.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.inventory.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.inventory.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.inventory.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.inventory.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.inventory.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.inventory.verticalHeader().hide()
         self.inventory.setMaximumHeight(140)
         inventory_layout.addWidget(self.inventory)
+        self.delete_button = QPushButton('Delete selected macro…')
+        self.delete_button.setToolTip('Delete an unassigned NagaLibre upload using its original upload journal. Button assignments and the local library stay unchanged.')
+        self.delete_button.clicked.connect(self.delete_selected_macro)
+        inventory_layout.addWidget(self.delete_button)
+        self.inventory.itemSelectionChanged.connect(self.update_delete_button)
         self.inventory_panel.hide()
         self.inventory_button.toggled.connect(self.inventory_panel.setVisible)
         layout.addWidget(self.inventory_panel)
@@ -275,6 +299,43 @@ class OnboardMacrosDialog(QDialog):
         self.fields.setRowVisible(self.count, counted)
         self.playback_hint.setVisible(self.playback.currentData() == "toggle")
         self.close_buttons.setEnabled(not busy)
+        self.update_delete_button()
+
+    def update_delete_button(self):
+        self.delete_button.setEnabled(not self.busy and self.snapshot is not None and not self.saved
+            and self.backend.ready and getattr(self.backend, 'macro_deletion', False)
+            and bool(self.inventory.selectionModel().selectedRows()))
+
+    def delete_selected_macro(self):
+        if not self.delete_button.isEnabled():
+            return
+        row = self.inventory.selectionModel().selectedRows()[0].row()
+        macro_id = int(self.inventory.item(row, 1).text(), 16)
+        name = self.inventory.item(row, 0).text()
+        directory = self.profile_path.parent / 'backups' / 'macros'
+        journals = sorted(directory.glob('*-macro-*.journal.jsonl'), key=lambda p: p.name, reverse=True)
+        if not journals:
+            self.status.setText('The original NagaLibre upload journal is missing. Only owned uploads can be deleted.')
+            return
+        if len(journals) > 256:
+            self.status.setText('Too many upload journals to search. Use Restore macro backup with the original upload journal.')
+            return
+        answer = QMessageBox.question(self, 'Delete macro from mouse',
+            f'Delete “{name}” (ID {macro_id:04x}) from mouse memory?\n\n'
+            'Only unassigned NagaLibre uploads with their original journal can be deleted. '
+            'Button assignments and your local macro library will stay unchanged. '
+            'Stop any running macro before continuing. This deletion cannot be undone in the GUI.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.saved = False
+        self.pending_write = 'macro_delete_prepared'
+        self.set_busy(True)
+        self.set_operation_status('Checking macro ownership, assignments and recovery backup…')
+        try:
+            self.send({'command': 'macro_delete_prepare', 'id': macro_id, 'journals': [str(p) for p in journals]})
+        except (OSError, ValueError) as error:
+            self.error(error)
 
     def set_operation_status(self, phase):
         self.operation_phase = phase
@@ -312,11 +373,13 @@ class OnboardMacrosDialog(QDialog):
                 self.send(message)
         elif not self.saved:
             self.pending = None
+            self.pending_write = None
             self.invalidate()
             self.set_busy(False)
             self.status.setText("Helper disconnected. Read again; retain any transaction journal for recovery.")
 
     def read(self):
+        self.pending_write = None
         self.invalidate()
         self.saved = False
         self.show_binding()
@@ -349,6 +412,7 @@ class OnboardMacrosDialog(QDialog):
             self.status.setText(str(error))
             return
         try:
+            self.pending_write = 'macro_prepared'
             self.set_busy(True)
             self.set_operation_status("Preparing recovery backup and checking mouse state…")
             self.send({"command": "macro_prepare", "config": config, "request": request})
@@ -356,11 +420,12 @@ class OnboardMacrosDialog(QDialog):
             self.error(error)
 
     def undo(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Recover an onboard macro transaction",
+        path, _ = QFileDialog.getOpenFileName(self, "Choose the recovery journal for a macro save",
             str(self.last_journal or self.profile_path.parent / "backups" / "macros"), "Macro journals (*.jsonl)")
         if not path:
             return
         self.saved = False
+        self.pending_write = None
         self.invalidate()
         self.set_busy(True)
         self.set_operation_status("Restoring macro backup and verifying mouse state…")
@@ -371,7 +436,7 @@ class OnboardMacrosDialog(QDialog):
 
     def on_event(self, message):
         kind = message.get("type")
-        if kind in ("macro_snapshot", "macro_saved", "macro_recovered"):
+        if kind in ("macro_snapshot", "macro_saved", "macro_recovered", "macro_deleted"):
             self.snapshot = message["snapshot"]
             storage = self.snapshot["storage"]
             self.capacity.setText(f"{storage['stored_count']} / {storage['max_macros']} macro entries · "
@@ -388,17 +453,23 @@ class OnboardMacrosDialog(QDialog):
             self.set_busy(False)
             if self.saved:
                 self.last_journal = message.get("journal", self.last_journal)
-                self.status.setText("Macro saved to mouse."
-                                    if kind == "macro_saved" else "Original macro and button assignments restored.")
+                self.status.setText('Macro deleted from mouse. Button assignments and the local library are unchanged.'
+                    if kind == 'macro_deleted' else "Macro saved to mouse."
+                    if kind == "macro_saved" else "Original macro and button assignments restored.")
             else:
                 self.status.setText("Ready.")
-        elif kind == "macro_prepared":
+        elif kind in ("macro_prepared", "macro_delete_prepared"):
+            if not self.busy or self.pending_write != kind:
+                return
+            self.pending_write = None
             try:
-                path, journal = write_macro_backup(self.profile_path, message["backup"], message["token"])
+                deleting = kind == 'macro_delete_prepared'
+                writer = write_macro_delete_backup if deleting else write_macro_backup
+                path, journal = writer(self.profile_path, message["backup"], message["token"])
                 self.last_journal = str(journal)
                 self.log.appendPlainText(f"Private backup: {path}\nRecovery journal: {journal}")
-                self.backend.send({"command": "macro_commit", "token": message["token"], "journal": str(journal)})
-                self.set_operation_status("Saving macro and verifying mouse state…")
+                self.backend.send({"command": 'macro_delete_commit' if deleting else "macro_commit", "token": message["token"], "journal": str(journal)})
+                self.set_operation_status('Deleting macro and verifying mouse state…' if deleting else "Saving macro and verifying mouse state…")
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.backend.shutdown()
                 self.error(f"Backup failed; no macro commit sent: {error}")
@@ -411,6 +482,7 @@ class OnboardMacrosDialog(QDialog):
                 self.status.setText("Mouse plate changed. Read storage again before saving.")
 
     def error(self, error):
+        self.pending_write = None
         self.invalidate()
         self.saved = False
         self.show_binding()

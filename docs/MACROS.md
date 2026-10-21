@@ -27,9 +27,35 @@ unsaved editor changes are not uploaded. Local edits and deletion never change
 existing mouse allocations. Switching library entries or quitting offers Save, Discard or
 Cancel for unsaved edits. Navigating between pages keeps the current draft. A corrupt or concurrently changed library is not overwritten.
 
-Under **Mouse → Mouse memory → Macro storage**, **Refresh mouse** reads the macro inventory and **On mouse** shows storage usage and stored entries.
+Under **Mouse → Mouse memory → Macro storage**, **Read macro storage** reads the
+macro inventory. Storage usage and stored entries appear directly below it.
 **Details** contains support notes, backup/journal paths and operation logs.
-**Undo upload…** restores a saved transaction through its recovery journal.
+**Restore macro backup…** restores the button assignments from before a
+NagaLibre upload and removes the macro that upload added, using its recovery
+journal. It does not delete the selected inventory row.
+
+**Delete selected macro…** removes the selected mouse entry without restoring
+old button assignments or deleting anything from your local library. Read macro
+storage, select a row, and choose Delete selected macro. Confirm the displayed
+name and ID. If it is still assigned, the app reports the slot, layer and buttons;
+change those assignments and save them before trying again.
+
+Deletion is currently limited to unassigned NagaLibre uploads whose original
+helper-owned journal remains under `backups/macros/`. Entries created by Synapse,
+entries with missing journals, unknown references, and changed contents are
+refused. The current reader does not establish complete reference coverage for
+other plates or secondary primary clicks, so it cannot safely authorize arbitrary
+existing-entry deletion. The GUI also requires the rebuilt helper to advertise
+deletion support.
+
+A private deletion backup and separate helper intent journal are saved before
+the delete request. Only that ID is removed, with all inspected assignments and
+other entries verified unchanged. A lost acknowledgement is resolved by readback
+without blindly repeating the deletion. If readback fails, status is uncertain:
+keep the backup/journal and read storage again. Deletion has no GUI undo or
+automatic re-upload action; the deletion backup is retained evidence, not a
+restore file accepted by Restore macro backup. This new selected-delete path
+has automated coverage but has not yet been separately tested on a live mouse.
 
 Library navigation does not start or stop the helper. Device operations share the
 main window's authenticated helper; software remapping stops when storage is read.
@@ -67,15 +93,16 @@ Waits determine timeline delays; no separate hardware turbo/rate setting is expo
 The inventory shows actual readback and available storage. Saving always creates
 a fresh entry; it preserves existing macros, including unknown contents and shared
 references. Insufficient available space or unknown references cause failure.
-Compaction and arbitrary deletion are unavailable. Repeated saves consume entries;
-use the matching transaction's undo rather than trying to replace an existing ID.
+Compaction and deletion of unfamiliar entries are unavailable. Repeated saves
+consume entries; unassign old NagaLibre uploads and delete them, or restore the
+matching transaction's backup rather than trying to replace an existing ID.
 
 Before writing, the app saves a private backup under the profile directory's
 `backups/macros/` folder. The helper creates a separate protected journal. Both
 paths appear in the dialog log. Keep them: they contain private macro contents
 and device identity. A failed backup prevents the commit.
 
-**Undo upload…** selects that upload's `.journal.jsonl` file and restores original
+**Restore macro backup…** selects that upload's `.journal.jsonl` file and restores original
 bindings before removing only its own allocation. The helper handles protected
 journal access; do not edit its ownership or contents. Recovery refuses unrelated
 state changes or ambiguous allocation ownership. After a disconnect or failed

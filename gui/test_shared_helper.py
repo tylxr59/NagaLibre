@@ -200,6 +200,12 @@ class SharedHelperTests(unittest.TestCase):
                 backend = backend_type()
                 dialog = dialog_type(Path(directory) / "profile.json", backend=backend, shared=True)
                 writer = "write_haptic_backup" if module == "haptic" else "write_macro_backup"
+                if dialog_type is OnboardMacrosDialog:
+                    dialog.on_event({'type': 'macro_snapshot', 'snapshot': macro_snapshot()})
+                    dialog.steps = [{'tap': 'KEY_B'}]
+                    dialog.save()
+                    self.assertEqual(backend.messages[-1]['command'], 'macro_prepare')
+                    backend.messages.clear()
                 with patch(f"{module}.{writer}", side_effect=OSError("fsync failed")):
                     backend.event.emit({"type": kind, "token": "123", "backup": backup})
                 self.assertTrue(backend.stopped)

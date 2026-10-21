@@ -2,6 +2,17 @@
 
 ## Evidence and implementation status
 
+Selected deletion follow-up (2026-10-21): the GUI now exposes a separate scoped
+delete transaction using the already traced `06/03` ID setter. It accepts only an
+unassigned upload whose exact metadata/data and mouse identity match a validated
+helper-owned upload journal. Incomplete reference coverage still prevents general
+existing-entry deletion. A complete fresh checkpoint, paired/middle mappings,
+durable GUI backup, helper intent journal, stale comparison and final unchanged
+reference/content checks surround the single deletion. Lost ACKs are resolved by
+readback without repeating the setter. No mapping writes, allocation, compaction
+or format requests are introduced by this path. Automated failure/refusal tests
+pass; this new selected-delete workflow has not been live-tested.
+
 Static investigation on 2026-10-20 used the official Device167 package described
 in [ONBOARD.md](ONBOARD.md). Windows code was extracted and inspected, never run.
 Proprietary binaries, IL and disassembly remain in ignored `inspection/payload/`.

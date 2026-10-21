@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QObject, Signal, QCoreApplication, QEvent
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from backend import Backend
 from macro_storage import OnboardMacrosDialog, inventory_rows, macro_config, write_macro_backup
 
@@ -68,6 +68,84 @@ class MacroStorageGuiTests(unittest.TestCase):
                                      steps=[{"tap": "KEY_B"}])
         dialog.on_event({"type": "macro_snapshot", "snapshot": snapshot()})
         return dialog, engine
+
+    def deletion_dialog(self, root):
+        dialog, engine = self.dialog(root)
+        engine.macro_deletion = True
+        state = snapshot()
+        state['storage'].update(stored_count=1, entries=[{'id': 7, 'metadata': [0] * 250, 'data': [1, 5]}])
+        dialog.on_event({'type': 'macro_snapshot', 'snapshot': state})
+        dialog.inventory.selectRow(0)
+        source = Path(root) / 'backups/macros/TEST-macro-1.journal.jsonl'
+        source.parent.mkdir(parents=True, mode=0o700)
+        source.write_text('mock helper-owned upload journal')
+        deletion = backup()
+        deletion.update(kind='onboard_macro_delete_backup', id=7, source_journal=str(source))
+        deletion['contents']['inspection'] = state
+        return dialog, engine, deletion
+
+    def test_delete_selection_confirmation_and_backup_before_commit(self):
+        with tempfile.TemporaryDirectory() as root:
+            dialog, engine, deletion = self.deletion_dialog(root)
+            self.assertTrue(dialog.delete_button.isEnabled())
+            with patch('macro_storage.QMessageBox.question', return_value=QMessageBox.StandardButton.No):
+                dialog.delete_selected_macro()
+            self.assertEqual(engine.messages, [])
+            with patch('macro_storage.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
+                dialog.delete_selected_macro()
+            self.assertEqual(engine.messages[-1]['command'], 'macro_delete_prepare')
+            self.assertEqual(engine.messages[-1]['id'], 7)
+            self.assertTrue(dialog.busy)
+            self.assertFalse(dialog.delete_button.isEnabled())
+            dialog.on_event({'type': 'macro_delete_prepared', 'token': '888', 'backup': deletion})
+            commit = engine.messages[-1]
+            self.assertEqual(commit['command'], 'macro_delete_commit')
+            saved = Path(commit['journal']).with_suffix('').with_suffix('.json')
+            self.assertEqual(json.loads(saved.read_text()), deletion)
+            self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
+            dialog.on_event({'type': 'macro_deleted', 'snapshot': snapshot(), 'journal': commit['journal']})
+            self.assertEqual(dialog.inventory.rowCount(), 0)
+            self.assertIn('Macro deleted', dialog.status.text())
+            self.assertFalse(dialog.operation_timer.isActive())
+
+    def test_delete_backup_failure_disconnect_and_wrong_prepared_event_never_commit(self):
+        for failure in ('save_profile', 'os.fsync', 'disconnect', 'wrong_event'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as root:
+                dialog, engine, deletion = self.deletion_dialog(root)
+                with patch('macro_storage.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
+                    dialog.delete_selected_macro()
+                prepared = {'type': 'macro_delete_prepared', 'token': '888', 'backup': deletion}
+                if failure == 'disconnect':
+                    engine.ready = False
+                    dialog.connected(False)
+                    dialog.on_event(prepared)
+                elif failure == 'wrong_event':
+                    dialog.on_event({'type': 'macro_prepared', 'token': '777', 'backup': backup()})
+                    dialog.error('test complete')
+                else:
+                    with patch('macro_storage.' + failure, side_effect=OSError('disk failure')):
+                        dialog.on_event(prepared)
+                    self.assertTrue(engine.stopped)
+                self.assertEqual([m['command'] for m in engine.messages], ['macro_delete_prepare'])
+                self.assertFalse(dialog.busy)
+
+    def test_delete_requires_read_selection_capability_and_original_journal(self):
+        with tempfile.TemporaryDirectory() as root:
+            dialog, engine, deletion = self.deletion_dialog(root)
+            engine.macro_deletion = False
+            dialog.update_delete_button()
+            self.assertFalse(dialog.delete_button.isEnabled())
+            engine.macro_deletion = True
+            dialog.inventory.clearSelection()
+            dialog.update_delete_button()
+            self.assertFalse(dialog.delete_button.isEnabled())
+            dialog.inventory.selectRow(0)
+            Path(deletion['source_journal']).unlink()
+            dialog.delete_selected_macro()
+            self.assertIn('journal is missing', dialog.status.text())
+            self.assertEqual(engine.messages, [])
+            dialog.error('read failed')
+            self.assertFalse(dialog.delete_button.isEnabled())
 
     def test_draft_and_playback_changes_do_not_write_and_targets_exclude_primary_clicks(self):
         with tempfile.TemporaryDirectory() as root:

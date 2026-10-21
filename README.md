@@ -170,6 +170,12 @@ tests; support remains experimental, with an intermittent activation issue under
 investigation. See [the macro guide](docs/MACROS.md)
 for supported steps, storage limits and recovery.
 
+To remove an unassigned NagaLibre upload, open **Mouse memory → Macro storage**,
+read storage, select its row and choose **Delete selected macro…**. Its original
+upload journal is required. Button assignments and the local library are preserved;
+this selected-delete path remains unverified on hardware. Entries still in use or
+whose ownership cannot be established are refused.
+
 To switch to a slot's stored bindings, select it in the dropdown and click
 **Activate slot**. This leaves your draft and the stored bindings unchanged.
 The app reads the target, backs up the target and previous active slot, then

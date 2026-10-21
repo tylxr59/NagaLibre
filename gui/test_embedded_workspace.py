@@ -156,6 +156,45 @@ class EmbeddedWorkspaceTests(unittest.TestCase):
             self.assertEqual(panel.capacity.text(), 'Storage: unread')
             self.assertFalse(window.hardware_busy)
 
+    def test_selected_macro_deletion_releases_shared_helper_and_keeps_library_and_draft(self):
+        window = self.window
+        self.save_macro()
+        panel = window.macro_assignment
+        before = dict(window.current())
+        entries = list(window.macro_library_view.library.entries)
+        directory = Path(self.root.name) / 'backups/macros'
+        directory.mkdir(parents=True, mode=0o700)
+        source = directory / 'TEST-macro-1.journal.jsonl'
+        source.write_text('mock upload journal')
+        with patch.object(window.backend, 'send') as send, patch.object(window.backend, 'shutdown') as shutdown:
+            self.connect_fixture()
+            window.backend.macro_deletion = True
+            window.workspace.show_page(1)
+            panel.read()
+            state = self.macro_snapshot()
+            state['storage'].update(stored_count=1, entries=[{'id': 7, 'metadata': [0] * 250, 'data': [1, 5]}])
+            window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': state})
+            APP.processEvents()
+            panel.inventory.selectRow(0)
+            with patch.object(QMessageBox, 'question', return_value=QMessageBox.StandardButton.Yes):
+                panel.delete_selected_macro()
+            self.assertIs(window.active_editor, panel)
+            self.assertTrue(window.hardware_busy)
+            deletion = backup()
+            deletion.update(kind='onboard_macro_delete_backup', id=7, source_journal=str(source))
+            window.backend.event.emit({'type': 'macro_delete_prepared', 'token': '123', 'backup': deletion})
+            self.assertEqual(send.call_args.args[0]['command'], 'macro_delete_commit')
+            window.backend.event.emit({'type': 'macro_deleted', 'snapshot': self.macro_snapshot(), 'journal': send.call_args.args[0]['journal']})
+            APP.processEvents()
+            self.assertIsNone(window.active_editor)
+            self.assertFalse(window.hardware_busy)
+            self.assertTrue(window.workspace.buttons[3].isEnabled())
+            self.assertEqual(window.current(), before)
+            self.assertEqual(window.macro_library_view.library.entries, entries)
+            self.assertEqual(panel.inventory.rowCount(), 0)
+            self.assertIn('deleted from mouse', window.status.text())
+            shutdown.assert_called_once()
+
     def test_inline_macro_selector_fills_pane_and_save_reports_progress(self):
         window = self.window
         self.save_macro()
