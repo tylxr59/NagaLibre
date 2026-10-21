@@ -68,7 +68,7 @@ def hardware_buttons(profile):
         elif mode == "shortcut":
             action = keyboard_action(shortcut(button["value"]))
         else:
-            raise ValueError(f"Button {i+1} is a sequence. Use Onboard macros… for a journaled upload, or software mode for helper playback.")
+            raise ValueError(f"Button {i+1} is a sequence. Choose Macro in Customize for a journaled upload, or software mode for helper playback.")
         result.append({"button": i+1, **action})
     return result
 
@@ -93,7 +93,7 @@ def hardware_controls(profile):
         elif mode == "shortcut":
             action = keyboard_action(shortcut(button["value"]))
         else:
-            raise ValueError("Use Onboard macros… to upload a sequence for a wheel or scroll-mode control.")
+            raise ValueError("Choose Macro on the control in Customize to upload a saved sequence.")
         result.append({"button": definitions[index]["button"], **action})
     return result
 

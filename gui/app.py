@@ -25,6 +25,9 @@ from backend import Backend, backend_path
 from support import device_issue_url
 from workspace import Workspace, card, label as text_label
 from macro_editor import MacroEditor
+from macro_library_view import MacroLibraryWidget
+from macro_assignment import MacroAssignmentPanel
+from haptic import WheelPanel
 from model import (
     binding_label, config_path, default_button, display_key, load_profile,
     new_profile, reset_plate, runtime_config, save_profile, PROTECTED_INPUTS, DEVICE_MODELS, CONTROL_NAMES, default_control, keep_binding,
@@ -153,6 +156,8 @@ class Window(QMainWindow):
         context_layout = QVBoxLayout(context)
         context_layout.setContentsMargins(16, 12, 16, 12)
         layout.addWidget(context)
+        layout.insertWidget(1, self.workspace.device_tabs)
+        self.workspace.pages.currentChanged.connect(lambda index: context.setVisible(index != 3))
         connection = QHBoxLayout()
         self.device_label = QLabel("Looking for a supported Razer mouse…")
         self.device_label.setWordWrap(True)
@@ -172,7 +177,7 @@ class Window(QMainWindow):
         diagnostics.addLayout(support_row)
         self.status = QLabel("Offline · edit bindings, then connect to test.")
         self.status.setWordWrap(True)
-        self.status.setStyleSheet("padding: 10px; background: #24312f; border-radius: 6px; color: #8ce3cb;")
+        self.status.setStyleSheet("padding: 4px 0; color: #cccccc;")
         context_layout.addWidget(self.status)
         storage_row = QHBoxLayout()
         self.storage = QComboBox()
@@ -210,36 +215,20 @@ class Window(QMainWindow):
         self.memory_mode_hint = text_label("Onboard slots are available in Mouse memory mode. Change Draft destination above to manage them.", "muted")
         memory.addWidget(self.memory_mode_hint)
         memory.addStretch()
-        self.wheel_settings_button = QPushButton("Wheel settings…")
-        self.wheel_settings_button.setToolTip("Configure HyperScroll stages separately from button bindings. Opening stops software remaps.")
-        self.wheel_settings_button.clicked.connect(self.open_wheel_settings)
-        wheel_card, wheel_layout = card("HyperScroll Pro", "Choose the stages used by the scroll-mode button, reorder them and set the active stage. Wheel settings have their own read, save and backup flow.")
-        wheel_layout.addWidget(self.wheel_settings_button, 0, Qt.AlignmentFlag.AlignLeft)
-        scrolling.addWidget(wheel_card)
-        self.wheel_availability = text_label("Connect a wired Naga V2 Pro to configure wheel stages.", "muted")
-        scrolling.addWidget(self.wheel_availability)
-        scrolling.addWidget(text_label("Custom curves are read-only. Standard stages can be edited while preserving your existing Custom settings.", "muted"))
-        scrolling.addStretch()
-        self.onboard_macros_button = QPushButton("Open macro library…")
-        self.onboard_macros_button.setToolTip("Create local macros offline; assign saved sequences to mouse memory in Key Binds.")
-        self.onboard_macros_button.clicked.connect(self.open_onboard_macros)
-        macro_card, macro_layout = card("My Macros", "Create named macros, organize them in folders and reuse saved sequences. Key Binds assigns a saved macro to a mouse button with your chosen playback mode.")
-        macro_layout.addWidget(self.onboard_macros_button, 0, Qt.AlignmentFlag.AlignLeft)
-        macros.addWidget(macro_card)
-        self.macro_availability = text_label("Connect a wired Naga V2 Pro with its twelve-button plate to use native macros.", "muted")
-        macros.addWidget(self.macro_availability)
-        software_card, software_layout = card("Software sequences", "For sequences run by the background helper, choose Software as the draft destination, select a button in Customize and choose Macro sequence as its action.")
-        software_link = QPushButton("Go to button assignments")
-        software_link.clicked.connect(lambda: self.workspace.show_page(0))
-        software_layout.addWidget(software_link, 0, Qt.AlignmentFlag.AlignLeft)
-        macros.addWidget(software_card)
-        macros.addStretch()
+        self.wheel_panel = WheelPanel(self.path, self, self.backend)
+        self.wheel_panel.busyChanged.connect(self.wheel_busy_changed)
+        self.wheel_panel.layout().itemAt(1).layout().removeWidget(self.wheel_panel.restore_button)
+        self.wheel_panel.layout().itemAt(1).layout().addStretch()
+        recovery_layout.addWidget(self.wheel_panel.restore_button, 0, Qt.AlignmentFlag.AlignLeft)
+        scrolling.addWidget(self.wheel_panel, 1)
+        self.macro_library_view = MacroLibraryWidget(self.base_profile_path.parent / "macros.json", self)
+        macros.addWidget(self.macro_library_view, 1)
         context_layout.addLayout(storage_row)
         layout.addWidget(self.workspace.pages, 1)
         self.slot_summary = QLabel("Slot capacity: unread")
         self.slot_summary.setWordWrap(True)
         slot_layout.insertWidget(1, self.slot_summary)
-        self.memory_hint = QLabel("Each tile shows the stored binding and local draft. Save applies the 12 side-button drafts and explicitly edited wheel controls. Keep stored binding preserves a wheel control. Use the macro library’s Key Binds view to upload saved sequences separately.")
+        self.memory_hint = QLabel("Each tile shows the stored binding and local draft. Save applies the 12 side-button drafts and explicitly edited wheel controls. Keep stored binding preserves a wheel control. Choose Macro on a button to assign a saved sequence.")
         self.memory_hint.setWordWrap(True)
         self.memory_hint.setProperty("role", "muted")
         slot_layout.addWidget(self.memory_hint)
@@ -289,8 +278,9 @@ class Window(QMainWindow):
         self.reset_button.clicked.connect(self.reset_defaults)
         left_layout.addWidget(self.reset_button)
         columns.addWidget(left, 1)
-        editor = QGroupBox("Draft binding · local edits")
+        editor = QGroupBox("Button assignment")
         self.editor = editor
+        editor.setMaximumWidth(360)
         edit_layout = QVBoxLayout(editor)
         self.button_title = QLabel()
         self.button_title.setStyleSheet("font-size: 20px; font-weight: 600;")
@@ -303,6 +293,7 @@ class Window(QMainWindow):
         trigger_row = QHBoxLayout()
         self.trigger = QLineEdit()
         self.trigger.setReadOnly(True)
+        self.trigger.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.trigger.setPlaceholderText("Learn this button’s input")
         self.trigger.setToolTip("The key emitted by this physical button, e.g. KEY_1 or BTN_SIDE.")
         trigger_row.addWidget(self.trigger)
@@ -312,7 +303,7 @@ class Window(QMainWindow):
         form.addRow("Input", trigger_row)
         self.mode = QComboBox()
         self.mode.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        for label, data in [("Default / pass through", "default"), ("Keyboard key", "key"), ("Shortcut", "shortcut"), ("Macro sequence", "macro")]:
+        for label, data in [("Default / pass through", "default"), ("Keyboard key", "key"), ("Shortcut", "shortcut"), ("Macro", "macro")]:
             self.mode.addItem(label, data)
         self.mode.currentIndexChanged.connect(self.mode_changed)
         form.addRow("Action", self.mode)
@@ -348,9 +339,12 @@ class Window(QMainWindow):
         self.macro_summary = QLabel()
         self.macro_summary.setWordWrap(True)
         macro_layout.addWidget(self.macro_summary)
-        macro_button = QPushButton("Edit macro steps…")
-        macro_button.clicked.connect(self.edit_macro)
-        macro_layout.addWidget(macro_button)
+        self.macro_assignment = MacroAssignmentPanel(self.path, self.macro_library_view, self, backend=self.backend)
+        self.macro_assignment.manageRequested.connect(self.open_onboard_macros)
+        self.macro_assignment.softwareAssigned.connect(self.use_library_macro)
+        self.macro_assignment.busyChanged.connect(self.macro_busy_changed)
+        macro_layout.addWidget(self.macro_assignment)
+        memory.insertWidget(memory.count() - 1, self.macro_assignment.tools_widget)
         self.stack.addWidget(macro_page)
         self.mode.addItem("Factory default", "factory")
         factory_page = QLabel("Restore this control's default function. Click Save bindings to mouse to apply.")
@@ -371,7 +365,7 @@ class Window(QMainWindow):
         self.per_button_reset = per_button_reset
         per_button_reset.clicked.connect(self.reset_selected)
         edit_layout.addWidget(per_button_reset)
-        columns.addWidget(editor, 1)
+        columns.insertWidget(0, editor, 1)
         customize.addLayout(columns, 1)
         self.assignment_actions = QWidget()
         assignment_actions = QHBoxLayout(self.assignment_actions)
@@ -384,6 +378,9 @@ class Window(QMainWindow):
         footer_layout = QVBoxLayout(footer)
         footer_layout.setContentsMargins(14, 10, 14, 10)
         footer_layout.addLayout(actions)
+        context_layout.removeWidget(self.status)
+        footer_layout.addWidget(self.status)
+        self.workspace.pages.currentChanged.connect(lambda index: self.status.setVisible(index != 3))
         self.stop_button = QPushButton("Stop remapping")
         self.stop_button.clicked.connect(self.stop_remapping)
         actions.addWidget(self.stop_button)
@@ -397,7 +394,7 @@ class Window(QMainWindow):
         assignment_actions.addWidget(self.apply_button)
         actions.addWidget(self.assignment_actions, 1)
         layout.addWidget(footer)
-        self.workspace.pages.currentChanged.connect(lambda index: self.assignment_actions.setVisible(index == 0))
+        self.workspace.pages.currentChanged.connect(self.refresh_hardware_view)
         self.workspace.pages.currentChanged.connect(self.refresh_visible_assignments)
         stop_action = QAction("Stop remapping", self)
         stop_action.setShortcut("Escape")
@@ -775,7 +772,8 @@ class Window(QMainWindow):
             return
         button = self.editing_button if hasattr(self, "editing_button") else self.current()
         button["trigger"] = self.trigger.text().strip()
-        button["mode"] = self.mode.currentData()
+        if not (self.is_hardware() and self.mode.currentData() == "macro"):
+            button["mode"] = self.mode.currentData()
         if button["mode"] == "key":
             button["value"] = self.key_value.text().strip()
         elif button["mode"] == "shortcut":
@@ -866,25 +864,88 @@ class Window(QMainWindow):
             dialog.deleteLater()
 
     def open_wheel_settings(self):
-        from haptic import WheelDialog
-        self.run_hardware_editor(WheelDialog)
+        self.workspace.show_page(2)
+
+    def wheel_busy_changed(self, busy):
+        if busy:
+            self.commit_fields()
+            self.cancel_learning()
+            self.active_editor = self.wheel_panel
+            self.editor_faceplate = None
+            self.pending_config = self.pending_onboard = None
+            self.save_after_read = self.applying = False
+            self.snapshot = self.paired_snapshot = self.hardware_saved = None
+            self.set_hardware_busy(True)
+            self.workspace.set_navigation_enabled(False)
+        else:
+            QTimer.singleShot(0, self.finish_wheel_operation)
+
+    def finish_wheel_operation(self):
+        panel = self.wheel_panel
+        if panel.busy or self.active_editor is not panel:
+            return
+        if self.editor_faceplate is not None and self.backend.ready:
+            self.detected_plate(self.editor_faceplate)
+        self.editor_faceplate = None
+        self.active_editor = None
+        if panel.saved:
+            self.backend.shutdown()
+        self.set_hardware_busy(False)
+        self.workspace.set_navigation_enabled(True)
+        self.status.setText(panel.status.text())
+
 
     def open_onboard_macros(self):
-        from macro_workspace import MacroWorkspaceDialog
         self.commit_fields()
-        steps = self.current()["steps"] if self.current()["mode"] == "macro" else []
-        self.run_hardware_editor(MacroWorkspaceDialog, auto_read=False, library_path=self.base_profile_path.parent / "macros.json", steps=steps, button=self.selected + 1, layer=self.editing_layer())
+        self.workspace.show_page(3)
+        self.macro_library_view.search.setFocus()
+
+    def use_library_macro(self, entry):
+        self.current().update(mode="macro", steps=entry["steps"], value="")
+        self.macro_summary.setText(f"{entry['name']} · {len(entry['steps'])} steps · once per press")
+
+    def macro_busy_changed(self, busy):
+        panel = self.macro_assignment
+        if busy:
+            self.commit_fields()
+            self.cancel_learning()
+            self.active_editor = panel
+            self.editor_faceplate = None
+            self.pending_config = self.pending_onboard = None
+            self.save_after_read = self.applying = False
+            self.snapshot = self.paired_snapshot = self.hardware_saved = None
+            self.set_hardware_busy(True)
+            self.workspace.set_navigation_enabled(False)
+        else:
+            QTimer.singleShot(0, self.finish_macro_operation)
+
+    def finish_macro_operation(self):
+        panel = self.macro_assignment
+        if panel.busy or self.active_editor is not panel:
+            return
+        if self.editor_faceplate is not None and self.backend.ready:
+            self.detected_plate(self.editor_faceplate)
+        self.editor_faceplate = None
+        self.active_editor = None
+        self.set_hardware_busy(False)
+        self.workspace.set_navigation_enabled(True)
+        if panel.snapshot is not None:
+            active = panel.snapshot["guard"]["active"]
+            slot = active if panel.saved else panel.expected_slot
+            mapping = next((m for m in panel.snapshot["mappings"] if m["normal"]["slot"] == slot),
+                           next(m for m in panel.snapshot["mappings"] if m["normal"]["slot"] == active))
+            if panel.last_result == "macro_saved":
+                # Future ordinary saves must preserve this independently uploaded macro.
+                self.current().update(mode="keep", value="", steps=[])
+            self.on_event({"type": "onboard_layers_snapshot", "snapshot": mapping})
+            if panel.saved:
+                self.hardware_saved = active
+                self.backend.shutdown()
+        self.status.setText(panel.status.text())
+        self.refresh_hardware_view()
 
     def refresh_hardware_view(self, *args):
         hardware = self.is_hardware()
-        self.wheel_settings_button.setEnabled(not self.hardware_busy and self.backend.ready
-                                              and getattr(self.backend, "haptic_settings", False))
-        self.onboard_macros_button.setEnabled(not self.hardware_busy and self.active_editor is None)
-        self.wheel_availability.setText("Ready · open the wheel editor to read current stages. Opening the editor stops software remaps." if self.wheel_settings_button.isEnabled()
-                                        else "Connect a wired Naga V2 Pro to configure wheel stages." if not self.hardware_busy
-                                        else "Wait for the current mouse operation to finish.")
-        self.macro_availability.setText("Create and organize macros offline. In Key Binds, read the mouse before assigning a saved macro."
-                                        if not self.hardware_busy else "Wait for the current mouse operation to finish.")
         snapshot = self.current_snapshot()
         layer_visible = hardware and self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12"
         self.layer.setVisible(layer_visible)
@@ -894,7 +955,7 @@ class Window(QMainWindow):
         if self.supports_layers():
             self.memory_hint.setText("Normal bindings work normally; hold a button assigned to Hypershift to use the second layer. Save applies both drafts to the active slot. Keep stored binding preserves unknown actions. Use stored bindings as draft starts from the mouse's current assignments.")
         else:
-            self.memory_hint.setText("Save applies the normal draft. Connect by USB to edit Hypershift; secondary drafts are retained. Native sequences have their own editor in Macros.")
+            self.memory_hint.setText("Save applies the normal draft. Connect by USB to edit Hypershift; secondary drafts are retained. Choose Macro on a button to assign a saved sequence; edit sequences in Macros.")
         if self.snapshot is None:
             self.slot_summary.setText("Slot capacity: unread")
         elif self.snapshot.get("slot_capacity") is not None:
@@ -922,6 +983,11 @@ class Window(QMainWindow):
         if self.plate_detection in ("pending", "unknown"):
             self.apply_button.setEnabled(False)
             self.reset_button.setEnabled(False)
+        if hasattr(self, "assignment_actions"):
+            self.assignment_actions.setVisible(self.workspace.pages.currentIndex() == 0
+                and not (hardware and self.mode.currentData() == "macro"))
+        if hasattr(self, "macro_assignment") and not self.macro_assignment.busy:
+            self.refresh_macro_context()
         if hasattr(self, "stored_binding"):
             self.stored_binding.setVisible(hardware)
             if snapshot is None:
@@ -987,15 +1053,18 @@ class Window(QMainWindow):
             and self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12" and (not self.backend.ready or self.supports_layers()))
         self.mode.model().item(self.mode.findData("disabled")).setEnabled(self.is_hardware())
         self.mode.model().item(self.mode.findData("keep")).setEnabled(secondary or not self.is_hardware() or not self.backend.ready or self.supports_layers())
-        self.mode.model().item(self.mode.findData("macro")).setEnabled(not self.is_hardware())
+        self.mode.model().item(self.mode.findData("macro")).setEnabled(not self.is_hardware() or (self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12"))
         for mode, hidden in (("default", secondary), ("factory", secondary or index < 12 or not self.is_hardware()),
-                             ("hypershift", secondary or not self.is_hardware()), ("macro", self.is_hardware()),
+                             ("hypershift", secondary or not self.is_hardware()), ("macro", self.is_hardware() and (self.device_model["id"] != "naga_v2_pro" or self.profile["plate"] != "12")),
                              ("keep", not secondary and (index >= 12 or not self.is_hardware())),
                              ("disabled", not self.is_hardware())):
             self.mode.view().setRowHidden(self.mode.findData(mode), hidden)
         self.per_button_reset.setText("Keep stored for this button" if secondary else "Use default for this button")
         self.trigger.setText(button["trigger"])
-        self.mode.setCurrentIndex(self.mode.findData(button["mode"]))
+        selected_mode = button["mode"]
+        if self.is_hardware() and selected_mode == "keep" and self.stored_text(index).startswith("Macro "):
+            selected_mode = "macro"
+        self.mode.setCurrentIndex(self.mode.findData(selected_mode))
         self.stack.setCurrentIndex(self.mode.currentIndex())
         self.key_value.setText(button["value"] if button["mode"] == "key" else "")
         self.shortcut_value.setText(button["value"] if button["mode"] == "shortcut" else "")
@@ -1003,7 +1072,9 @@ class Window(QMainWindow):
         self.recorder.clear()
         self.recorder.blockSignals(False)
         self.macro_summary.setText(f"{len(button['steps'])} steps. Executes once per button press.")
+        self.macro_summary.setVisible(not self.is_hardware() and bool(button["steps"]))
         self.loading = False
+        self.refresh_macro_context()
         for i, tile in enumerate(self.tiles):
             tile.setChecked(i == index)
             tile.setText(self.tile_text(i))
@@ -1012,6 +1083,17 @@ class Window(QMainWindow):
 
     def mode_changed(self):
         self.stack.setCurrentIndex(self.mode.currentIndex())
+        if not self.loading and hasattr(self, "macro_assignment"):
+            self.refresh_macro_context()
+            self.refresh_hardware_view()
+
+    def refresh_macro_context(self):
+        snapshot = self.current_snapshot()
+        allowed = not self.is_hardware() or (self.backend.ready and getattr(self.backend, "onboard_macros", False)
+            and self.profile["plate"] == "12" and snapshot is not None and snapshot["slot"] == snapshot["active"])
+        self.macro_assignment.set_context(self.selected + 1, self.editing_layer(), software=not self.is_hardware(),
+            slot=self.slots.currentData(), allowed=allowed)
+
 
     def change_plate(self):
         self.commit_fields()
@@ -1250,6 +1332,9 @@ class Window(QMainWindow):
         return text
 
     def apply(self):
+        if self.is_hardware() and self.mode.currentData() == "macro":
+            self.macro_assignment.save()
+            return
         try:
             if self.plate_detection in ("pending", "unknown"):
                 raise ValueError("Wait for a supported faceplate to be detected before applying bindings.")
@@ -1345,6 +1430,10 @@ class Window(QMainWindow):
     def closeEvent(self, event):
         if self.active_editor is not None or self.hardware_busy:
             self.status.setText("Finish the hardware operation before closing NagaLibre.")
+            event.ignore()
+            return
+        if not self.macro_library_view.keep_changes():
+            self.quitting = False
             event.ignore()
             return
         self.commit_fields()

@@ -513,9 +513,9 @@ and cleanup. Receiver and legacy protocol paths retain their earlier behavior.
 
 ## HyperScroll Pro standard modes
 
-Use **Wheel settings…** in the GUI for Standard, Distinct, Ultra-fine, Adaptive
+Use **Mouse → Scrolling** in the GUI for Standard, Distinct, Ultra-fine, Adaptive
 and Smooth Scroll. Wired Naga V2 Pro and its twelve-button plate are required.
-The dialog supports enabled cycle order, active mode, draft-only defaults and
+The editor supports enabled cycle order, active mode, draft-only defaults and
 stage-backup restoration. It preserves existing Custom curves/metadata and
 button bindings. See [the desktop wheel guide](WHEEL.md).
 

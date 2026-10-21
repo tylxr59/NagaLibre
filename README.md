@@ -134,20 +134,20 @@ cargo build --release --locked
 
 ## Set up your buttons
 
-The sidebar groups tasks into **Customize**, **Mouse memory**, **Scrolling**,
-**Macros** and **Diagnostics**. Connection status, draft destination and the
-selected mouse slot stay at the top. Changing pages keeps your edits; it does
-not write to the mouse. Stored assignments refresh when needed on Customize or
-Mouse memory; other pages skip that refresh.
+The sidebar contains **Mouse**, **Macros** and **Diagnostics**. Under Mouse,
+**Customize**, **Scrolling** and **Mouse memory** share the device/profile bar.
+Changing pages keeps your edits and does not write to the mouse. Stored assignments
+refresh when needed on Customize or Mouse memory; other pages skip that refresh.
 
-Use **Customize** for the button grid and draft editor. **Mouse memory** holds
-slot reading, activation, creation and backup restoration. **Scrolling** opens
-the wheel editor; **Macros** opens native sequence storage and playback.
-**Diagnostics** contains connection logs and the device support form.
-**Save draft** only saves local edits; the separate apply/save-to-mouse button
-activates them. **Stop remapping** and the Esc shortcut remain available on every page.
-
-### Save bindings on the mouse
+Use **Mouse → Customize** for the button grid and assignment pane. Choose a button,
+then its action, including **Macro** for a saved library sequence. **Mouse memory**
+holds slot management, backups and macro inventory/recovery. **Scrolling** contains
+the wheel-stage editor directly. **Macros** contains the local library and sequence
+editor directly; no connection is needed to author sequences. **Diagnostics**
+contains connection logs and the device support form.
+**Save draft** saves local binding edits; apply/save-to-mouse activates them.
+For native macro assignments, use **Save macro to mouse** in the selected button's
+pane. **Stop remapping** and Esc remain available outside an in-flight transaction.
 
 1. Connect the mouse by USB and choose **Mouse memory** as the draft destination.
 2. Click **Connect mouse**, then select an existing slot. Use **Mouse memory → Read slots** to refresh it.
@@ -165,7 +165,7 @@ The app saves a backup before writing and reads the result back to check it.
 After a successful save, it stops the helper. Saved bindings then work without
 NagaLibre running.
 
-Create reusable local sequences in **Macros → Open macro library… → My Macros** without connecting the mouse. Save the macro, then use **Key Binds → Read mouse** to choose its button and playback and upload it with journaled undo. Representative wired uploads, playback and desktop undo have passed physical
+Create reusable local sequences directly in **Macros** without connecting the mouse. Save the macro, then select a button in **Mouse → Customize**, choose **Macro**, select the sequence and playback, and use **Save macro to mouse** for a journaled upload. Representative wired uploads, playback and desktop undo have passed physical
 tests; support remains experimental, with an intermittent activation issue under
 investigation. See [the macro guide](docs/MACROS.md)
 for supported steps, storage limits and recovery.

@@ -13,29 +13,28 @@ byte verification alone does not prove that a newly saved timeline is active.
 
 ## Create a macro
 
-1. Open **Macros → Open macro library… → My Macros**. No mouse connection or authentication is needed to author macros.
+1. Open **Macros**. No mouse connection or authentication is needed to author macros.
 2. Choose **New macro**, enter a name, and use **Add step** to enter keys, shortcuts and delays. Edit, remove or reorder rows directly.
 3. Choose a folder or type a new folder name, then **Save macro**. Search, rename through the Name field, duplicate or delete local macros from this view.
 4. Connect a wired Naga V2 Pro with its twelve-button plate. Select and activate the intended slot in Mouse memory.
-5. In the library, open **Key Binds** and choose **Read mouse**. Choose a saved macro, button, Normal or Hypershift layer and playback mode. Repeat count appears for counted playback only.
-6. Choose **Save to mouse** to upload a fresh entry and assign it to the selected button in the active slot.
+5. Open **Mouse → Customize**, choose the Normal or Hypershift layer and select a grid button or supported extra control. Choose **Macro** as its action, then select a saved macro and playback. Repeat count appears for counted playback only.
+6. Choose **Save macro to mouse** in that button’s pane. The app reads macro storage, prepares a fresh upload, saves the backup and assigns it to that button in the active slot. It reuses the connected helper.
 
 The reusable library is stored in `macros.json` beside the main `profiles.json`
 (by default `~/.config/NagaLibre/`). It is shared across device profiles.
-**Save macro** changes only the local library. Key Binds uses the saved version;
+**Save macro** changes only the local library. Button assignment uses the saved version;
 unsaved editor changes are not uploaded. Local edits and deletion never change
-existing mouse allocations. Closing or switching macros offers Save, Discard or
-Cancel for unsaved edits. A corrupt or concurrently changed library is not overwritten.
+existing mouse allocations. Switching library entries or quitting offers Save, Discard or
+Cancel for unsaved edits. Navigating between pages keeps the current draft. A corrupt or concurrently changed library is not overwritten.
 
-In Key Binds, **On mouse** shows read-only stored inventory and storage usage.
+Under **Mouse → Mouse memory → Macro storage**, **Refresh mouse** reads the macro inventory and **On mouse** shows storage usage and stored entries.
 **Details** contains support notes, backup/journal paths and operation logs.
 **Undo upload…** restores a saved transaction through its recovery journal.
 
-Opening the library copies the selected button's draft sequence when present.
 Library navigation does not start or stop the helper. Device operations share the
 main window's authenticated helper; software remapping stops when storage is read.
 Successful uploads and undo still end the helper session.
-The ordinary **Save bindings to mouse** action does not upload macro drafts.
+In Software mode, the same Macro action selects a saved sequence with **Use macro**; **Apply bindings** runs it once per press through the helper. The ordinary **Save bindings to mouse** action does not upload macro drafts.
 Primary clicks are never available as mapping targets. This editor does not yet
 provide event recording or import/export.
 

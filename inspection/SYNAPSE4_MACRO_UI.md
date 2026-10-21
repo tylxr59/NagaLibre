@@ -94,7 +94,7 @@ and [macro creation guide](https://mysupport.razer.com/app/answers/detail/a_id/1
 corroborate the create/save-first, select-macro/playback-second workflow. These
 documents are corroboration, not substitutes for inspecting the Synapse 4 assets.
 
-## Comparison with NagaLibre's current redesign
+## Comparison before the library and device-layout passes
 
 | Concern | Synapse 4 evidence | Current NagaLibre |
 | --- | --- | --- |
@@ -118,3 +118,5 @@ catalog would be a new NagaLibre feature, not a claim that reusing, editing or
 deleting arbitrary existing firmware entries has been implemented. This follow-up
 changes research documentation only; it does not add a recorder or change the
 already implemented upload/backup/undo contract.
+
+The subsequent [Device167 layout pass](SYNAPSE4_LAYOUT.md) traces the actual device frontend and corrects assignment placement: Macros now embeds authoring, while Customize assigns a saved macro to the selected physical button.

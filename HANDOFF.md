@@ -3,6 +3,58 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Device layout and inline assignment pass (2026-10-21)
+
+The user flagged that Macros was a launcher for another window and that macro
+assignment was detached from the selected grid button. They explicitly requested
+actual Synapse 4 binary inspection and closer organization across the supported UI.
+Re-read the retained `app-engine.exe`/ASAR package and embedded production routes;
+followed the dashboard's product-window URL to the actual **Device167 Naga V2 Pro**
+frontend. Inspected its main JS/CSS, lazy ButtonPanelComponent, shared drawer chunk
+and device-specific MapMacro chunk. Hashes, route provenance, state/property and
+CSS anchors, corroboration and limits are in
+[inspection/SYNAPSE4_LAYOUT.md](inspection/SYNAPSE4_LAYOUT.md). Payloads remain ignored.
+No Windows code, downloaded frontend code or hardware requests were executed.
+
+The sidebar now groups Mouse, Macros and Diagnostics. Mouse has local Customize,
+Scrolling and Mouse memory tabs sharing a device/slot bar. The assignment pane is
+left of the physical grid. Colors/selection accents follow the inspected neutral
+dark/green styling; branding remains independent. Unsupported Razer features and
+proprietary artwork/fonts are not introduced. Macros contains the persistent
+library/event editor itself (`gui/macro_library_view.py`), with no launcher or
+Key Binds window; the previous `gui/macro_workspace.py` is removed. Navigation keeps
+unsaved authoring; switching library entries or quitting handles Save/Discard/Cancel.
+
+Macro is available directly on supported hardware grid/extra-control assignments
+and on software buttons. `gui/macro_assignment.py` selects the saved library entry
+and playback for the already selected button/layer. Native Save reads storage then
+prepares the existing fresh-upload transaction; no duplicate target selector or
+manual read-before-save step. The selected active slot must still match readback.
+Unsaved library changes are never uploaded. Firmware assignment remains separate
+from the ordinary key-binding draft/writer; a successful upload makes that button's
+ordinary draft Keep stored so a later bulk save preserves it. Main tiles receive
+actual final paired readback and retain it through the intentional helper exit.
+Software Use macro copies the saved steps into that button's software draft, with
+once-per-press playback. No new firmware macro modes/editing/deletion are implied.
+
+Scrolling now embeds `WheelPanel` rather than launching another window. Its
+existing stage transaction is unchanged. Macro inventory/undo and wheel backup
+restoration are under Mouse memory; expanded details remain optional. Embedded
+panels borrow the shared helper only while busy, block conflicting navigation/
+close, restore ownership on completion/failure and stop the helper on successful
+firmware save/undo. Disconnect/error clears a pending macro upload so a later
+inventory read cannot accidentally resume it. Library navigation sends no helper
+requests and leaves software output alone.
+
+All 208 Python/Qt tests passed, including new embedded navigation, saved-version
+software/native assignment, selected Hypershift/DPI-control targeting, private
+backup-before-commit, stale active slot, backup failure, disconnect cancellation,
+quit cancellation and inline wheel ownership/deferred refresh. Existing persistence,
+protocol-fixture, transaction/rollback and shared-helper tests remain covered.
+Offscreen normal/minimum-size views were inspected; the library retains visible
+save controls at 920x640, with its own event/tree scrolling. Whitespace checks
+passed. Rust/device protocol is unchanged. No live mouse testing was performed.
+
 ## Persistent macro library and separate assignment (2026-10-21)
 
 Implemented the Synapse 4 research direction in `gui/macro_library.py` and

@@ -8,8 +8,8 @@ from unittest.mock import patch
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QMessageBox
 from macro_library import MacroLibrary
-from macro_workspace import MacroWorkspaceDialog
-from test_macro_storage import APP, MockBackend, snapshot
+from macro_library_view import MacroLibraryWidget
+from test_macro_storage import APP, MockBackend
 
 
 class MacroLibraryTests(unittest.TestCase):
@@ -53,7 +53,7 @@ class MacroWorkspaceTests(unittest.TestCase):
     def tearDown(self):
         with patch.object(QMessageBox, 'question', return_value=QMessageBox.StandardButton.Discard):
             for widget in APP.topLevelWidgets():
-                if isinstance(widget, MacroWorkspaceDialog):
+                if isinstance(widget, MacroLibraryWidget):
                     widget.busy = False
                     widget.close()
                     widget.deleteLater()
@@ -65,7 +65,7 @@ class MacroWorkspaceTests(unittest.TestCase):
             backend = MockBackend()
             backend.ready = False
             with patch.object(backend, 'start') as start:
-                dialog = MacroWorkspaceDialog(Path(root) / 'profiles.json', backend=backend)
+                dialog = MacroLibraryWidget(Path(root) / 'macros.json')
                 dialog.name.setText('Copy')
                 dialog.folder.setCurrentText('Editing')
                 dialog.steps = [{'chord': ['KEY_LEFTCTRL', 'KEY_C']}]
@@ -79,46 +79,34 @@ class MacroWorkspaceTests(unittest.TestCase):
                 self.assertEqual(len(dialog.library.entries), 2)
                 self.assertEqual(backend.messages, [])
                 start.assert_not_called()
-                dialog.reject()
-                reopened = MacroWorkspaceDialog(Path(root) / 'profiles.json', backend=backend)
+                dialog.close()
+                reopened = MacroLibraryWidget(Path(root) / 'macros.json')
                 self.assertEqual(len(reopened.library.entries), 2)
-                self.assertEqual(reopened.macro_choice.count(), 2)
-                self.assertFalse(reopened.save_button.isEnabled())
+                self.assertEqual(reopened.tree.topLevelItemCount(), 1)
+                self.assertEqual(reopened.library.entries[0]["folder"], "Editing")
 
-    def test_assignment_uses_saved_version_and_keeps_transaction_contract(self):
+    def test_unsaved_sequence_edits_leave_saved_assignment_source_intact(self):
         with tempfile.TemporaryDirectory() as root:
-            backend = MockBackend()
-            dialog = MacroWorkspaceDialog(Path(root) / 'profiles.json', backend=backend)
-            dialog.name.setText('Saved')
-            dialog.steps = [{'tap': 'KEY_A'}]
-            self.assertTrue(dialog.save_local())
-            dialog.name.setText('Unsaved')
-            dialog.steps = [{'tap': 'KEY_B'}]
-            dialog.tabs.setCurrentIndex(1)
-            self.assertEqual(backend.messages, [])
-            dialog.read()
-            self.assertEqual([m['command'] for m in backend.messages], ['faceplate', 'macro_read'])
-            dialog.on_event({'type': 'macro_snapshot', 'snapshot': snapshot()})
-            dialog.save()
-            request = backend.messages[-1]
-            self.assertEqual(request['command'], 'macro_prepare')
-            self.assertEqual(request['request']['name'], 'Saved')
-            self.assertIn('KEY_A', request['config'])
-            self.assertNotIn('KEY_B', request['config'])
-            self.assertFalse(dialog.local_save.isEnabled())
-            self.assertNotIn('macro_commit', [m['command'] for m in backend.messages])
+            view = MacroLibraryWidget(Path(root) / 'macros.json')
+            view.name.setText('Saved')
+            view.steps = [{'tap': 'KEY_A'}]
+            self.assertTrue(view.save_local())
+            view.name.setText('Unsaved')
+            view.steps = [{'tap': 'KEY_B'}]
+            self.assertEqual(view.library.entries[0]['name'], 'Saved')
+            self.assertEqual(view.library.entries[0]['steps'], [{'tap': 'KEY_A'}])
 
     def test_unsaved_cancel_preserves_draft_and_discard_restores_saved_macro(self):
         with tempfile.TemporaryDirectory() as root:
-            dialog = MacroWorkspaceDialog(Path(root) / 'profiles.json', backend=MockBackend())
+            dialog = MacroLibraryWidget(Path(root) / 'macros.json')
             dialog.steps = [{'tap': 'KEY_A'}]
             dialog.save_local()
             dialog.steps = [{'tap': 'KEY_B'}]
             with patch.object(QMessageBox, 'question', return_value=QMessageBox.StandardButton.Cancel):
                 dialog.new_macro()
-                dialog.reject()
+                dialog.close()
             self.assertEqual(dialog.steps, [{'tap': 'KEY_B'}])
-            self.assertTrue(dialog.backend_attached)
+            self.assertNotEqual(dialog.draft_state(), dialog.baseline)
             dialog.discard_changes()
             self.assertEqual(dialog.steps, [{'tap': 'KEY_A'}])
 
@@ -126,9 +114,9 @@ class MacroWorkspaceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / 'macros.json'
             path.write_text('{broken')
-            dialog = MacroWorkspaceDialog(Path(root) / 'profiles.json', backend=MockBackend())
+            dialog = MacroLibraryWidget(Path(root) / 'macros.json')
             self.assertFalse(dialog.local_save.isEnabled())
             self.assertFalse(dialog.save_local())
             self.assertEqual(path.read_text(), '{broken')
-            dialog.reject()
-            self.assertFalse(dialog.backend_attached)
+            dialog.close()
+            self.assertTrue(dialog.close())

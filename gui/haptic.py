@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import struct
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
@@ -358,3 +358,44 @@ class WheelDialog(QDialog):
             self.status.setText("Wait for the wheel operation to finish before closing.")
             return
         super().closeEvent(event)
+
+
+class WheelPanel(WheelDialog):
+    """Persistent device-tab editor; takes helper ownership only for an operation."""
+    busyChanged = Signal(bool)
+
+    def __init__(self, profile_path, parent=None, backend=None):
+        super().__init__(profile_path, parent, backend, shared=True)
+        self.setWindowFlags(Qt.WindowType.Widget)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        self.close_buttons.hide()
+        self.log.hide()
+        self.stages.setMinimumHeight(130)
+        self.stages.setMaximumHeight(150)
+        self.status.setText('Read the mouse to configure wheel stages.')
+        details = self.details_button.parentWidget()
+        details.layout().removeWidget(self.details_button)
+        self.layout().removeWidget(details)
+        self.layout().insertWidget(5, self.details_button)
+        self.layout().insertWidget(6, details)
+        details.hide()
+        self.details_button.toggled.connect(details.setVisible)
+        self.details_button.toggled.connect(self.log.setVisible)
+        self.save_button.setProperty('role', 'primary')
+
+    def set_busy(self, value):
+        previous = getattr(self, 'busy', False)
+        super().set_busy(value)
+        if value != previous:
+            self.busyChanged.emit(value)
+
+    def connected(self, ready):
+        if self.busy or not ready:
+            super().connected(ready)
+
+    def on_event(self, message):
+        if self.busy:
+            super().on_event(message)
+        elif message.get('type') == 'faceplate':
+            self.snapshot = None
+            self.set_busy(False)

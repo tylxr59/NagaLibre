@@ -96,12 +96,13 @@ class SharedHelperTests(unittest.TestCase):
                         self.assertTrue(window.backend.ready)
                         return 0
 
-                    with patch.object(OnboardMacrosDialog, "exec", new=visit):
-                        window.open_onboard_macros()
+                    window.open_onboard_macros()
+                    self.assertEqual(window.workspace.pages.currentIndex(), 3)
                     self.wait(lambda: window.snapshot is not None and not window.hardware_busy)
                     self.assertEqual(window.buttons()[0]["value"], "B")
                     with patch.object(WheelDialog, "exec", new=visit):
-                        window.open_wheel_settings()
+                        window.run_hardware_editor(WheelDialog)
+                    window.workspace.show_page(0)
                     self.wait(lambda: window.snapshot is not None and not window.hardware_busy)
                     self.assertIsNone(window.active_editor)
                     self.assertEqual(window.backend.process.processId(), pid)
@@ -120,18 +121,12 @@ class SharedHelperTests(unittest.TestCase):
             window.applying = True
             window.pending_config = 'pending software configuration'
 
-            def visit(dialog):
-                self.assertFalse(dialog.hardware_accessed)
-                self.assertTrue(window.applying)
-                dialog.reject()
-                return 0
-
             try:
-                self.assertTrue(window.onboard_macros_button.isEnabled())
                 with patch.object(window.backend, 'start') as start, \
-                     patch.object(window.backend, 'send') as send, \
-                     patch.object(OnboardMacrosDialog, 'exec', new=visit):
+                     patch.object(window.backend, 'send') as send:
                     window.open_onboard_macros()
+                    self.assertEqual(window.workspace.pages.currentIndex(), 3)
+                    self.assertIsNone(window.active_editor)
                     start.assert_not_called()
                     send.assert_not_called()
                 self.assertTrue(window.applying)

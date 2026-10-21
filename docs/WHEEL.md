@@ -21,9 +21,8 @@ verification remains outstanding. Receiver/Bluetooth wheel programming is disabl
 
 1. Build the source engine with `cargo build --release --locked`, then launch
    NagaLibre using the normal unprivileged launcher.
-2. Connect/rescan the mouse and open **Wheel settings…**. Opening this dialog
-   stops software remaps and releases their held outputs/grabs.
-3. Read the wheel. **Stored** shows the active slot, current mode and cycle order.
+2. Connect/rescan the mouse and open **Mouse → Scrolling**. The wheel editor is part of this tab.
+3. Choose **Read wheel**. Reading stops software remaps and releases held outputs/grabs. **Stored** shows the active slot, current mode and cycle order.
 4. Check the standard modes to include in cycling, drag them into the desired
    order, and choose the active mode. The description follows your choice.
    These edits change only the local draft.
@@ -33,11 +32,10 @@ verification remains outstanding. Receiver/Bluetooth wheel programming is disabl
 
 Keep at least one standard mode enabled. An unchanged draft does not write.
 Invalid selections keep the last read so you can correct the draft. Unknown
-stored stages make the dialog read-only rather than dropping them.
+stored stages make the editor read-only rather than dropping them.
 
 A successful save stops the helper and leaves the selection on the mouse.
-Click **Read wheel** before another save. After closing the dialog, reconnect
-through the main window if you want to read/edit button bindings again. Check
+Click **Read wheel** before another save. Reconnect through the device bar if you want to read/edit button bindings again. Check
 physical feel, scrolling and primary clicks separately from reported readback.
 
 **Use wheel stage defaults as draft** enables the five standard modes in their
@@ -46,7 +44,7 @@ does not reset button bindings. Existing Custom entries remain preserved.
 
 ## Backups and failures
 
-Wheel stage backups are separate from binding backups. **Restore wheel backup…**
+Wheel stage backups are separate from binding backups. **Mouse → Mouse memory → Backup & recovery → Restore wheel backup…**
 accepts the wheel transaction format and restores captured selection/order.
 It does not restore firmware, generate curves or restore unknown macro contents.
 Backups are stored privately beside your profile under `backups/`; retain them.
