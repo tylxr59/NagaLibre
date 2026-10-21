@@ -166,8 +166,7 @@ After a successful save, it stops the helper. Saved bindings then work without
 NagaLibre running.
 
 Create reusable local sequences directly in **Macros** without connecting the mouse. Save the macro, then select a button in **Mouse → Customize**, choose **Macro**, select the sequence and playback, and use **Save macro to mouse** for a journaled upload. Representative wired uploads, playback and desktop undo have passed physical
-tests; support remains experimental, with an intermittent activation issue under
-investigation. See [the macro guide](docs/MACROS.md)
+tests for the wired twelve-button scope; broader combinations remain experimental. See [the macro guide](docs/MACROS.md)
 for supported steps, storage limits and recovery.
 
 To remove an unassigned NagaLibre upload, open **Mouse memory → Macro storage**,

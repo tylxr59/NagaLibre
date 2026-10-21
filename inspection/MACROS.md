@@ -25,8 +25,10 @@ Addresses below are PE RVAs, relative to preferred base `10000000`.
 
 The native transport framing, storage lifecycle, compact event representation
 and binding conversion are now recovered at the host level. Wired capacity/count
-getters have succeeded; contents, device timing bounds, physical playback and
-persistence remain unverified. Finding a host encoder does not establish that every
+and nonempty content getters have succeeded. Representative wired playback,
+modifier release, USB reconnect and scoped recovery passed physical trials;
+arbitrary contents, precise timing bounds and power-cycle persistence remain
+unverified. Finding a host encoder does not establish that every
 encoded event works autonomously on this mouse.
 
 `onboard-macros` implements only direct getters, initially wired/normal mode with
@@ -282,8 +284,9 @@ toggle, held and sequence to those named JSON actions. The shared UI enum
 `PlayBackOptionType` has values once=0, multiple=1, toggle=2, held=3, sequence=4.
 Do not confuse this UI enum, the generic mapping bridge enum and the storage
 selectors above. Count-zero behavior, actual release/cancel semantics, sequence
-stepping, turbo and repeat-rate controls remain unverified. No playback mode is
-exposed for hardware writing yet.
+segmentation, turbo and repeat-rate controls remain incompletely established.
+Once, counted, held, toggle and sequence are now exposed through the scoped
+transaction; representative trials are recorded in HANDOFF.md.
 
 ## Offline compiler and content checkpoints
 
@@ -401,7 +404,8 @@ Shift down, B down, wait80ms, B up, Shift up, wait120ms, C down, wait80ms,
 C up, wait120ms. Ten expanded events and exact sequence/metadata readback matched
 the plan. Original zero entries and paired mappings/echoes were restored exactly.
 Manual lowercase-d verification was not explicitly recorded. The activation
-failure remains open; do not infer successful live playback from getters alone.
+observation is retained as test history; do not infer successful live playback
+from getters alone.
 
 Rechecking wired RVA58810,247c0,2f020 found no added finalize command on the
 examined successful upload path. Reconnect fixing playback suggests a live-state
@@ -417,3 +421,13 @@ unexplained. The user then completed the desktop save/full-app-exit/B-playback/
 primary-click/reopen/undo flow successfully. Private GUI backup presence and
 scope were checked by the agent; the helper-owned journal remains protected,
 and no independent post-GUI hardware read was performed by the agent.
+
+### #4 closeout
+
+The user accepted completion of #4 on 2026-10-21 and removed the initial activation
+observation as an open blocker after the successful shortcut retest and desktop
+save/app-exit/playback/restore trial. Its historical evidence above is preserved;
+no cause or corrective protocol change is claimed. The completed scope is the
+implemented wired V2 Pro/twelve-button path with representative physical evidence.
+Selected-owned deletion, broader target/layer/timeline combinations and explicit
+power-cycle coverage keep their separately stated verification limits.

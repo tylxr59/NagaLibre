@@ -3,6 +3,35 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## TODO #4 closed (2026-10-21)
+
+The user accepted completion after the successful CLI playback/shortcut trials
+and desktop save/app-exit/playback/restore test, explicitly requesting removal of
+the earlier intermittent activation observation as an open blocker. TODO #4 is
+now complete for its implemented wired V2 Pro/twelve-button scope. Do not resume
+that investigation or request more #4 hardware tests automatically. Historical
+observations below remain evidence; no root-cause fix is claimed or invented.
+The old "open"/"pending" statements in earlier session entries are superseded by
+this closeout. Next roadmap feature is #5 unless the user selects other work;
+Custom haptic editing remains deferred.
+
+Completed functionality includes native compilation, fresh uploads, all five
+playback encodings, inventory/capacity, durable backup and ownership recovery,
+local authoring/assignment and desktop macro storage tools. Representative wired
+trials cover once, count3, held repetition, toggle start/stop, sequence progression,
+shortcut output/modifier release, primary clicks, helper/app exit, USB reconnect
+and scoped exact recovery. Desktop physical evidence applies to the tested UI
+version; subsequent library/bindings/selected-delete changes have automated tests
+and retain the separate physical limits documented in their entries below.
+Explicit power-cycle checks, broader targets/layers/timelines, existing shared
+contents and selected-owned deletion are not thereby promoted to hardware verified.
+Scope limitations remain documented and broader coverage belongs under #9.
+
+Final validation: 187 Rust and 230 Python/Qt tests passed. Formatting, Clippy with
+warnings denied, debug/release builds, example config validation and whitespace
+checks passed. Closeout changes remove the active warning and reconcile roadmap,
+user docs and research status; no protocol changes or live mouse requests occurred.
+
 ## Synapse 4 macro lifecycle and linked views (2026-10-21)
 
 At the user's request, re-fetched the current Macro/Device167 entry pages and
@@ -435,7 +464,7 @@ limitations below still apply.
 
 ## Current checkpoint and next chat
 
-**Current work is TODO #4: onboard macros and richer playback.** Software
+**Historical implementation checkpoint for TODO #4 (now closed).** Software
 implementation now includes the native compiler/planner, journaled fresh uploads,
 readback-before-binding, original-only recovery and a dedicated Qt dialog with
 inventory, playback controls, durable backup and undo. Hardware testing resumed
@@ -448,9 +477,9 @@ The repeated Shift+B/C shortcut passed immediate output and explicit modifier
 release. The desktop save/app-exit/playback/undo flow also passed per the user's
 physical observations. Mouse outputs, explicit power-cycle persistence and other
 target/layer combinations remain unverified. Custom haptic implementation remains deferred; static research below
-is separate. No macro allocation is currently pending cleanup. The first shortcut trial failed
-immediate playback but worked after USB reconnect; investigate the open issue below
-before declaring #4 complete.
+is separate. No macro allocation was pending cleanup after these trials. TODO #4
+has since been closed at the user's request; the earlier shortcut observation is
+historical and no longer an open blocker.
 
 ## Macro hardware trial: readback and recovery passed (2026-10-21)
 
@@ -527,7 +556,7 @@ The controlled trial now has `--timeline shortcut` (once only): Shift+B, wait,
 unmodified C. It requests `Bc` plus a manually typed lowercase d to check modifier
 release. Next is that richer native timeline before desktop physical validation.
 
-### Open macro issue: shortcut inactive until USB reconnect
+### Historical shortcut observation: inactive until USB reconnect
 
 The first shortcut trial (`--playback once --timeline shortcut`) did not produce
 output before reconnect. After USB reconnect, the same uploaded timeline emitted
@@ -556,7 +585,7 @@ passed. Evidence: `~/.config/NagaLibre/macro-trial-1792593866545586390/`. The ag
 independently verified original zero entries, scoped mappings/echoes and guard
 from recovered.json. This establishes working modifier/chord output and release
 for this run, but does not explain or erase the first run's activation failure.
-Treat it as intermittent/unresolved until its cause is established. No allocation
+It was kept open during testing, then closed as a blocker at the user's request. No allocation
 is pending. Next is the desktop physical save/app-exit/undo flow using a single B
 tap and its automatically created private journal.
 
@@ -574,8 +603,8 @@ post-GUI inventory read or journal audit. The UI's successful undo reports the
 engine's scoped recovery verification, and no cleanup failure was reported.
 
 Representative #4 software and desktop functionality are now physically exercised.
-Keep the first intermittent shortcut activation failure open; its successful
-retest is not a fix. Remaining coverage includes explicit power cycling, native
+The first shortcut observation remains in the test history; the user later
+removed it as a blocker. No root-cause fix is claimed. Remaining coverage includes explicit power cycling, native
 mouse outputs, broader targets/layers, existing shared content and more timing/
 sequence boundaries. No new live hardware request was sent by the agent here.
 

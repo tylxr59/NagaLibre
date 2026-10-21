@@ -6,10 +6,9 @@ The implementation is experimental. Small wired timelines have passed native
 upload/readback, once, counted (3), held and toggle playback, primary-click checks,
 USB reconnect and exact cleanup. Other timelines, targets and layer combinations
 still need verification.
-A shortcut timeline (Shift+B, then C) failed to play immediately after upload but
-worked after USB reconnect. A repeat passed immediately and confirmed modifier
-release, but the first activation failure remains unexplained. Stored
-byte verification alone does not prove that a newly saved timeline is active.
+The shortcut trial also confirmed Shift+B followed by unmodified C and explicit
+modifier release. Stored-byte verification and physical output are separate
+checks; test a newly saved timeline in its intended application.
 
 ## Create a macro
 

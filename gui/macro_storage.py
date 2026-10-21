@@ -227,7 +227,7 @@ class OnboardMacrosDialog(QDialog):
         detail_layout = QVBoxLayout(self.details_panel)
         detail_layout.setContentsMargins(0, 0, 0, 0)
         note = QLabel("Experimental native macros · wired Naga V2 Pro, twelve-button plate. "
-                      "Representative playback and undo have been tested. Immediate activation can be intermittent; "
+                      "Representative playback and undo have been tested; "
                       "see docs/MACROS.md for current support and recovery.")
         note.setWordWrap(True)
         detail_layout.addWidget(note)

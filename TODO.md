@@ -117,7 +117,7 @@ Goal: a secondary assignment layer available while holding a designated button.
 
 Goal: configure wheel feel, beyond remapping the scroll-mode button.
 **Standard modes are implemented. Custom editing is deferred at the user's request.**
-Continue with #4 next; do not resume Custom hardware experiments automatically.
+Custom remains deferred; #4 is complete. Continue with #5 when roadmap work resumes.
 
 - [x] Research and read-only capture: wired native formats, preset names, mixed
       endian fields, table chunking, stage IDs versus enabled-list positions,
@@ -154,11 +154,11 @@ Continue with #4 next; do not resume Custom hardware experiments automatically.
       changed parameter at a time with physical/reconnect/restoration observations.
       Synapse's 0–100 tension and8–96 steps are UI ranges, not proven device bounds.
 
-## 4. Onboard macros and richer playback
+## 4. Onboard macros and richer playback (complete)
 
-Implemented and experimental on wired V2 Pro with its twelve-button plate.
-Representative CLI and desktop hardware trials passed; an intermittent activation
-failure remains unresolved. See [the macro guide](docs/MACROS.md) and
+Complete for the implemented wired V2 Pro/twelve-button scope. Representative
+CLI and desktop hardware trials passed. Broader coverage remains experimental.
+See [the macro guide](docs/MACROS.md) and
 [protocol evidence](inspection/MACROS.md).
 
 - [x] Research: inventory, capacity, IDs, compact events, delays, metadata,
@@ -184,13 +184,15 @@ failure remains unresolved. See [the macro guide](docs/MACROS.md) and
       A repeated Shift+B/C trial passed Bc and manual lowercase d, confirming
       modifier release. The earlier held trial reported no failure, but its saved
       wording did not explicitly describe cessation on release.
-- [ ] Investigate intermittent initial activation: first shortcut upload did
-      nothing until USB reconnect; identical fixture passed immediately on retry.
-      Exact bytes and cleanup passed in both. Retest success is not a fix.
-- [ ] Extend hardware evidence: explicit power-cycle persistence, mouse outputs,
-      additional targets/layers, existing shared contents and timing/sequence
-      boundaries. Compaction, complete-profile recovery and other connections
-      remain outside the verified macro scope.
+
+Completion accepted on 2026-10-21 after successful shortcut retesting and desktop
+save/app-exit/playback/restore testing. The user removed the earlier activation
+observation as an open blocker; its evidence remains in HANDOFF.md.
+
+Coverage limits: explicit power cycling, native mouse outputs, additional targets/
+layers, existing shared contents and more timing/sequence boundaries are not all
+hardware-verified. Compaction, complete-profile recovery and other connections
+remain outside this completed scope. Broader verification continues under #9.
 
 The initial recovery timeout received an unrelated reply while OpenRazer was
 running. Recovery succeeded after stopping its daemon; keep other controllers
@@ -249,6 +251,10 @@ Slot enumeration, creation and activation already exist; these extend them.
       and a way to suspend automatic switching.
 
 ## 9. Broader device coverage and reliability
+
+- [ ] Extend native macro hardware coverage: explicit power cycling, mouse outputs,
+      additional targets/layers, existing shared contents and timing/sequence
+      boundaries beyond the representative #4 trials.
 
 - [ ] Collect user diagnostics through the existing device-support issue form;
       promote experimental capabilities only after model-specific evidence.

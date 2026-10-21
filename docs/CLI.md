@@ -136,8 +136,8 @@ Close other mouse controllers first. This uses the release engine and local sudo
 saves a private mapping checkpoint, reads native macro storage twice and checks
 the mappings afterward. The export contains device identity and private macro
 contents. It is diagnostic evidence; it cannot itself authorize transaction undo.
-Experimental upload and recovery are described below. Capacity/count getters passed a wired
-empty-inventory capture; nonempty contents remain unverified.
+Upload and recovery are described below. Capacity/count and nonempty
+metadata/data getters passed representative wired trials.
 See [protocol status](../inspection/MACROS.md).
 The underlying `onboard-macros` command prints the private diagnostic JSON to
 standard output; prefer the script to save it with private permissions.
@@ -178,8 +178,10 @@ fresh inspection, recovery journal or restorable backup.
 ## Experimental onboard macro uploads
 
 See [the onboard macro guide](MACROS.md) for the desktop flow and limits.
-The wired twelve-button implementation supports fresh uploads and journaled undo;
-nonempty getters and physical playback still need hardware verification.
+The wired twelve-button implementation supports fresh uploads and journaled
+restore. Representative nonempty readback, playback modes, modifier release,
+USB reconnect and scoped recovery passed hardware trials. See the macro guide
+for the precise scope; arbitrary timelines and device combinations remain unverified.
 
 The controlled trial saves a private backup before uploading a fresh B sequence,
 verifies its contents, restores original bindings and removes its own allocation:
