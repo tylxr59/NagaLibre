@@ -377,7 +377,12 @@ impl<T: Transport> Mouse<T> {
         })
     }
 
-    fn write_layer_record(&mut self, slot: u8, layer: u8, button: &Button) -> Result<()> {
+    pub(super) fn write_layer_record(
+        &mut self,
+        slot: u8,
+        layer: u8,
+        button: &Button,
+    ) -> Result<()> {
         slot_valid(slot)?;
         ensure!(
             layer <= 1 && self.transport.identity().product == 0xa7,

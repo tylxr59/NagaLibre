@@ -12,6 +12,10 @@ pub mod hidraw;
 pub mod layer_transaction;
 pub mod layer_write_probe;
 pub mod layers;
+pub mod macro_codec;
+pub mod macro_plan;
+pub mod macro_transaction;
+pub mod macros;
 pub mod slot_trial;
 
 use anyhow::{Context, Result, bail, ensure};

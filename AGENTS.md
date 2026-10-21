@@ -91,6 +91,8 @@ record user observations separately. Do not invent hardware access in this VM.
 ## Repository map
 
 - src/onboard.rs: snapshots, action/wire comparison, preparation, save and rollback.
+- src/onboard/macro_transaction.rs: fresh macro uploads, ownership journal and scoped undo.
+- gui/macro_storage.py: macro inventory, drafts, durable backup and journal recovery.
 - src/onboard/hidraw.rs: descriptor-based discovery and Razer feature-report transport.
 - src/config.rs and src/runtime.rs: software config validation, evdev/uinput and scheduling.
 - src/session.rs: JSON-lines protocol and helper lifetime; src/main.rs: CLI.

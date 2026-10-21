@@ -24,6 +24,18 @@ pub fn emit(value: Value) {
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
+    MacroRead,
+    MacroPrepare {
+        config: String,
+        request: onboard::macro_plan::Request,
+    },
+    MacroCommit {
+        token: String,
+        journal: std::path::PathBuf,
+    },
+    MacroRecover {
+        journal: std::path::PathBuf,
+    },
     HapticRead {
         slot: Option<u8>,
     },
@@ -203,6 +215,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         "wheel_controls":device.is_some_and(|d| d.onboard),
         "hypershift_transactions":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "haptic_settings":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
+        "onboard_macros":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "device_error":selection.as_ref().err().map(|e| format!("{e:#}"))}),
     );
     let mut active: Option<Worker> = None;
@@ -211,6 +224,8 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
     let mut layer_snapshot = None;
     let mut prepared: Option<(String, HardwarePlan)> = None;
     let mut haptic_prepared = None;
+    let mut macro_snapshot = None;
+    let mut macro_prepared = None;
     let mut watching_plate = false;
     let mut next_plate = Instant::now();
     let mut last_plate = None;
@@ -234,6 +249,8 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                 haptic_prepared = None;
                 snapshot = None;
                 layer_snapshot = None;
+                macro_snapshot = None;
+                macro_prepared = None;
                 emit(event.clone());
                 last_plate = Some(event);
             }
@@ -248,6 +265,88 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         };
+        if matches!(
+            command,
+            Command::MacroRead
+                | Command::MacroPrepare { .. }
+                | Command::MacroCommit { .. }
+                | Command::MacroRecover { .. }
+        ) {
+            if let Some(worker) = active.take() {
+                worker.stop();
+            }
+            prepared = None;
+            haptic_prepared = None;
+            snapshot = None;
+            layer_snapshot = None;
+            let finishes = matches!(
+                command,
+                Command::MacroCommit { .. } | Command::MacroRecover { .. }
+            );
+            let result = (|| -> Result<()> {
+                ensure!(
+                    selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
+                    "Onboard macro storage requires wired Naga V2 Pro"
+                );
+                if hardware.is_none() {
+                    hardware = Some(onboard::hidraw::connect()?);
+                }
+                let mouse = hardware.as_mut().context("Hardware connection lost")?;
+                match command {
+                    Command::MacroRead => {
+                        macro_prepared = None;
+                        let after = mouse.inspect_macros()?;
+                        emit(json!({"type":"macro_snapshot","snapshot":after}));
+                        macro_snapshot = Some(after);
+                    }
+                    Command::MacroPrepare { config, request } => {
+                        macro_prepared = None;
+                        let known = macro_snapshot
+                            .as_ref()
+                            .context("Read macro storage before saving")?;
+                        let plan = mouse.prepare_macro(known, config, request)?;
+                        let token = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)?
+                            .as_nanos()
+                            .to_string();
+                        emit(json!({"type":"macro_prepared","token":token,"backup":plan.backup()}));
+                        macro_prepared = Some((token, plan));
+                    }
+                    Command::MacroCommit { token, journal } => {
+                        let (expected, plan) =
+                            macro_prepared.take().context("No prepared macro upload")?;
+                        ensure!(
+                            token == expected,
+                            "Macro backup acknowledgement token differs"
+                        );
+                        macro_snapshot = None;
+                        let after = mouse.commit_macro(plan, &journal)?;
+                        emit(json!({"type":"macro_saved","snapshot":after,"journal":journal}));
+                    }
+                    Command::MacroRecover { journal } => {
+                        macro_prepared = None;
+                        macro_snapshot = None;
+                        let after = mouse.recover_macro(&journal)?;
+                        emit(json!({"type":"macro_recovered","snapshot":after,"journal":journal}));
+                    }
+                    _ => unreachable!(),
+                }
+                Ok(())
+            })();
+            match result {
+                Ok(()) if finishes => break,
+                Ok(()) => {}
+                Err(error) => {
+                    macro_prepared = None;
+                    macro_snapshot = None;
+                    hardware = None;
+                    emit(json!({"type":"macro_error","message":format!("{error:#}")}));
+                }
+            }
+            continue;
+        }
+        macro_prepared = None;
+        macro_snapshot = None;
         if matches!(
             command,
             Command::HapticRead { .. }

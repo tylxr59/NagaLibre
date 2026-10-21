@@ -157,23 +157,52 @@ Continue with #4 next; do not resume Custom hardware experiments automatically.
 ## 4. Onboard macros and richer playback
 
 Goal: determine which sequences can run from mouse memory without a helper.
-The managed macro structures are not the USB wire format; native macro entry
-points exist, but allocation/upload/delete encoding remains unresolved.
+The managed macro structures are not the USB wire format. Native storage,
+upload/delete, compact events and binding encodings are now traced. Host timing
+is milliseconds; metadata layout, journaled recovery and desktop controls are
+implemented. Firmware behavior and recovery on hardware still need verification.
 
-- [ ] Research chunk: document macro inventory, capacity, IDs, event encoding,
+- [x] Research chunk: document macro inventory, capacity, IDs, event encoding,
       delays, allocation, upload, binding, deletion and any checksums/chunking.
+      [Native investigation](inspection/MACROS.md) traces both USB controllers
+      and the managed/native bridge. Direct storage methods match across wired
+      and receiver; this is static host evidence, not firmware verification.
+      Remaining device timing/reserved-byte/playback questions are explicit. Razer's cache
+      enumeration can delete empty-GUID entries and its compaction formats/rebuilds
+      storage; neither behavior is reproduced by NagaLibre.
 - [ ] Read-only chunk: inspect existing macro references and storage without
       modifying or deleting user data. Establish actual firmware limitations.
-- [ ] Recovery chunk: back up macro contents and references before writes;
-      preserve shared references and remove only allocations created by our
-      failed transaction. Current mapping backups are not full macro backups.
-- [ ] Minimal write chunk: upload/bind one small supported sequence, read it back,
-      physically test it and restore the original state.
-- [ ] Playback chunk: investigate supported repeat counts, while-held/toggle
-      playback, turbo and repeat rate. Distinguish firmware capabilities from
-      software-only behavior; do not assume every Synapse macro works onboard.
-- [ ] UI chunk: expose supported onboard sequences and clear storage limits;
-      retain software playback for actions that require a running helper.
+      Implemented `onboard-macros` and private `scripts/inspect_macros.py` export:
+      bounded inventory/metadata/data reads twice, exact opaque preservation,
+      all-slot paired mapping checks and state guards. Wired capacity/count capture
+      passed: 100 maximum entries, zero stored, 126,976 storage bytes, 125,696
+      available and 1,024 reclaimable. Slots 1/2/3 paired mappings checked exact;
+      no scoped macro references found. Empty inventory did not exercise ID,
+      size, metadata or sequence getters; these remain unverified.
+- [x] Recovery implementation: durable private content/mapping backup before
+      commit, helper-owned ownership journal, fresh-state checks, exact upload
+      verification, interrupted recovery and cleanup limited to the fresh ID.
+      Original records are restored before removal; existing entries stay intact.
+      Reference coverage remains explicitly incomplete; no full-profile claim.
+- [x] Write implementation: fresh allocation, 250-byte metadata and chunked
+      sequence upload, binding only after exact content readback. Compiler supports
+      keys/modifiers, five mouse outputs, chords and millisecond waits; unsupported
+      or unbalanced sequences fail explicitly. No formatting or compaction.
+- [x] Playback implementation: once, counted 1–255, while-held, toggle and
+      sequence native encodings. Dedicated turbo/rate semantics are not established;
+      waits provide timeline delays without claiming firmware timing guarantees.
+- [x] UI implementation: dedicated Onboard macros dialog, stored inventory and
+      available capacity, sequence editor, playback controls, durable backup and
+      journal-based undo. Software playback remains available for supported
+      sequences requiring a helper.
+- [ ] Hardware completion: nonempty getters, upload acceptance and exact recovery;
+      physical output/release for each playback mode, primary clicks, app exit,
+      reconnect and power-cycle persistence. The controlled trial is implemented;
+      hardware testing was explicitly deferred by the user. No new hardware
+      writes were performed during implementation.
+
+Software implementation is complete; #4 remains experimental pending these
+hardware checks. See [the macro guide](docs/MACROS.md).
 
 ## 5. Richer native button actions
 

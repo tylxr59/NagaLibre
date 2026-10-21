@@ -18,7 +18,9 @@ native calls through `OBM3_AddMacro`. Keyboard events carry makecodes, flags,
 and delays. Native controller strings include `Storage_Macro_Add`,
 `Storage_Macro_Data`, `Storage_Macro_Remove`, and `Storage_Macro_Info`.
 This establishes a separate macro-storage path; the managed event structures
-are not the USB wire format. No proprietary binaries or decompiled source are
+are not the USB wire format. The native storage lifecycle and compact event
+encodings have since been traced in [MACROS.md](MACROS.md); getter-only inspection
+is implemented but awaits hardware verification. No proprietary binaries or decompiled source are
 redistributed, linked, or required at runtime.
 
 The implementable profile protocol was cross-referenced against the MIT-licensed

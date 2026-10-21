@@ -113,6 +113,30 @@ enum Command {
     },
     /// Read slot capacity, initialized IDs and active slot without reading bindings or serials.
     OnboardSlots,
+    /// Inspect native macro storage twice; getters only (wired, twelve-button plate).
+    OnboardMacros,
+    /// Compile supported software macro steps to research bytes; never accesses hardware.
+    OnboardMacroCompile { config: PathBuf },
+    /// Prepare a complete scoped content/binding backup for a fresh macro upload.
+    OnboardMacroPrepare { config: PathBuf, request: PathBuf },
+    /// Apply a prepared fresh-ID upload after durably saving its backup; creates a recovery journal.
+    OnboardMacroApply { backup: PathBuf, journal: PathBuf },
+    /// Restore the original scoped bindings and remove only this journal's new allocation.
+    OnboardMacroRecover { journal: PathBuf },
+    /// Propose native upload/binding bytes offline; never accesses hardware or executes writes.
+    OnboardMacroPlan {
+        inspection: PathBuf,
+        config: PathBuf,
+        /// JSON request selecting a trigger, fresh GUID, name, button, layer and playback.
+        request: PathBuf,
+    },
+    /// Validate retained getter evidence and emit a macro content checkpoint; no hardware access.
+    OnboardMacroCheckpoint {
+        inspection: PathBuf,
+        /// Also reject changes relative to a second independently captured diagnostic.
+        #[arg(long)]
+        fresh: Option<PathBuf>,
+    },
     /// Collect passive Razer diagnostics, including unknown devices; no vendor requests.
     Diagnose,
     /// List model definitions and verified/experimental capabilities.
@@ -291,6 +315,21 @@ fn open_devices(paths: Vec<PathBuf>) -> Result<Vec<(PathBuf, Device)>> {
     Ok(devices)
 }
 
+fn read_macro_inspection(path: &std::path::Path) -> Result<onboard::macros::Inspection> {
+    use std::io::Read;
+    const LIMIT: u64 = 128 * 1024 * 1024;
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .with_context(|| format!("Opening {}", path.display()))?
+        .take(LIMIT + 1)
+        .read_to_end(&mut bytes)?;
+    anyhow::ensure!(
+        bytes.len() as u64 <= LIMIT,
+        "Macro export exceeds file resource bound"
+    );
+    serde_json::from_slice(&bytes).context("Invalid macro diagnostic JSON")
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let running = Arc::new(AtomicBool::new(true));
@@ -385,6 +424,85 @@ fn main() -> Result<()> {
         Command::HapticRead { slot } => println!(
             "{}",
             serde_json::to_string_pretty(&onboard::hidraw::connect()?.inspect_haptic(slot)?)?
+        ),
+        Command::OnboardMacroCheckpoint { inspection, fresh } => {
+            let export = read_macro_inspection(&inspection)?;
+            let checkpoint = onboard::macros::Checkpoint::from_inspection(export)?;
+            if let Some(path) = fresh {
+                checkpoint.check_fresh(&read_macro_inspection(&path)?)?;
+            }
+            println!("{}", serde_json::to_string_pretty(&checkpoint)?);
+        }
+        Command::OnboardMacroCompile { config } => {
+            let compiled = config::load(&config)?
+                .into_iter()
+                .map(|(trigger, sequence)| {
+                    Ok((
+                        format!("{trigger:?}"),
+                        onboard::macro_codec::compile(&sequence)?,
+                    ))
+                })
+                .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+            println!("{}", serde_json::to_string_pretty(&compiled)?);
+        }
+        Command::OnboardMacroPrepare { config, request } => {
+            anyhow::ensure!(
+                fs::metadata(&config)?.len() <= 262_144 && fs::metadata(&request)?.len() <= 16_384,
+                "Macro configuration/request exceeds resource bound"
+            );
+            let config = fs::read_to_string(config)?;
+            let request = serde_json::from_slice(&fs::read(request)?)?;
+            let mut mouse = onboard::hidraw::connect()?;
+            let known = mouse.inspect_macros()?;
+            let prepared = mouse.prepare_macro(&known, config, request)?;
+            println!("{}", serde_json::to_string_pretty(prepared.backup())?);
+        }
+        Command::OnboardMacroApply { backup, journal } => {
+            anyhow::ensure!(
+                fs::metadata(&backup)?.len() <= 64 * 1024 * 1024,
+                "Macro backup exceeds resource bound"
+            );
+            let backup = serde_json::from_slice(&fs::read(backup)?)?;
+            let mut mouse = onboard::hidraw::connect()?;
+            let prepared = mouse.prepare_macro_backup(backup)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&mouse.commit_macro(prepared, &journal)?)?
+            );
+        }
+        Command::OnboardMacroRecover { journal } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &onboard::hidraw::connect()?.recover_macro(&journal)?
+                )?
+            );
+        }
+        Command::OnboardMacroPlan {
+            inspection,
+            config,
+            request,
+        } => {
+            let checkpoint =
+                onboard::macros::Checkpoint::from_inspection(read_macro_inspection(&inspection)?)?;
+            anyhow::ensure!(
+                fs::metadata(&request)?.len() <= 16_384,
+                "Macro request is too large"
+            );
+            let request: onboard::macro_plan::Request = serde_json::from_slice(&fs::read(request)?)
+                .context("Invalid macro plan request")?;
+            let bindings = config::load(&config)?;
+            let sequence = bindings
+                .iter()
+                .find(|(trigger, _)| format!("{trigger:?}") == request.trigger)
+                .map(|(_, sequence)| sequence)
+                .context("Requested trigger is absent from macro config")?;
+            let plan = onboard::macro_plan::build(checkpoint, sequence, request)?;
+            println!("{}", serde_json::to_string_pretty(&plan)?);
+        }
+        Command::OnboardMacros => println!(
+            "{}",
+            serde_json::to_string_pretty(&onboard::hidraw::connect()?.inspect_macros()?)?
         ),
         Command::OnboardSlots => println!(
             "{}",

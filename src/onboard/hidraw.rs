@@ -171,6 +171,16 @@ pub struct Hidraw {
     identity: Identity,
 }
 
+fn exclusive_control(file: &File) -> Result<()> {
+    // Hold for this connection's lifetime. This serializes NagaLibre helpers;
+    // vendor applications do not necessarily honor advisory file locks.
+    ensure!(
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
+        "Mouse control interface is already in use; close the other NagaLibre helper"
+    );
+    Ok(())
+}
+
 impl Hidraw {
     fn open(path: &Path, product: u16, descriptor: &[u8]) -> Result<Self> {
         ensure!(
@@ -187,6 +197,7 @@ impl Hidraw {
                     path.display()
                 )
             })?;
+        exclusive_control(&file)?;
         let mut info = RawInfo {
             bus: 0,
             vendor: 0,
@@ -340,6 +351,24 @@ pub fn connect() -> Result<Mouse<Hidraw>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn control_lock_is_exclusive_and_released_when_connection_closes() -> Result<()> {
+        let path =
+            std::env::temp_dir().join(format!("nagalibre-control-lock-{}", std::process::id()));
+        let first = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+        let second = OpenOptions::new().read(true).write(true).open(&path)?;
+        exclusive_control(&first)?;
+        assert!(exclusive_control(&second).is_err());
+        drop(first);
+        exclusive_control(&second)?;
+        drop(second);
+        fs::remove_file(path)?;
+        Ok(())
+    }
     #[test]
     fn inventory_reply_uses_reported_length_instead_of_request_size() {
         let packet = request(0x1f, 5, 0x81, &[0; 6]).unwrap();

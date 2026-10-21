@@ -1,0 +1,8 @@
+{
+  "trigger": "KEY_1",
+  "guid": "00112233-4455-6677-8899-aabbccddeeff",
+  "name": "Copy",
+  "button": 1,
+  "layer": 0,
+  "playback": { "mode": "once" }
+}

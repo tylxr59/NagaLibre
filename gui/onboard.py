@@ -68,7 +68,7 @@ def hardware_buttons(profile):
         elif mode == "shortcut":
             action = keyboard_action(shortcut(button["value"]))
         else:
-            raise ValueError(f"Button {i+1} is a macro sequence. Onboard macro storage is still being reverse engineered; no mouse-memory changes were made.")
+            raise ValueError(f"Button {i+1} is a sequence. Use Onboard macros… for a journaled upload, or software mode for helper playback.")
         result.append({"button": i+1, **action})
     return result
 
@@ -93,7 +93,7 @@ def hardware_controls(profile):
         elif mode == "shortcut":
             action = keyboard_action(shortcut(button["value"]))
         else:
-            raise ValueError("Wheel and scroll-mode macros require onboard macro support, which is not implemented.")
+            raise ValueError("Use Onboard macros… to upload a sequence for a wheel or scroll-mode control.")
         result.append({"button": definitions[index]["button"], **action})
     return result
 
@@ -132,6 +132,10 @@ def write_creation_backup(profile_path: Path, plan: dict, token: str) -> Path:
 def stored_label(record):
     """Describe an actual firmware record without guessing unknown categories."""
     category, data = record.get("category"), record.get("data", [])
+    if category in (3, 4, 5, 15) and len(data) == (3 if category == 3 else 2):
+        macro_id = (data[0] << 8) | data[1]
+        playback = f"{data[2]} time(s)" if category == 3 else {4: "while held", 5: "toggle", 15: "sequence"}[category]
+        return f"Macro {macro_id:04x} · {playback}"
     if category == 12 and data == [1]:
         return "Hold for Hypershift"
     if category == 0 and not data:

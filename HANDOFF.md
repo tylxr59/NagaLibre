@@ -5,11 +5,197 @@ Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 
 ## Current checkpoint and next chat
 
-The user asked to finish standard wheel modes, defer Custom, tidy the repository,
-commit and push. **Next work is TODO #4: onboard macros and richer playback.**
-Do not resume Custom haptic experiments without a new request. #3 remains open
-only for the deferred Custom/editor work and additional physical GUI coverage.
-No hardware writes were performed during this commit cleanup.
+**Current work is TODO #4: onboard macros and richer playback.** Software
+implementation now includes the native compiler/planner, journaled fresh uploads,
+readback-before-binding, original-only recovery and a dedicated Qt dialog with
+inventory, playback controls, durable backup and undo. Hardware testing was
+explicitly deferred by the user. No new hardware reads or writes were performed
+in this implementation; only the earlier empty-inventory capacity/count capture
+is hardware evidence. Nonempty getter fidelity, firmware acceptance, physical
+output/release, all playback modes and reconnect/power-cycle persistence remain
+pending. Custom haptic work remains deferred.
+
+## Macro transaction and desktop implementation
+
+`src/onboard/macro_transaction.rs` captures existing contents and all scoped paired
+mappings plus normal middle-click guards. The GUI fsyncs the unprivileged backup
+before sending its commit token. The helper creates a private ownership journal,
+rechecks freshness, journals each request before mutation and verifies exact
+uploaded bytes before binding. Existing entries are never overwritten/deleted;
+no compaction/format route exists. The hidraw control interface uses an advisory
+lock to serialize NagaLibre helpers; other controllers must still be closed.
+
+Recovery opens only a helper-owned protected journal. It verifies original
+contents and allocation ownership, restores original target records, checks exact
+paired mappings and removes only its fresh allocation after checking references.
+Recovery never uses generic mapping-save rollback, which could reinstall an
+uploaded binding after restoration failure. Lost restore/delete acknowledgements
+are resolved through readback. Torn journal tails can be reopened; journal I/O
+failure attempts reference restoration but retains the allocation. Known target
+bank aliasing can be restored; unrelated state changes block recovery. Contents
+can be restored while free/reclaimable accounting changes. Reference coverage
+is still incomplete; the backup is not a complete profile image.
+
+CLI: `onboard-macro-prepare CONFIG REQUEST`, `onboard-macro-apply BACKUP JOURNAL`,
+`onboard-macro-recover JOURNAL`. Session protocol 4 advertises `onboard_macros`
+only on wired 00a7. The Qt **Onboard macros…** dialog exposes inventory/storage,
+sequences and once/counted/held/toggle/sequence modes. It reuses the sequence
+editor, keeps drafts distinct from readback and invalidates on errors/plate changes.
+The ordinary mapping-save action still refuses macro sequences and directs users
+to the dedicated dialog. The experimental notice remains visible.
+
+`scripts/macro_controlled_test.py --readback-only` is ready for a future local
+sudo session. It creates durable private backup/evidence, uploads one fresh B
+sequence, verifies bytes, restores bindings and removes its allocation. Without
+the flag it separately records physical output/release/primary-click/reconnect
+observations. `--restore JOURNAL` resumes only recovery. Do not run the hardware
+trial until the user resumes testing. User documentation: [docs/MACROS.md](docs/MACROS.md).
+
+Validation: 174 Rust and 181 Python/Qt tests passed, including mock QProcess
+read/prepare/durable-backup/commit/exit/reconnect/undo. Formatting, Clippy with
+warnings denied, debug/release builds, example config validation and offline
+macro compilation passed. Recovery regressions include each upload/binding
+lost ACK, pre-write failures, interrupted selector-echo restoration, aliasing,
+journal I/O failure, shared-reference/foreign-GUID refusal and idempotent cleanup.
+No live trial was run. Hardware testing remains deferred at the user's request.
+
+The historical sections below describe earlier implementation stages; their
+statements about absent setters/recovery are superseded by this section. The
+diagnostic export and offline plan remain non-executable and cannot authorize
+cleanup; only the new transaction journal does so.
+
+## Ghidra metadata and upload planner follow-up
+
+The matching official Ghidra 12.1.4 and GhidraMCP 2.0 are installed privately
+outside the checkout. Codex's `ghidra` entry runs a headless launcher under
+`~/.local/share/ghidra-mcp`; its project lives in `~/ghidra-projects/NagaLibre`.
+Paseo reloaded this conversation successfully. The exposed MCP tools now identify
+the expected wired DLL/hash and decompile its native routines directly. The GUI
+does not have to remain open. Keep projects/proprietary decompilation private.
+
+Ghidra confirmed the 250-byte metadata assembly: Windows-layout GUID at 0,
+little-endian expanded event count at 16, UTF-8 name at 20, initial movement X/Y
+at 120/124 and a managed combined-key reconstruction hint at 128. The post-name
+region is not a second GUID. Reserved/padding semantics and firmware acceptance
+remain unverified. New non-movement entries use deterministic zero initialization;
+existing metadata is never normalized. Native padding is not necessarily canonical.
+Evidence RVAs and the initialization distinction are in inspection/MACROS.md.
+
+`onboard-macro-plan INSPECTION CONFIG REQUEST` builds an offline proposal using
+`examples/onboard-macro-plan.json`. It validates the retained getter checkpoint,
+compiles one TOML trigger, rejects an existing GUID and selects among the five
+native hash candidates while excluding stored/shared/dangling scoped IDs. It
+checks entry capacity and available storage without compaction, builds ordered
+allocation/64-byte metadata/72-byte sequence packets and keeps the proposed
+playback binding separate from upload. Once, counted 1..255, held, toggle and
+sequence encodings are implemented; their physical behavior is not verified.
+The exact original target record and contents remain in the private plan.
+
+The plan is explicitly non-executable and hardware-unverified; it is not an
+ownership/recovery journal and cannot be deserialized as a mapping snapshot.
+Unknown/malformed references block planning. Middle/secondary primary clicks and
+other plates remain outside reference coverage. No macro setter, cleanup, format
+or compaction transport route is enabled. No device requests were sent in this
+follow-up; testing uses the historical capture offline and synthetic contents.
+
+Validation: 161 Rust and 168 Python/Qt tests passed; formatting, Clippy with
+warnings denied and debug/release builds passed. Regression cases cover Windows
+GUID layout, UTF-8 byte bounds, metadata endianness, partial upload chunks, all
+playback encodings, shared/dangling IDs, collision exhaustion, full capacity,
+compaction rejection, target scope and inconsistent checkpoint evidence.
+The release CLI generated a private offline plan from the user's historical
+empty-inventory export (250 metadata bytes, 10 sequence bytes, six packets);
+the original export checksum is unchanged. The plan was saved with 0600 mode
+and file/directory fsync beside that export as `macro-upload-plan-offline.json`.
+CLI rejection checks covered extra playback fields, count zero, absent trigger
+and disallowed target wire IDs. None of these invocations opened a mouse.
+
+## Macro compiler and checkpoint follow-up
+
+The next offline chunk is implemented. `onboard-macro-compile CONFIG` uses existing
+software TOML steps to produce native key/mouse/delay bytes with explicit
+`hardware_verified: false`. It preserves chord ordering, independent modifier
+events, cumulative mouse state and trailing waits; canonicalizes mouse aliases;
+and rejects unsupported, unbalanced or invalid timelines. Bounds are 16,384
+encoded records and five minutes, not claims about device limits. The structural
+decoder retains original record bytes/nonminimal delay widths and opaque unknown
+tails. Nothing submits compiled sequences to a hardware writer.
+
+Static tracing of archived shared Synapse dependencies resolved the host delay
+unit (direct `MacroEvent.Delay` -> `Thread.Sleep(Int32)`, milliseconds). The
+Device167 bridge copies it without scaling. Native metadata names are UTF-8 in
+100 bytes; expanded event count is little endian at offset 16. Construction of
+remaining metadata fields remains unresolved. JSON labels now establish counted,
+while-held, toggle-until-pressed and sequence associations independently of the
+different generic/UI enums. See inspection/MACROS.md for RVAs, hashes and limits.
+
+`onboard-macro-checkpoint INSPECTION [--fresh INSPECTION]` validates saved content
+by replaying every retained getter record offline and checking parsed values,
+mapping scope, guard and slot coverage. Optional fresh comparison permits only
+hidraw-path changes. The existing private empty-inventory export passed. The
+release validator saved `macro-checkpoint.json` beside that earlier export with
+0600 permissions and file/directory fsync; the original export checksum is unchanged.
+This was offline validation of the historical capture, not a fresh hardware read.
+The private capture script durably saves the resulting content checkpoint as the
+unprivileged user, retaining raw evidence and final mapping checks on failure.
+It explicitly has `complete_profile: false` and `restoration_implemented: false`.
+This is backup validation/stale checking, not the journaled recovery transaction.
+Allocation/upload/binding/deletion remain absent; no new device requests were sent.
+
+Validation passed 155 Rust and 168 Python/Qt tests, formatting, Clippy with warnings
+denied and debug/release builds. Coverage includes native delay-width boundaries,
+chords/modifiers, overlapping mouse state/aliases, unsupported/unbalanced actions,
+raw unknown sequence preservation, getter-evidence tampering, missing/extra data,
+stale mapping/storage/identity, reconnect paths and checkpoint failure handling.
+Offline example compilation and the user's captured-export validation passed.
+
+## Onboard macro research and inspection (2026-10-20)
+
+[inspection/MACROS.md](inspection/MACROS.md) documents native count/capacity,
+enumeration, metadata/data chunking, ID hashing, allocation, upload, deletion,
+event conversion and playback binding records. The ten direct storage functions
+match across wired/receiver controllers after normalizing image addresses. The
+managed/native OBM bridge inserts explicit delay records before non-movement
+events and copies low-32-bit delay values without scaling. Shared contract delay
+units and storage mode labels are now resolved in the follow-up above. Remaining
+metadata details, device release/timing behavior and firmware acceptance remain
+unverified; do not claim autonomous playback from static encoder evidence.
+
+Razer's CStorage enumeration can delete empty-GUID entries; its defragmentation
+formats/rebuilds storage. These algorithms are not safe diagnostic paths and are
+not implemented. The new `onboard-macros` uses an explicit direct-getter allowlist
+for wired/normal/twelve-button scope. It double-reads capacity, count, IDs, sizes,
+250-byte metadata and sequence bytes, retains exact request/reply records and
+opaque contents, and checks all initialized slots' paired mappings and state.
+Unknown contents and empty metadata are preserved; inconsistent reads abort.
+Secondary primary clicks and other plates' references are outside this scope.
+The diagnostic has `restorable: false`; there is no macro writer or restore route.
+
+`python3 scripts/inspect_macros.py` uses the release engine and local sudo to
+save a private durable all-slot mapping checkpoint before the first macro getter,
+then the diagnostic and final mapping checks. Exports contain private sequence
+contents and identity; keep them local. The user completed this capture through
+local sudo authentication. Capacity (`06/8e`) and count (`06/80`) repeated exactly:
+100 macro entries maximum, 0 stored, 126,976 storage bytes, 125,696 available and
+1,024 reclaimable. Do not infer completely unused/erased storage from count zero
+or explain the remaining 256 bytes without evidence. Slots [1,2,3], active 1,
+normal mode and twelve-button plate were preserved; independent file comparison
+confirmed before/export/after paired mappings equal with no scoped macro-category
+records. Serial/path and mapping contents remain private. The export checksum
+matches the user's supplied value. No ID/size/metadata/sequence queries were
+needed, so those getters, actual playback and writes remain unverified.
+Private evidence directory: `macro-inspection-1792531564209263577`.
+Stop GUI/OpenRazer/Polychromatic controllers before future captures; retain strict
+framing/correlation if firmware replies differ.
+
+Validation: 148 Rust and 167 Python/Qt tests passed. New coverage includes empty
+metadata/unknown data, 32-ID pagination, final partial chunks, invalid lengths,
+echoes/counts/resource bounds, changing storage/mappings/plate, receiver gating,
+durable checkpoint ordering/failure and final mapping checks after getter failure.
+Synthetic macro replies establish host construction only, not hardware behavior.
+The capacity/count regression additionally uses the non-identifying live reply.
+Formatting, Clippy with warnings denied, debug/release builds, example config,
+CLI/script help and diff whitespace checks also passed. Release helper is rebuilt.
 
 ## Standard wheel modes
 
@@ -114,12 +300,12 @@ shell is fish, so service/trap snippets must be wrapped in bash -c. The executio
 environment currently reports CachyOS/Arch; inspect it before package/service
 commands. Never assume the global Fedora guidance describes this runtime.
 
-## Starting TODO #4
+## TODO #4 constraints
 
-Research native onboard macro inventory, capacity, IDs, event/delay encoding,
-allocation/upload/binding/deletion and checksums/chunking. Managed macro models
-are not the wire protocol. Begin with static/read-only work and document it in
-inspection/. Current mapping/wheel backups do NOT back up macro payloads; establish
+Native storage/event/lifecycle research is in [inspection/MACROS.md](inspection/MACROS.md);
+the current implementation and next capture are described at the top of this
+handoff. Managed macro models are not the wire protocol.
+Current mapping/wheel backups do NOT back up macro payloads; establish
 a separate durable recovery contract before writes. Never delete existing slots,
 macros or shared references. Limit cleanup to allocations made by the experiment.
 Keep software macros supported while determining hardware capabilities.
@@ -795,7 +981,8 @@ shared key event.
 
 The managed module exposes macro conversion/storage handlers but its host event
 structures are not the USB wire format. Native multi-step allocation/upload/
-delete encoding remains unknown. Do not claim onboard sequences are implemented;
+delete encodings are now traced in [inspection/MACROS.md](inspection/MACROS.md),
+with a getter-only inspector awaiting hardware capture. Do not claim onboard sequences are implemented;
 the software engine remains the available sequence path.
 
 ## Historical validation and local environment

@@ -243,6 +243,10 @@ class Window(QMainWindow):
         self.wheel_settings_button.setToolTip("Configure HyperScroll stages separately from button bindings. Opening stops software remaps.")
         self.wheel_settings_button.clicked.connect(self.open_wheel_settings)
         storage_row.addWidget(self.wheel_settings_button)
+        self.onboard_macros_button = QPushButton("Onboard macros…")
+        self.onboard_macros_button.setToolTip("Upload sequences to mouse memory with a recoverable private transaction journal.")
+        self.onboard_macros_button.clicked.connect(self.open_onboard_macros)
+        storage_row.addWidget(self.onboard_macros_button)
         layout.addLayout(storage_row)
         self.slot_summary = QLabel("Slot capacity: unread")
         self.slot_summary.setWordWrap(True)
@@ -786,10 +790,25 @@ class Window(QMainWindow):
         dialog.exec()
         self.refresh_hardware_view()
 
+    def open_onboard_macros(self):
+        from macro_storage import OnboardMacrosDialog
+        self.commit_fields()
+        steps = self.current()["steps"] if self.current()["mode"] == "macro" else []
+        self.backend.shutdown()
+        self.snapshot = self.paired_snapshot = None
+        self.hardware_saved = None
+        dialog = OnboardMacrosDialog(self.path, self, steps=steps, button=self.selected + 1, layer=self.editing_layer())
+        dialog.read()
+        dialog.exec()
+        self.refresh_hardware_view()
+
     def refresh_hardware_view(self, *args):
         hardware = self.is_hardware()
         self.wheel_settings_button.setEnabled(not self.hardware_busy and self.backend.ready
                                               and getattr(self.backend, "haptic_settings", False))
+        self.onboard_macros_button.setEnabled(not self.hardware_busy and self.backend.ready
+                                             and getattr(self.backend, "onboard_macros", False)
+                                             and self.profile["plate"] == "12")
         snapshot = self.current_snapshot()
         layer_visible = hardware and self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12"
         self.layer.setVisible(layer_visible)

@@ -123,6 +123,101 @@ a change; Apply rechecks the module ID before starting software bindings.
 The standalone `run` command uses its supplied config and does not select
 plate-specific drafts.
 
+## Inspect onboard macro storage
+
+For experimental read-only inspection of native mouse-memory macro storage on
+wired V2 Pro with its twelve-button plate:
+
+```sh
+python3 scripts/inspect_macros.py
+```
+
+Close other mouse controllers first. This uses the release engine and local sudo,
+saves a private mapping checkpoint, reads native macro storage twice and checks
+the mappings afterward. The export contains device identity and private macro
+contents. It is diagnostic evidence; it cannot itself authorize transaction undo.
+Experimental upload and recovery are described below. Capacity/count getters passed a wired
+empty-inventory capture; nonempty contents remain unverified.
+See [protocol status](../inspection/MACROS.md).
+The underlying `onboard-macros` command prints the private diagnostic JSON to
+standard output; prefer the script to save it with private permissions.
+
+Offline research tools require no sudo or mouse access:
+
+```sh
+./target/release/naga-macros onboard-macro-compile examples/macros.toml
+```
+
+This compiles supported `steps` into experimental sequence bytes; it does not
+upload or bind them. Held remaps and unsupported outputs fail explicitly.
+`onboard-macro-checkpoint` validates a saved diagnostic and prints a private
+content checkpoint. The capture script saves that checkpoint automatically;
+it includes macro contents but has no restoration support. Neither output is
+accepted by the mapping writer.
+
+To inspect the proposed native metadata, upload chunks and playback binding for
+one timeline, use a saved diagnostic and a request based on
+[`examples/onboard-macro-plan.json`](../examples/onboard-macro-plan.json):
+
+```sh
+umask 077
+./target/release/naga-macros onboard-macro-plan /path/to/macros.json examples/macros.toml examples/onboard-macro-plan.json > macro-plan.json
+```
+
+The request selects a TOML trigger, GUID, UTF-8 name (at most 100 bytes), logical
+button 1–16, layer 0/1 and playback. Playback modes are `once`, `counted` (with
+`count` 1–255), `while_held`, `toggle` and `sequence`. These are experimental
+encodings; physical behavior remains unverified. A GUID already present, occupied
+ID candidates, unknown references or insufficient available storage cause failure.
+
+This command opens no device and cannot execute its plan. The private output
+includes the diagnostic's identity, mappings and macro contents. It preserves
+existing records, reports incomplete reference coverage and does not replace a
+fresh inspection, recovery journal or restorable backup.
+
+## Experimental onboard macro uploads
+
+See [the onboard macro guide](MACROS.md) for the desktop flow and limits.
+The wired twelve-button implementation supports fresh uploads and journaled undo;
+nonempty getters and physical playback still need hardware verification.
+
+The controlled trial saves a private backup before uploading a fresh B sequence,
+verifies its contents, restores original bindings and removes its own allocation:
+
+```sh
+python3 scripts/macro_controlled_test.py --readback-only
+```
+
+This requires local sudo authentication and changes mouse storage temporarily.
+Close other mouse controllers first. Omit `--readback-only` to record physical
+observations, or select `--playback counted --count 3`, `while_held`, `toggle` or
+`sequence`. Stop toggled/held playback before undo or reconnect. Readback alone
+does not establish physical behavior or persistence. Keep evidence and resume
+an interrupted trial with `--restore /absolute/path/transaction.journal.jsonl`.
+
+The underlying commands are:
+
+```text
+onboard-macro-prepare CONFIG REQUEST
+onboard-macro-apply BACKUP JOURNAL
+onboard-macro-recover JOURNAL
+```
+
+Prepare reads state and prints a private transaction backup, without settings
+writes. The caller must save it durably before apply. Apply rechecks the backup,
+creates a fresh helper-owned journal, uploads and verifies contents before binding.
+It never accepts the offline plan as executable input. JOURNAL must be a new file
+inside a private directory owned by the invoking user. Recovery must run as the
+same helper user (normally root through sudo/pkexec); it accepts that protected
+journal rather than an editable user-supplied cleanup plan. The desktop and trial
+script handle this ordering and private files automatically.
+
+Undo restores scoped original bindings before deleting only its own allocation.
+Unrelated changes or uncertain ownership cause refusal; preserve the journal.
+Existing macros are preserved. Compaction, arbitrary macro deletion and complete
+profile restoration are unavailable. Storage free/reclaimable counters may differ
+after cleanup even when original contents match exactly.
+
 ## Configure software macros
 
 Copy the example and choose triggers from the monitor output:

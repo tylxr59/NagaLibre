@@ -146,6 +146,11 @@ The app saves a backup before writing and reads the result back to check it.
 After a successful save, it stops the helper. Saved bindings then work without
 NagaLibre running.
 
+For experimental native sequences, open **Onboard macros…** to edit playback,
+inspect storage and save a fresh macro with journaled undo. Uploads and physical
+playback still need hardware verification. See [the macro guide](docs/MACROS.md)
+for supported steps, storage limits and recovery.
+
 To switch to a slot's stored bindings, select it in the dropdown and click
 **Activate slot**. This leaves your draft and the stored bindings unchanged.
 The app reads the target, backs up the target and previous active slot, then
