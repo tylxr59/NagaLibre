@@ -167,12 +167,26 @@ impl<T: Transport> Mouse<T> {
 
     /// Wired/twelve-button diagnostic only, deliberately not a restore format.
     pub fn inspect_macros(&mut self) -> Result<Inspection> {
+        self.macro_inspection(true)
+    }
+
+    /// One display sweep; save preparation independently verifies all contents
+    /// and mappings with inspect_macros before accepting this view as a backup.
+    pub(crate) fn preview_macros(&mut self) -> Result<Inspection> {
+        self.macro_inspection(false)
+    }
+
+    fn macro_inspection(&mut self, verify: bool) -> Result<Inspection> {
         // Reuse the existing identity/normal-mode/plate/inventory guard without
         // sending any wheel requests. Receiver live validation is separate.
         let guard = self.haptic_guard().context("Macro inspection scope")?;
         let mut mappings = Vec::new();
         for &slot in &guard.slots {
-            let mapping = self.read_layers(Some(slot))?;
+            let mapping = if verify {
+                self.read_layers(Some(slot))?
+            } else {
+                self.preview_layers(Some(slot))?
+            };
             let normal = &mapping.normal;
             ensure!(
                 normal.device == guard.device
@@ -189,20 +203,22 @@ impl<T: Transport> Mouse<T> {
             self.haptic_guard()? == guard,
             "Mouse state changed during macro inspection"
         );
-        ensure!(
-            self.macro_storage()? == storage,
-            "Macro storage changed between reads"
-        );
-        for mapping in &mappings {
+        if verify {
             ensure!(
-                self.read_layers(Some(mapping.normal.slot))? == *mapping,
-                "Mapping references changed during macro inspection"
+                self.macro_storage()? == storage,
+                "Macro storage changed between reads"
+            );
+            for mapping in &mappings {
+                ensure!(
+                    self.read_layers(Some(mapping.normal.slot))? == *mapping,
+                    "Mapping references changed during macro inspection"
+                );
+            }
+            ensure!(
+                self.haptic_guard()? == guard,
+                "Mouse state changed during macro inspection"
             );
         }
-        ensure!(
-            self.haptic_guard()? == guard,
-            "Mouse state changed during macro inspection"
-        );
         Ok(Inspection {
             format: 1,
             kind: "onboard_macro_diagnostic".into(),
@@ -612,6 +628,55 @@ mod tests {
                 _ => bail!("Unexpected getter {class:02x}/{command:02x}"),
             })
         }
+    }
+
+    #[test]
+    fn display_reads_match_stable_inspections_with_fewer_getters() -> Result<()> {
+        let mouse = || Mouse {
+            transport: Stable {
+                storage_reads: 0,
+                change_storage: false,
+                change_mapping: false,
+                change_plate: false,
+                calls: vec![],
+            },
+        };
+        let mut preview = mouse();
+        let mut strict = mouse();
+        let view = preview.preview_macros()?;
+        assert_eq!(view, strict.inspect_macros()?);
+        validate_inspection(&view)?;
+        let mapping_reads = |m: &Mouse<Stable>| {
+            m.transport
+                .calls
+                .iter()
+                .filter(|&&c| c == (2, 0x8c))
+                .count()
+        };
+        assert_eq!(mapping_reads(&strict), mapping_reads(&preview) * 4);
+        assert_eq!(preview.transport.storage_reads, 1);
+        assert_eq!(strict.transport.storage_reads, 2);
+        assert!(preview.transport.calls.iter().all(|(_, cmd)| *cmd >= 0x80));
+        eprintln!(
+            "Macro display getters: {} -> {}",
+            strict.transport.calls.len(),
+            preview.transport.calls.len()
+        );
+
+        let mut preview = mouse();
+        let mut strict = mouse();
+        assert_eq!(preview.preview_layers(None)?, strict.read_layers(None)?);
+        assert_eq!(mapping_reads(&strict), mapping_reads(&preview) * 2);
+        eprintln!(
+            "Button display getters: {} -> {}",
+            strict.transport.calls.len(),
+            preview.transport.calls.len()
+        );
+
+        let mut changed = mouse();
+        changed.transport.change_plate = true;
+        assert!(changed.preview_macros().is_err());
+        Ok(())
     }
 
     #[test]

@@ -137,7 +137,8 @@ cargo build --release --locked
 The sidebar groups tasks into **Customize**, **Mouse memory**, **Scrolling**,
 **Macros** and **Diagnostics**. Connection status, draft destination and the
 selected mouse slot stay at the top. Changing pages keeps your edits; it does
-not read or write the mouse.
+not write to the mouse. Stored assignments refresh when needed on Customize or
+Mouse memory; other pages skip that refresh.
 
 Use **Customize** for the button grid and draft editor. **Mouse memory** holds
 slot reading, activation, creation and backup restoration. **Scrolling** opens

@@ -200,7 +200,7 @@ class WheelDialog(QDialog):
         self.saved = False
         self.stored.setText("Stored wheel settings: unread")
         self.set_busy(True)
-        self.status.setText("Reading wheel settings twice…")
+        self.status.setText("Loading wheel settings…")
         try:
             self.send({"command": "haptic_read", "slot": None})
         except (OSError, ValueError) as error:

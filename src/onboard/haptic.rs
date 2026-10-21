@@ -284,6 +284,16 @@ impl<T: Transport> Mouse<T> {
     /// Double-read all wheel fields with device guards around each sweep.
     /// This kind is deliberately incompatible with every restoration format.
     pub fn inspect_haptic(&mut self, slot: Option<u8>) -> Result<Inspection> {
+        self.haptic_inspection(slot, true)
+    }
+
+    /// Single-pass display read; prepare_haptic still requires a complete fresh
+    /// double-read match before preparing any write.
+    pub(crate) fn preview_haptic(&mut self, slot: Option<u8>) -> Result<Inspection> {
+        self.haptic_inspection(slot, false)
+    }
+
+    fn haptic_inspection(&mut self, slot: Option<u8>, verify: bool) -> Result<Inspection> {
         let guard = self.haptic_guard()?;
         let slot = slot.unwrap_or(guard.active);
         ensure!(guard.slots.contains(&slot), "Wheel slot is not initialized");
@@ -292,11 +302,13 @@ impl<T: Transport> Mouse<T> {
             self.haptic_guard()? == guard,
             "Mouse changed during wheel inspection"
         );
-        let second = self.haptic_state(slot, guard.active)?;
-        ensure!(
-            second == state && self.haptic_guard()? == guard,
-            "Wheel state changed during inspection; release scroll-mode button and close other controllers"
-        );
+        if verify {
+            let second = self.haptic_state(slot, guard.active)?;
+            ensure!(
+                second == state && self.haptic_guard()? == guard,
+                "Wheel state changed during inspection; release scroll-mode button and close other controllers"
+            );
+        }
         Ok(Inspection {
             format: 1,
             kind: "haptic_diagnostic".into(),
@@ -417,6 +429,27 @@ mod tests {
             },
         }
     }
+    #[test]
+    fn display_reads_use_one_sweep_and_preserve_captured_values_and_bounds() {
+        let mut preview = mouse();
+        let mut strict = mouse();
+        assert_eq!(
+            preview.preview_haptic(None).unwrap(),
+            strict.inspect_haptic(None).unwrap()
+        );
+        assert_eq!(preview.transport.sweeps, 1);
+        assert_eq!(strict.transport.sweeps, 2);
+        assert!(preview.transport.calls.iter().all(|(_, c)| *c >= 0x80));
+        eprintln!(
+            "Wheel display getters: {} -> {}",
+            strict.transport.calls.len(),
+            preview.transport.calls.len()
+        );
+        let mut malformed = mouse();
+        malformed.transport.replacement = Some((0x87, vec![1, 1, 11]));
+        assert!(malformed.preview_haptic(None).is_err());
+    }
+
     #[test]
     fn firmware_version_is_repeated_guarded_and_getter_only_without_patch_inference() {
         let mut m = mouse();

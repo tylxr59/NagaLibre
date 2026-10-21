@@ -252,6 +252,27 @@ impl<T: Transport> Mouse<T> {
         })
     }
 
+    /// Single-pass UI read. Transactions must still capture/check a fresh backup
+    /// with read_layers before writing; this view is not a recovery checkpoint.
+    pub(crate) fn preview_layers(&mut self, slot: Option<u8>) -> Result<LayerReadback> {
+        ensure!(
+            crate::faceplate::read(self)?.buttons == Some(12),
+            "Layer inspection requires the twelve-button plate"
+        );
+        let (normal, normal_echoes) = self.read_with_layer_echoes(slot)?;
+        let hypershift = self.secondary_bindings(&normal)?;
+        ensure!(
+            crate::faceplate::read(self)?.buttons == Some(12),
+            "Faceplate changed during layer inspection"
+        );
+        Ok(LayerReadback {
+            format: 1,
+            normal,
+            normal_echoes,
+            hypershift,
+        })
+    }
+
     /// Compare two reads of each bank and the plate; never activate or write.
     /// This guards against observed changes, not concurrent firmware transactions.
     pub fn read_layers(&mut self, slot: Option<u8>) -> Result<LayerReadback> {

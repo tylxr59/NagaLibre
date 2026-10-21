@@ -3,6 +3,49 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Editor read performance (2026-10-21)
+
+The user clarified that runtime latency, rather than transparent diagnostic text,
+is the priority and wants responsiveness comparable to Synapse. Opening Macros
+previously used the full diagnostic path: two complete bank reads per slot,
+followed by another complete sweep of those repeated reads, plus duplicate macro
+contents. Each transport exchange currently waits at least 30 ms before polling.
+
+GUI session `macro_read`, `haptic_read` and `onboard_layers_read` now use single-pass
+display readers and return `preview: true` alongside the existing snapshot shape.
+Getter address/length/resource/echo validation and surrounding identity/plate
+checks remain. These views are never accepted directly as recovery checkpoints:
+save preparation still captures and verifies fresh full backups, and commit
+continues strict stale-state comparison and exact-wire recovery. Standalone CLI
+diagnostic/inspection paths retain their repeated reads. Macro freshness checks
+reuse the exact paired mapping readback from their full inspection instead of
+starting another redundant sweep; middle clicks still get independent comparisons.
+
+The GUI defers background assignment reads while Macros, Scrolling or Diagnostics
+is visible. Connecting, faceplate notifications and closing an editor no longer
+force an unseen assignment refresh. Entering Customize/Mouse memory loads missing
+state once and does not duplicate an in-flight request. Drafts remain separate and
+saving stays disabled without applicable readback. Only the now-inaccurate
+"reading twice" status text changed; the broader copy cleanup was dropped after
+the user's clarification.
+
+Measured getter counts in deterministic fixtures (not physical timings):
+
+| Operation | Previous | Current |
+| --- | ---: | ---: |
+| Macro display, two slots, empty inventory | 331 | 92 |
+| Button layer display, one slot | 78 | 40 |
+| Wheel display, standard mock data | 33 | 19 |
+| Macro freshness check, two slots, one entry | 503 | 347 |
+
+Validation: 180 Rust and 190 Python/Qt tests passed, including display/inspection
+equivalence, getter counts, malformed payload rejection, changed-plate rejection,
+stale preview refusal before layer/macro/wheel writes, middle-click freshness,
+failure/rollback/recovery and deferred GUI reads. Formatting, Clippy with warnings
+denied and debug/release builds were checked. No live mouse request or timing
+comparison with Synapse was performed; request reductions are not measured wall
+time or a claim of parity. Restart the app to use the rebuilt release engine.
+
 ## Shared GUI authentication helper (2026-10-21)
 
 Button assignments, native macro storage and wheel settings now reuse the main
@@ -44,7 +87,8 @@ and Scrolling areas in Razer's official
 NagaLibre's wheel and native macro editors retain their existing backup/commit
 boundaries; the new pages launch those editors. Their originally independent
 helper sessions are superseded by the shared connection described above.
-Sidebar navigation itself sends no device commands. Presentation helpers and
+Sidebar navigation preserves drafts and refreshes missing assignment state when
+needed, as described above. Presentation helpers and
 theme live in `gui/workspace.py`; transaction behavior remains in existing modules.
 
 Validation: all 184 Python/Qt tests passed using the available system PySide6 and

@@ -129,6 +129,43 @@ class SharedHelperTests(unittest.TestCase):
                 self.assertEqual(backend.messages, [])
                 dialog.deleteLater()
 
+    def test_macro_navigation_defers_unseen_assignments_until_they_are_needed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = Window(Path(directory) / "profile.json")
+            window.scan_timer.stop()
+            window.workspace.show_page(3)
+            window.backend.ready = True
+            window.backend.protocol = 4
+            window.backend.onboard_macros = True
+
+            def visit(dialog):
+                dialog.on_event({"type": "macro_snapshot", "snapshot": macro_snapshot()})
+                dialog.reject()
+                return 0
+
+            try:
+                with patch.object(window.backend, "send") as send, \
+                     patch.object(OnboardMacrosDialog, "exec", new=visit):
+                    window.connection_changed(True)
+                    window.on_event({"type": "faceplate", "module_id": 3, "buttons": 12})
+                    window.open_onboard_macros()
+                    commands = lambda: [c.args[0]["command"] for c in send.call_args_list]
+                    self.assertNotIn("onboard_read", commands())
+                    self.assertEqual(commands().count("macro_read"), 1)
+                    self.assertIsNone(window.snapshot)
+                    self.assertFalse(window.apply_button.isEnabled())
+                    window.workspace.show_page(0)
+                    self.assertEqual(commands().count("onboard_read"), 1)
+                    window.workspace.show_page(3)
+                    window.workspace.show_page(0)
+                    self.assertEqual(commands().count("onboard_read"), 1)
+            finally:
+                window.backend.ready = False
+                window.set_hardware_busy(False)
+                window.quitting = True
+                window.close()
+                window.deleteLater()
+
     def test_shared_backup_failure_still_ends_session_without_commit(self):
         cases = ((WheelDialog, WheelBackend, "haptic", wheel_backup(), "haptic_prepared"),
                  (OnboardMacrosDialog, MacroBackend, "macro_storage", macro_backup(), "macro_prepared"))

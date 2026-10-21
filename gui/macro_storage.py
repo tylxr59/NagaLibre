@@ -239,7 +239,7 @@ class OnboardMacrosDialog(QDialog):
         self.saved = False
         self.show_binding()
         self.set_busy(True)
-        self.status.setText("Reading macro storage and paired mappings twice…")
+        self.status.setText("Loading macros…")
         try:
             self.send({"command": "macro_read"})
         except (OSError, ValueError) as error:

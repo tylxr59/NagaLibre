@@ -398,6 +398,12 @@ success returns `onboard_layers_saved` with the paired target snapshot. The
 `hypershift_transactions` hello capability advertises the wired path. Existing
 normal-only commands and backups retain their meaning.
 
+GUI session reads (`onboard_layers_read`, `macro_read`, `haptic_read`) now use
+one display sweep and mark the snapshot response with `preview: true`. These
+views are readbacks, not durable recovery checkpoints. Prepare/commit still
+perform fresh comparisons and durable backup verification before writing.
+Standalone diagnostic/inspection commands retain their repeated-read behavior.
+
 
 If a failed layer trial reports a normal request echoing layer 1, restoration is
 not verified. Do not retry apply or overwrite its backups. Release all buttons,

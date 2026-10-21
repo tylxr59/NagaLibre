@@ -445,7 +445,7 @@ mod tests {
     #[test]
     fn active_selection_writes_only_one_haptic_record_and_preserves_all_other_state() {
         let mut m = mouse();
-        let before = m.inspect_haptic(None).unwrap();
+        let before = m.preview_haptic(None).unwrap();
         let p = m.prepare_haptic(&before, edit()).unwrap();
         assert_eq!(p.backup.slots.len(), 2);
         assert_eq!(p.backup.mappings.slots.len(), 2);
@@ -453,6 +453,15 @@ mod tests {
         assert_eq!(after.state.active_position, 1);
         assert_eq!(m.transport.writes, vec![(0, vec![1, 1])]);
     }
+    #[test]
+    fn changed_display_view_cannot_prepare_a_wheel_write() {
+        let mut m = mouse();
+        let view = m.preview_haptic(None).unwrap();
+        m.transport.metadata_tail ^= 1;
+        assert!(m.prepare_haptic(&view, edit()).is_err());
+        assert!(m.transport.writes.is_empty());
+    }
+
     #[test]
     fn unchanged_save_skips_writes_and_stale_wire_tail_prevents_commit() {
         let mut m = mouse();

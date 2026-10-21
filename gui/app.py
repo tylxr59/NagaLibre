@@ -449,6 +449,7 @@ class Window(QMainWindow):
         actions.addWidget(self.assignment_actions, 1)
         layout.addWidget(footer)
         self.workspace.pages.currentChanged.connect(lambda index: self.assignment_actions.setVisible(index == 0))
+        self.workspace.pages.currentChanged.connect(self.refresh_visible_assignments)
         stop_action = QAction("Stop remapping", self)
         stop_action.setShortcut("Escape")
         stop_action.triggered.connect(self.stop_remapping)
@@ -757,7 +758,8 @@ class Window(QMainWindow):
                     self.set_hardware_busy(False)
                     self.fail(error)
             elif self.is_hardware():
-                self.read_mouse()
+                self.status.setText("Connected.")
+                self.refresh_visible_assignments()
             elif self.pending_config is not None:
                 self.backend.send({"command": "apply", "config": self.pending_config})
                 self.pending_config = None
@@ -857,6 +859,13 @@ class Window(QMainWindow):
             return f"{name}\nStored: {self.stored_text(index)}\nDraft: {draft}"
         return f"{index + 1}\n{draft}"
 
+    def refresh_visible_assignments(self, *args):
+        if (self.workspace.pages.currentIndex() in (0, 1) and self.active_editor is None
+                and self.backend.ready and self.is_hardware() and self.profile["plate"] == "12"
+                and self.snapshot is None and not self.hardware_busy
+                and self.plate_detection != "unknown"):
+            self.read_mouse()
+
     def run_hardware_editor(self, editor_type, **kwargs):
         if self.hardware_busy or self.active_editor is not None:
             return
@@ -888,7 +897,8 @@ class Window(QMainWindow):
             if self.editor_reconnected and self.backend.ready and not dialog.saved:
                 self.connection_changed(True)
             elif self.backend.ready and not dialog.saved and self.is_hardware() and self.profile["plate"] == "12":
-                self.read_mouse()
+                self.refresh_visible_assignments()
+                self.refresh_hardware_view()
             else:
                 if dialog.saved or not self.backend.ready:
                     self.connection_changed(False)
@@ -1098,8 +1108,8 @@ class Window(QMainWindow):
         if not self.is_hardware() and self.backend.ready and self.active_editor is None:
             self.backend.send({"command": "monitor"})
         self.refresh_hardware_view()
-        if self.is_hardware() and count == 12 and self.backend.ready and not self.hardware_busy and self.active_editor is None:
-            self.read_mouse()
+        if count == 12:
+            self.refresh_visible_assignments()
 
     def learn_input(self):
         self.commit_fields()

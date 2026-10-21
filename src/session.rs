@@ -295,8 +295,8 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                 match command {
                     Command::MacroRead => {
                         macro_prepared = None;
-                        let after = mouse.inspect_macros()?;
-                        emit(json!({"type":"macro_snapshot","snapshot":after}));
+                        let after = mouse.preview_macros()?;
+                        emit(json!({"type":"macro_snapshot","snapshot":after,"preview":true}));
                         macro_snapshot = Some(after);
                     }
                     Command::MacroPrepare { config, request } => {
@@ -374,7 +374,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                     Command::HapticRead { slot } => {
                         haptic_prepared = None;
                         emit(
-                            json!({"type":"haptic_snapshot","snapshot":mouse.inspect_haptic(slot)?}),
+                            json!({"type":"haptic_snapshot","snapshot":mouse.preview_haptic(slot)?,"preview":true}),
                         );
                         return Ok(());
                     }
@@ -460,8 +460,10 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                         layer_snapshot = None;
                         hardware = None;
                         let mut mouse = onboard::hidraw::connect()?;
-                        let read = mouse.read_layers(slot)?;
-                        emit(json!({"type":"onboard_layers_snapshot", "snapshot":read}));
+                        let read = mouse.preview_layers(slot)?;
+                        emit(
+                            json!({"type":"onboard_layers_snapshot", "snapshot":read,"preview":true}),
+                        );
                         snapshot = Some(read.normal.clone());
                         layer_snapshot = Some(read);
                         hardware = Some(mouse);

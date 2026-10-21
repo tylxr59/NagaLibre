@@ -1301,6 +1301,17 @@ mod tests {
         assert!(mouse.transport.writes.is_empty());
     }
     #[test]
+    fn display_layer_view_still_requires_exact_freshness_before_save() {
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let view = mouse.preview_layers(None).unwrap();
+        mouse.transport.normal_echo_one = true;
+        assert!(mouse.prepare_layers(&view, layer_edits()).is_err());
+        assert!(mouse.transport.writes.is_empty());
+    }
+
+    #[test]
     fn paired_normal_echo_is_stale_state_and_missing_legacy_echoes_mean_strict_zero() {
         let mut mouse = Mouse {
             transport: BankFake::new(),

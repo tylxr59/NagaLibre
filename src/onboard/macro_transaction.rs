@@ -381,8 +381,22 @@ impl<T: Transport> Mouse<T> {
     }
 
     fn check_macro_backup(&mut self, backup: &Backup) -> Result<()> {
-        backup.contents.check_fresh(&self.inspect_macros()?)?;
-        self.check_layer_backup(&backup.mappings)?;
+        let fresh = self.inspect_macros()?;
+        backup.contents.check_fresh(&fresh)?;
+        // inspect_macros already verifies every paired mapping repeatedly. Reuse
+        // that exact readback instead of starting another full bank sweep; middle
+        // click is deliberately absent from layer readbacks and still needs a read.
+        ensure!(
+            backup.mappings.slots.len() == fresh.mappings.len(),
+            "Incomplete macro mapping backup"
+        );
+        for slot in &backup.mappings.slots {
+            ensure!(
+                fresh.mappings.iter().any(|mapping| mapping == &slot.state)
+                    && self.get_button(slot.state.normal.slot, 3, 3)? == slot.middle,
+                "Paired-bank state changed; no settings were written"
+            );
+        }
         Ok(())
     }
 
@@ -719,6 +733,7 @@ mod tests {
         echoes: BTreeMap<(u8, u8), u8>,
         macros: BTreeMap<u16, macros::Entry>,
         writes: Vec<(u8, u8, Vec<u8>)>,
+        getters: usize,
         failures: BTreeSet<usize>,
         fail_before: bool,
         allocations: usize,
@@ -758,6 +773,7 @@ mod tests {
                     },
                 )]),
                 writes: vec![],
+                getters: 0,
                 failures: BTreeSet::new(),
                 fail_before: false,
                 allocations: 0,
@@ -779,6 +795,9 @@ mod tests {
         }
         fn exchange(&mut self, class: u8, command: u8, p: &[u8], _: usize) -> Result<Vec<u8>> {
             let writing = command & 0x80 == 0;
+            if !writing {
+                self.getters += 1;
+            }
             let failing = if writing {
                 self.writes.push((class, command, p.to_vec()));
                 self.failures.remove(&self.writes.len())
@@ -926,7 +945,7 @@ mod tests {
         }
     }
     fn prepared(mouse: &mut Mouse<Fake>, layer: u8) -> Result<Prepared> {
-        let known = mouse.inspect_macros()?;
+        let known = mouse.preview_macros()?;
         mouse.prepare_macro(&known, config(), request(layer))
     }
     fn original(
@@ -937,6 +956,45 @@ mod tests {
         assert_eq!(&mouse.transport.mappings, mappings);
         assert_eq!(&mouse.transport.macros, old);
         assert!(mouse.transport.echoes.values().all(|v| *v == 0));
+    }
+
+    #[test]
+    fn macro_freshness_reuses_verified_bank_readback_and_still_checks_middle_click() -> Result<()> {
+        let mut m = Mouse {
+            transport: Fake::new(),
+        };
+        let plan = prepared(&mut m, 0)?;
+        let start = m.transport.getters;
+        m.inspect_macros()?;
+        m.check_layer_backup(&plan.backup.mappings)?;
+        let old = m.transport.getters - start;
+        let start = m.transport.getters;
+        m.check_macro_backup(&plan.backup)?;
+        let current = m.transport.getters - start;
+        assert!(current < old);
+        eprintln!("Macro freshness getters: {old} -> {current}");
+        m.transport.mappings.get_mut(&(2, 0, 3)).unwrap()[2] = 2;
+        assert!(m.check_macro_backup(&plan.backup).is_err());
+        assert!(m.transport.writes.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn changed_display_view_cannot_prepare_a_macro_write() -> Result<()> {
+        for mapping in [false, true] {
+            let mut m = Mouse {
+                transport: Fake::new(),
+            };
+            let view = m.preview_macros()?;
+            if mapping {
+                m.transport.mappings.get_mut(&(2, 1, 0x41)).unwrap()[3] ^= 1;
+            } else {
+                m.transport.macros.get_mut(&99).unwrap().data.push(0x77);
+            }
+            assert!(m.prepare_macro(&view, config(), request(0)).is_err());
+            assert!(m.transport.writes.is_empty());
+        }
+        Ok(())
     }
 
     #[test]
