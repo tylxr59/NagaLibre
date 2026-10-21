@@ -13,7 +13,54 @@ explicitly deferred by the user. No new hardware reads or writes were performed
 in this implementation; only the earlier empty-inventory capacity/count capture
 is hardware evidence. Nonempty getter fidelity, firmware acceptance, physical
 output/release, all playback modes and reconnect/power-cycle persistence remain
-pending. Custom haptic work remains deferred.
+pending. Custom haptic implementation remains deferred; the user subsequently
+requested the static Ghidra follow-up below.
+
+## Custom wheel Ghidra follow-up
+
+The user requested more static research into Razer's Custom implementation.
+GhidraMCP confirmed the wired DLL/hash and decompiled its Custom setter, storage
+wrapper, queue worker and separate metadata/selection paths. Named MCP tools were
+not exposed in that chat, so a local MCP client used the configured launcher with
+a separate private project (the existing project was locked). No device requests,
+Windows execution, firmware updates or application behavior changes occurred.
+
+New details are in
+[inspection/HAPTIC_HOST_LIFECYCLE.md](inspection/HAPTIC_HOST_LIFECYCLE.md).
+Razer queues stored-profile edits separately from live edits. Its live managed
+API index0 becomes wire selector1; the storage dispatcher explicitly skips literal
+selector1 for Custom/metadata and logs it as Active Profile. This is not a dynamic
+active-slot test. The failed NagaLibre candidate already used wire selector1, so
+this does not by itself fix the trial. Neither the traced Custom handler nor its
+storage worker adds a Custom-only final commit packet. Initialization/mode/power
+lifecycle and the firmware flash gate remain unresolved; Custom apply gates stay.
+
+The follow-up also documents WPF flattened-path length sampling (51 samples),
+forward simplification, float32 scale factors/five-decimal rounding and first
+maximum-Y tick-index selection. These improve the host generator specification
+but still need cross-platform golden fixtures and do not establish device bounds.
+Private decompilation/projects remain outside tracked source. Only research docs
+changed, checked for whitespace and valid local links; no new hardware test is
+needed from the user for this checkpoint. Onboard macro physical tests remain
+deferred as requested.
+
+The user then authorized further binary research. The 2026-10-21 continuation
+traced the wired DriverMode and GenericFeature libraries, plus the newer mouse
+firmware directly in Ghidra and the older image's flash worker in Thumb assembly.
+Ordinary DriverMode enables wire mode3/disables mode0; it does not use the mode1
+flush/reset path. The generic JSON bridge adds no wheel commit. The newer Custom
+flash gates are one-shot permissions consumed by curve/metadata flushing; power
+and connection transitions reopen them. The older image also gates curve writes
+but differs for metadata. Do not assume the installed1.2 image matches either.
+
+Active-profile upload completion can prepare distinct working tables from RAM
+cache while selector-zero readback still follows a flash source pointer. Thus
+the previous mismatch does not establish a failed live transfer, and unchanged
+flash after recovery does not prove pending cache equality. A verified live-data
+and persistent-save/recovery contract is still missing. No new command or safe
+USB-reconnect contract was established. Custom apply gates stay; no mouse request,
+mode switch, firmware flash or physical test was performed. Details, provenance,
+addresses and next requirements are in HAPTIC_HOST_LIFECYCLE.md above.
 
 ## Macro transaction and desktop implementation
 

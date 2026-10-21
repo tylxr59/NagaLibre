@@ -452,6 +452,11 @@ strict checks; no alternate packet framing or relaxed comparison is introduced.
 
 ## Changed-upload evidence and deferred flash gate
 
+The subsequent [Ghidra host lifecycle trace](HAPTIC_HOST_LIFECYCLE.md) separates
+Razer's live and stored-profile paths. It finds no additional Custom commit in
+the specific setter/storage-worker chain; initialization/mode/power lifecycle
+still needs tracing. The findings below remain unresolved, not a new write plan.
+
 Actual trial `haptic-custom-trial-1792527201929626567` acknowledged the upload but
 returned the ORIGINAL velocity points through selector zero: (0,0),
 (0.06186,0.00218), (0.11675,0.00326), rather than the candidate
@@ -498,3 +503,32 @@ opens it, but then writes aaaaAAAA to RAM2003fffc at45066–4506c and continues 
 reset path. Its boot/persistence semantics are NOT established as a safe save
 operation. Do not send it. USB00/0b has reset/default paths and is NOT a guessed
 commit command. No new mode/reset/flash request has been added or sent.
+
+## Further lifecycle research: one-shot permission and live cache
+
+The [host lifecycle follow-up](HAPTIC_HOST_LIFECYCLE.md#additional-libraries-and-firmware-lifecycle-trace)
+now traces the wired DriverMode and GenericFeature libraries and rechecks the
+firmware directly in Ghidra. The ordinary host driver wrapper chooses wire mode3
+or mode0, not the mode1 flush/reset branch. The JSON bridge forwards the setter
+without adding a wheel-specific commit.
+
+The newer flash worker clears gate bit0 at478fc–47900 after its curve pass,
+and independently clears metadata permission bit1 at47946–4794a. These are
+one-shot permissions, not a permanent flash-enable switch. Connection/power
+transition helper3e3bc and state machine3e484 set both; their broader lifecycle
+effects still prevent treating them as a standalone safe save operation.
+
+The older mouse worker45380 uses a related one-shot byte at RAM20002ec8 for
+curves, testing it at45502–45506 and clearing it at45586. Its metadata path
+4558a–455c6 lacks the newer bit1 gate. Keep this cross-version difference and
+the unknown exact installed image explicit.
+
+Active-profile completion463fe–46428 calls3b050, which can translate the
+combined table source into RAM cache and prepare separate working pointers.
+Selector-zero getter3a414 instead retains the configuration source+3c; the
+nonzero-profile parser/copy can leave that source pointing to flash. A changed
+working/cache curve and unchanged flash getter are therefore compatible states.
+This clarifies why the stopped trial's mismatch is not proof that the upload
+failed to transfer. It still does not verify operational data, tactile output,
+durability or recovery of pending cache. No comparison was weakened and no
+hardware request or new Custom apply path was enabled.

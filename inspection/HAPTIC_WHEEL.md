@@ -195,6 +195,12 @@ host-side list; do not promise automatic application switching from this getter.
 
 ### Custom configuration and curve tables
 
+The Ghidra follow-up in [HAPTIC_HOST_LIFECYCLE.md](HAPTIC_HOST_LIFECYCLE.md)
+traces live versus storage dispatch, managed-index to wire-selector conversion,
+the storage selector-1 skip, and the more precise curve-generation pipeline.
+It finds no additional commit in the traced per-edit handlers; firmware save
+lifecycle remains unresolved and Custom apply routes remain gated.
+
 The active JSON custom handler uses `15/83`, not the older `15/82` entry:
 
 | Offset | Type | Meaning from handler and JSON field |
