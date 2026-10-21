@@ -959,6 +959,98 @@ mod tests {
     }
 
     #[test]
+    fn transaction_getter_budgets() -> Result<()> {
+        let mut m = Mouse {
+            transport: Fake::new(),
+        };
+        let view = m.preview_macros()?;
+        let start = m.transport.getters;
+        m.capture_layer_backup(&view.mappings[0])?;
+        let backup = m.transport.getters - start;
+        let start = m.transport.getters;
+        let plan = m.prepare_macro(&view, config(), request(0))?;
+        let prepare = m.transport.getters - start;
+        let temp = Temp::new();
+        let start = m.transport.getters;
+        m.commit_macro(plan, &temp.journal())?;
+        let commit = m.transport.getters - start;
+        let start = m.transport.getters;
+        m.recover_macro(&temp.journal())?;
+        let recovery = m.transport.getters - start;
+        eprintln!(
+            "Getter budgets: paired backup={backup}, macro prepare={prepare}, commit={commit}, recovery={recovery}"
+        );
+        // Two initialized slots, one existing short macro. Before removing
+        // nested double reads these were 316 / 663 / 1095 / 2244.
+        assert!(backup <= 170, "Paired backup getter budget: {backup}");
+        assert!(prepare <= 370, "Macro prepare getter budget: {prepare}");
+        assert!(commit <= 650, "Macro commit getter budget: {commit}");
+        assert!(recovery <= 1500, "Macro recovery getter budget: {recovery}");
+        Ok(())
+    }
+
+    #[test]
+    fn compared_passes_reject_raw_mapping_and_middle_changes_without_writes() -> Result<()> {
+        struct Changing {
+            inner: Fake,
+            address: (u8, u8, u8),
+            reads: usize,
+        }
+        impl Transport for Changing {
+            fn identity(&self) -> Identity {
+                self.inner.identity()
+            }
+            fn exchange(
+                &mut self,
+                class: u8,
+                command: u8,
+                p: &[u8],
+                echo: usize,
+            ) -> Result<Vec<u8>> {
+                if (class, command) == (2, 0x8c) && (p[0], p[2], p[1]) == self.address {
+                    self.reads += 1;
+                    if self.reads == 2 {
+                        // Alter an opaque trailing byte, keeping the decoded
+                        // action unchanged. Recovery requires exact records.
+                        self.inner.mappings.get_mut(&self.address).unwrap()[6] ^= 1;
+                    }
+                }
+                self.inner.exchange(class, command, p, echo)
+            }
+        }
+        for address in [(1, 0, 0x40), (2, 1, 0x41), (2, 0, 3), (1, 0, 1)] {
+            for inspection in [false, true] {
+                // Macro mapping inspection deliberately excludes middle click;
+                // backup capture and commit freshness check it independently.
+                if inspection && address.2 == 3 {
+                    continue;
+                }
+                let mut base = Mouse {
+                    transport: Fake::new(),
+                };
+                let view = base.preview_macros()?;
+                let mut mouse = Mouse {
+                    transport: Changing {
+                        inner: base.transport,
+                        address,
+                        reads: 0,
+                    },
+                };
+                if inspection {
+                    assert!(mouse.inspect_macros().is_err(), "{address:?}");
+                } else {
+                    assert!(
+                        mouse.capture_layer_backup(&view.mappings[0]).is_err(),
+                        "{address:?}"
+                    );
+                }
+                assert!(mouse.transport.inner.writes.is_empty());
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn macro_freshness_reuses_verified_bank_readback_and_still_checks_middle_click() -> Result<()> {
         let mut m = Mouse {
             transport: Fake::new(),

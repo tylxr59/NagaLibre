@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import shutil
 
-from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
 
 def backend_path() -> Path:
@@ -15,6 +15,64 @@ def backend_path() -> Path:
         return Path(override).expanduser().resolve()
     root = Path(__file__).resolve().parent.parent
     return root / "target/release/naga-macros"
+
+
+class DeviceInventory(QObject):
+    """Run passive discovery without blocking Qt or overlapping scans."""
+    inventory = Signal(list)
+    failed = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.process = QProcess(self)
+        self.process.finished.connect(self.finished)
+        self.process.errorOccurred.connect(self.process_error)
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.expired)
+        self.failure = None
+        self.cancelled = False
+
+    def scan(self):
+        if self.process.state() != QProcess.ProcessState.NotRunning:
+            return
+        self.failure = None
+        self.cancelled = False
+        self.process.start(str(backend_path()), ['list', '--json', '--all-razer'])
+        self.timer.start(1000)
+
+    def process_error(self, error):
+        if error == QProcess.ProcessError.FailedToStart and not self.cancelled:
+            self.timer.stop()
+            self.failed.emit(self.process.errorString())
+
+    def expired(self):
+        self.failure = 'Device inventory timed out.'
+        self.process.kill()
+
+    def finished(self, code, _status):
+        self.timer.stop()
+        stdout = bytes(self.process.readAllStandardOutput())
+        stderr = bytes(self.process.readAllStandardError()).decode(errors='replace').strip()
+        if self.cancelled:
+            return
+        try:
+            if self.failure or code:
+                raise ValueError(self.failure or stderr or f'Device inventory exited with code {code}.')
+            devices = json.loads(stdout)
+            if not isinstance(devices, list) or any(not isinstance(d, dict) for d in devices):
+                raise ValueError('Invalid device inventory from input engine; rebuild the engine and app together.')
+        except (ValueError, UnicodeError) as error:
+            self.failed.emit(str(error))
+        else:
+            self.inventory.emit(devices)
+
+    def stop(self):
+        self.cancelled = True
+        self.timer.stop()
+        if self.process.state() != QProcess.ProcessState.NotRunning:
+            self.process.kill()
+            self.process.waitForFinished(1000)
 
 
 class Backend(QObject):

@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     io::{self, BufRead, Write},
+    os::fd::AsRawFd,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -134,6 +135,14 @@ fn worker(
                 runtime::run_session(devices, bindings, signal)
             } else {
                 emit(json!({"type":"state", "state":"monitoring"}));
+                let mut poll_fds: Vec<_> = devices
+                    .iter()
+                    .map(|(_, device)| libc::pollfd {
+                        fd: device.as_raw_fd(),
+                        events: libc::POLLIN,
+                        revents: 0,
+                    })
+                    .collect();
                 while signal.load(Ordering::Relaxed) {
                     for (path, dev) in &mut devices {
                         match dev.fetch_events() {
@@ -157,7 +166,8 @@ fn worker(
                             }
                         }
                     }
-                    thread::sleep(Duration::from_millis(2));
+                    runtime::wait_for_input(&mut poll_fds, 50)
+                        .context("Waiting for input monitoring")?;
                 }
                 Ok(())
             }

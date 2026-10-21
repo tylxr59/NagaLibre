@@ -182,11 +182,9 @@ impl<T: Transport> Mouse<T> {
         let guard = self.haptic_guard().context("Macro inspection scope")?;
         let mut mappings = Vec::new();
         for &slot in &guard.slots {
-            let mapping = if verify {
-                self.read_layers(Some(slot))?
-            } else {
-                self.preview_layers(Some(slot))?
-            };
+            // The verified inspection compares a second complete sweep below.
+            // Do not nest read_layers' own double read inside each sweep.
+            let mapping = self.preview_layers(Some(slot))?;
             let normal = &mapping.normal;
             ensure!(
                 normal.device == guard.device
@@ -210,7 +208,7 @@ impl<T: Transport> Mouse<T> {
             );
             for mapping in &mappings {
                 ensure!(
-                    self.read_layers(Some(mapping.normal.slot))? == *mapping,
+                    self.preview_layers(Some(mapping.normal.slot))? == *mapping,
                     "Mapping references changed during macro inspection"
                 );
             }
@@ -653,7 +651,7 @@ mod tests {
                 .filter(|&&c| c == (2, 0x8c))
                 .count()
         };
-        assert_eq!(mapping_reads(&strict), mapping_reads(&preview) * 4);
+        assert_eq!(mapping_reads(&strict), mapping_reads(&preview) * 2);
         assert_eq!(preview.transport.storage_reads, 1);
         assert_eq!(strict.transport.storage_reads, 2);
         assert!(preview.transport.calls.iter().all(|(_, cmd)| *cmd >= 0x80));

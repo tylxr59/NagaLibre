@@ -7,6 +7,7 @@ use evdev::{
 use std::{
     collections::{BTreeMap, BTreeSet},
     io,
+    os::fd::AsRawFd,
     path::PathBuf,
     sync::{
         Arc,
@@ -240,6 +241,14 @@ struct Playback {
 }
 
 impl Playback {
+    fn wait_ms(&self, m: &Macro, elapsed_ms: u128) -> i32 {
+        let deadline = m
+            .actions
+            .get(self.next)
+            .map_or(m.duration_ms, |action| action.at_ms);
+        u128::from(deadline).saturating_sub(elapsed_ms).min(50) as i32
+    }
+
     fn due<'a>(&mut self, m: &'a Macro, elapsed_ms: u128) -> &'a [crate::config::Action] {
         let first = self.next;
         while self.next < m.actions.len() && u128::from(m.actions[self.next].at_ms) <= elapsed_ms {
@@ -247,6 +256,19 @@ impl Playback {
         }
         &m.actions[first..self.next]
     }
+}
+
+pub(crate) fn wait_for_input(fds: &mut [libc::pollfd], timeout_ms: i32) -> io::Result<()> {
+    // SAFETY: fds remains allocated for the call and contains borrowed live
+    // source descriptors; poll only updates its revents fields.
+    let result = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
+    if result < 0 {
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+    Ok(())
 }
 
 pub fn run(
@@ -327,6 +349,14 @@ fn run_inner(
         );
     }
     let mut routers: Vec<_> = sources.iter().map(|_| Router::default()).collect();
+    let mut poll_fds: Vec<_> = sources
+        .iter()
+        .map(|source| libc::pollfd {
+            fd: source.device.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        })
+        .collect();
     let mut active: Option<Playback> = None;
     if telemetry {
         crate::session::emit(serde_json::json!({"type":"state","state":"running"}));
@@ -335,10 +365,14 @@ fn run_inner(
         "Running {} bindings. Mapped buttons are suppressed; other mouse input passes through. Ctrl+C stops.\nMacros run one at a time; presses while busy are discarded.",
         bindings.len()
     );
+    // Reuse the batch allocation across interfaces and input frames. Holding
+    // fetched events separately lets forwarding borrow the source safely.
+    let mut events = Vec::new();
     while running.load(Ordering::Relaxed) {
         for (source, router) in sources.iter_mut().zip(&mut routers) {
-            let events: Vec<_> = match source.device.fetch_events() {
-                Ok(events) => events.collect(),
+            events.clear();
+            match source.device.fetch_events() {
+                Ok(fetched) => events.extend(fetched),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
                 Err(e) => {
                     return Err(e).with_context(|| {
@@ -348,8 +382,8 @@ fn run_inner(
                         )
                     });
                 }
-            };
-            for event in events {
+            }
+            for event in events.drain(..) {
                 if event.event_type() == EventType::KEY {
                     let key = KeyCode(event.code());
                     if telemetry {
@@ -404,7 +438,15 @@ fn run_inner(
                 active = None;
             }
         }
-        thread::sleep(Duration::from_millis(2));
+        // Input wakes immediately; timed macro actions wake at their deadline.
+        // Bound idle waits so shutdown still releases output/grabs promptly.
+        let timeout = active.as_ref().map_or(50, |playback| {
+            playback.wait_ms(
+                &bindings[&playback.trigger],
+                playback.start.elapsed().as_millis(),
+            )
+        });
+        wait_for_input(&mut poll_fds, timeout).context("Waiting for mouse input")?;
     }
     eprintln!("Stopped. Physical input restored.");
     Ok(())
@@ -493,11 +535,37 @@ mod tests {
             start: Instant::now(),
             next: 0,
         };
+        assert_eq!(p.wait_ms(m, 0), 0);
         assert_eq!(p.due(m, 0).len(), 1);
+        assert_eq!(p.wait_ms(m, 0), 20);
+        assert_eq!(p.wait_ms(m, 19), 1);
+        assert_eq!(p.wait_ms(m, 21), 0);
         assert!(p.due(m, 19).is_empty());
         assert_eq!(p.due(m, 20)[0].key, KeyCode::KEY_A);
+        assert_eq!(p.wait_ms(m, 20), 50);
         assert!(p.due(m, 119).is_empty());
         assert_eq!(p.due(m, 1000).len(), 2);
         assert!(p.due(m, 2000).is_empty());
+        assert_eq!(p.wait_ms(m, 2000), 0);
+    }
+
+    #[test]
+    fn input_wait_reports_ready_and_disconnected_sources_without_a_device() -> io::Result<()> {
+        use std::{io::Write, os::unix::net::UnixStream};
+        let (source, mut writer) = UnixStream::pair()?;
+        let mut fds = [libc::pollfd {
+            fd: source.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        }];
+        wait_for_input(&mut fds, 0)?;
+        assert_eq!(fds[0].revents, 0);
+        writer.write_all(&[1])?;
+        wait_for_input(&mut fds, 50)?;
+        assert_ne!(fds[0].revents & libc::POLLIN, 0);
+        drop(writer);
+        wait_for_input(&mut fds, 50)?;
+        assert_ne!(fds[0].revents & libc::POLLHUP, 0);
+        Ok(())
     }
 }

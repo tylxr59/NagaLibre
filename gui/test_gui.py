@@ -14,7 +14,6 @@ from app import Window, MacroDialog
 import backend
 from onboard import hardware_buttons, hardware_controls, write_backup, stored_label
 from unittest.mock import patch
-from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 from support import device_issue_url
 from model import DEFAULT_KEYS, DEVICE_MODELS, load_profile, new_profile, reset_plate, runtime_config, save_profile
@@ -277,10 +276,8 @@ class QtFlow(unittest.TestCase):
             window = Window(Path(directory) / "profiles.json")
             unknown = {"vendor": 0x1532, "product": 0xffff, "name": "Razer unknown", "model": None}
             def scan(devices):
-                result = SimpleNamespace(returncode=0, stdout=json.dumps(devices), stderr="")
-                with patch("app.subprocess.run", return_value=result) as run:
-                    window.scan_devices()
-                self.assertIn("--all-razer", run.call_args.args[0])
+                window.device_inventory.stop()
+                window.update_device_inventory(devices)
             with patch("app.QDesktopServices.openUrl") as open_url:
                 scan([unknown])
                 self.assertIn("Unrecognized", window.support_hint.text())

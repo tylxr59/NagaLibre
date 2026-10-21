@@ -3,6 +3,43 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Performance pass across transactions, input and GUI (2026-10-21)
+
+At the user's request, audited the save/read paths, software remapping/monitoring
+and Qt discovery. Source findings, before/after request counts, retained checks,
+reproduction commands and remaining opportunities are in
+[inspection/PERFORMANCE.md](inspection/PERFORMANCE.md).
+
+Macro inspection and paired-backup capture now compare two complete single-pass
+sweeps instead of nesting double reads in each sweep. Every scoped slot/layer,
+wire record/echo, middle-click backup and surrounding guard remains checked;
+macro storage is still read twice. Standalone read_layers and commit-time layer
+freshness checks retain double bank reads. The shared capture improvement applies
+to mapping, slot and wheel operations as well as macros. No snapshot caching,
+write-scope expansion or backup/journal synchronization changes were introduced.
+
+In the same two-slot fixture, paired-backup getters fell 316 -> 164; macro
+prepare/commit fell 1,758 -> 998 combined, and recovery 2,244 -> 1,484. Strict
+empty-inventory macro inspection fell 331 -> 179. These are deterministic request
+counts, not hardware timings or Synapse parity. Budget regressions and second-pass
+mutations cover opaque trailing bytes, inactive Hypershift, primary records and
+middle clicks; existing stale-state, storage, lost-ack and recovery tests pass.
+
+Software remapping and session monitoring now poll source descriptors, waking on
+input or the next action deadline instead of sleeping 2 ms after each loop. Idle
+waits are capped at 50 ms for shutdown; runtime event batches reuse an allocation.
+Qt passive discovery uses QProcess with nonoverlap, timeout, failure/retry and
+shutdown cleanup instead of blocking the GUI every three seconds. It remains
+independent of the privileged helper. Tests exercise real mock subprocesses and
+socket readiness without opening input hardware.
+
+Validation: 183 Rust and 220 Python/Qt tests passed, formatting, whitespace and
+Clippy with warnings denied passed, debug/release builds and example validation
+passed. An offscreen launch using asynchronous discovery exited cleanly. The
+release helper was rebuilt; restart the GUI to use these changes. No live mouse
+requests or physical timing/playback tests were performed. The 30 ms feature-report
+wait and 500 ms virtual-device startup delay remain pending hardware evidence.
+
 ## Explicit macro storage read (2026-10-21)
 
 Renamed the embedded storage tool's ambiguous Refresh mouse button to Read macro

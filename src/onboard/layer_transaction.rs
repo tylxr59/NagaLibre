@@ -111,7 +111,8 @@ impl<T: Transport> Mouse<T> {
         Self::layer_write_scope(target)?;
         let mut slots = Vec::new();
         for slot in &target.normal.slots {
-            let state = self.read_layers(Some(*slot))?;
+            // capture_layer_backup compares a second complete pass below.
+            let state = self.preview_layers(Some(*slot))?;
             ensure!(
                 state.normal.device == target.normal.device
                     && state.normal.slots == target.normal.slots
@@ -135,7 +136,7 @@ impl<T: Transport> Mouse<T> {
             kind: "paired_mapping_backup".into(),
             slots,
         };
-        self.check_layer_backup(&backup)?;
+        self.compare_layer_backup(&backup, false)?;
         let middle = &backup
             .slots
             .iter()
@@ -150,9 +151,18 @@ impl<T: Transport> Mouse<T> {
     }
 
     pub(super) fn check_layer_backup(&mut self, backup: &LayerBackup) -> Result<()> {
+        self.compare_layer_backup(backup, true)
+    }
+
+    fn compare_layer_backup(&mut self, backup: &LayerBackup, verify_banks: bool) -> Result<()> {
         for slot in &backup.slots {
+            let state = if verify_banks {
+                self.read_layers(Some(slot.state.normal.slot))?
+            } else {
+                self.preview_layers(Some(slot.state.normal.slot))?
+            };
             ensure!(
-                self.read_layers(Some(slot.state.normal.slot))? == slot.state
+                state == slot.state
                     && self.get_button(slot.state.normal.slot, 3, 3)? == slot.middle,
                 "Paired-bank state changed; no settings were written"
             );

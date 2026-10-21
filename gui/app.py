@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from onboard import (hardware_buttons, hardware_controls, write_backup, write_creation_backup,
                      stored_label, FACTORY_CONTROL_LABELS, layer_edits, draft_from_record, write_layer_backup)
-from backend import Backend, backend_path
+from backend import Backend, DeviceInventory, backend_path
 from support import device_issue_url
 from workspace import Workspace, card, label as text_label
 from macro_editor import MacroEditor
@@ -442,6 +442,9 @@ class Window(QMainWindow):
         self.select_button(0, commit=False)
         if self.load_error:
             self.log("Saved profile could not be loaded: " + self.load_error + " Saving is disabled to preserve it.")
+        self.device_inventory = DeviceInventory(self)
+        self.device_inventory.inventory.connect(self.update_device_inventory)
+        self.device_inventory.failed.connect(self.device_inventory_failed)
         self.scan_timer = QTimer(self)
         self.scan_timer.timeout.connect(self.scan_devices)
         self.scan_timer.start(3000)
@@ -504,30 +507,27 @@ class Window(QMainWindow):
         self.log(str(error))
 
     def scan_devices(self):
-        try:
-            result = subprocess.run([str(backend_path()), "list", "--json", "--all-razer"], capture_output=True, text=True, timeout=1)
-            if result.returncode:
-                raise ValueError(result.stderr.strip())
-            devices = json.loads(result.stdout)
-            if not isinstance(devices, list) or any(not isinstance(d, dict) for d in devices):
-                raise ValueError("Invalid device inventory from input engine; rebuild the engine and app together.")
-            self.support_devices = devices
-            names = sorted({(d.get("model") or {}).get("name", d.get("name", "Razer mouse")) for d in devices})
-            description = ", ".join(names) if devices else "No supported Razer mouse connected"
-            if any(d.get("model") and not d["model"]["verified"] for d in devices):
-                description += " · experimental, hardware unverified"
-            self.device_label.setText(description)
-            if any(d.get("model") is None for d in devices):
-                self.support_hint.setText("Unrecognized Razer device detected. Request support with its diagnostics.")
-            elif any(not d["model"]["verified"] for d in devices):
-                self.support_hint.setText("Experimental model: report your results to help verify support.")
-            else:
-                self.support_hint.clear()
-        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-            self.support_devices = []
-            self.support_hint.setText("Need help? Open a device support request with diagnostic output.")
-            self.device_label.setText(f"Input engine unavailable: {error}")
+        self.device_inventory.scan()
 
+    def update_device_inventory(self, devices):
+        self.support_devices = devices
+        names = sorted({(d.get("model") or {}).get("name", d.get("name", "Razer mouse")) for d in devices})
+        description = ", ".join(names) if devices else "No supported Razer mouse connected"
+        if any(d.get("model") and not d["model"]["verified"] for d in devices):
+            description += " · experimental, hardware unverified"
+        self.device_label.setText(description)
+        if any(d.get("model") is None for d in devices):
+            self.support_hint.setText("Unrecognized Razer device detected. Request support with its diagnostics.")
+        elif any(not d["model"]["verified"] for d in devices):
+            self.support_hint.setText("Experimental model: report your results to help verify support.")
+        else:
+            self.support_hint.clear()
+        self.workspace.buttons[4].setText("Diagnostics •" if self.support_hint.text() else "Diagnostics")
+
+    def device_inventory_failed(self, error):
+        self.support_devices = []
+        self.support_hint.setText("Need help? Open a device support request with diagnostic output.")
+        self.device_label.setText(f"Input engine unavailable: {error}")
         self.workspace.buttons[4].setText("Diagnostics •" if self.support_hint.text() else "Diagnostics")
 
     def connect_mouse(self):
@@ -1464,6 +1464,7 @@ class Window(QMainWindow):
             event.ignore()
             return
         self.backend.shutdown()
+        self.device_inventory.stop()
         self.tray.hide()
         event.accept()
 
@@ -1486,6 +1487,7 @@ def main():
     signal.signal(signal.SIGINT, lambda *args: window.quit())
     signal.signal(signal.SIGTERM, lambda *args: window.quit())
     app.aboutToQuit.connect(window.backend.shutdown)
+    app.aboutToQuit.connect(window.device_inventory.stop)
     window.show()
     if args.screenshot:
         def screenshot():
