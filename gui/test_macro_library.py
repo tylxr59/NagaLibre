@@ -75,6 +75,29 @@ class MacroWorkspaceTests(unittest.TestCase):
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         APP.processEvents()
 
+    def test_assignment_requires_a_saved_unchanged_macro(self):
+        with tempfile.TemporaryDirectory() as root:
+            view = MacroLibraryWidget(Path(root) / 'macros.json')
+            chosen = []
+            view.assignRequested.connect(chosen.append)
+            self.assertFalse(view.assign_button.isEnabled())
+            view.name.setText('Saved')
+            view.steps = [{'tap': 'KEY_A'}]
+            view.save_local()
+            self.assertTrue(view.assign_button.isEnabled())
+            view.assign_button.click()
+            self.assertEqual(chosen, [view.identity])
+            view.sequence_editor.table.item(0, 1).setText('B')
+            self.assertFalse(view.assign_button.isEnabled())
+            view.discard_changes()
+            self.assertTrue(view.assign_button.isEnabled())
+            combo = view.sequence_editor.table.cellWidget(0, 0)
+            combo.setCurrentIndex(combo.findData('down'))
+            self.assertFalse(view.assign_button.isEnabled())
+            view.discard_changes()
+            view.sequence_editor.add('wait_ms', '100')
+            self.assertFalse(view.assign_button.isEnabled())
+
     def test_offline_create_rename_folder_duplicate_and_reopen_never_start_helper(self):
         with tempfile.TemporaryDirectory() as root:
             backend = MockBackend()

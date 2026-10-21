@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit, QPushButton, QStackedWidget, QSystemTrayIcon,
     QVBoxLayout, QWidget, QKeySequenceEdit, QFileDialog, QScrollArea, QFrame, QSizePolicy,
-    QStyle, QStyleOptionButton, QProgressBar,
+    QStyle, QStyleOptionButton, QProgressBar, QTabWidget,
 )
 
 from onboard import (hardware_buttons, hardware_controls, write_backup, write_creation_backup,
@@ -26,6 +26,7 @@ from support import device_issue_url
 from workspace import Workspace, card, label as text_label
 from macro_editor import MacroEditor
 from macro_library_view import MacroLibraryWidget
+from macro_bindings import MacroBindingsWidget
 from macro_assignment import MacroAssignmentPanel
 from haptic import WheelPanel
 from model import (
@@ -222,7 +223,10 @@ class Window(QMainWindow):
         recovery_layout.addWidget(self.wheel_panel.restore_button, 0, Qt.AlignmentFlag.AlignLeft)
         scrolling.addWidget(self.wheel_panel, 1)
         self.macro_library_view = MacroLibraryWidget(self.base_profile_path.parent / "macros.json", self)
-        macros.addWidget(self.macro_library_view, 1)
+        self.macro_tabs = QTabWidget()
+        self.macro_tabs.addTab(self.macro_library_view, 'My Macros')
+        self.macro_library_view.assignRequested.connect(self.assign_library_macro)
+        macros.addWidget(self.macro_tabs, 1)
         context_layout.addLayout(storage_row)
         layout.addWidget(self.workspace.pages, 1)
         self.slot_summary = QLabel("Slot capacity: unread")
@@ -348,6 +352,11 @@ class Window(QMainWindow):
         self.macro_assignment.softwareAssigned.connect(self.use_library_macro)
         self.macro_assignment.busyChanged.connect(self.macro_busy_changed)
         self.macro_assignment.operationStatusChanged.connect(self.macro_operation_status)
+        self.macro_bindings = MacroBindingsWidget(self.macro_assignment, self)
+        self.macro_tabs.addTab(self.macro_bindings, 'Key Binds')
+        self.macro_bindings.readRequested.connect(self.read_macro_bindings)
+        self.macro_bindings.showButtonRequested.connect(self.show_macro_binding)
+        self.macro_bindings.storageRequested.connect(lambda: self.workspace.show_page(1))
         macro_layout.addWidget(self.macro_assignment)
         memory.insertWidget(memory.count() - 1, self.macro_assignment.tools_widget)
         self.stack.addWidget(macro_page)
@@ -906,10 +915,51 @@ class Window(QMainWindow):
         self.status.setText(panel.status.text())
 
 
-    def open_onboard_macros(self):
+    def open_onboard_macros(self, identity=''):
+        if identity and not self.macro_library_view.open_macro(identity):
+            return
         self.commit_fields()
+        self.macro_tabs.setCurrentIndex(0)
         self.workspace.show_page(3)
         self.macro_library_view.search.setFocus()
+
+    def assign_library_macro(self, identity):
+        if self.active_editor is not None or self.hardware_busy:
+            return
+        entry = next((e for e in self.macro_library_view.library.entries if e['id'] == identity), None)
+        if entry is None:
+            return
+        self.commit_fields()
+        self.workspace.show_page(0)
+        self.mode.setCurrentIndex(self.mode.findData('macro'))
+        self.macro_assignment.macro_choice.setCurrentIndex(self.macro_assignment.macro_choice.findData(identity))
+        instruction = 'Choose playback and save the assignment.' if self.is_hardware() else 'Choose Use macro, then Apply bindings.'
+        self.status.setText(f'Assign “{entry["name"]}” to {self.button_title.text()}. {instruction}')
+
+    def read_macro_bindings(self):
+        if self.active_editor is not None or self.hardware_busy:
+            return
+        if not self.is_hardware() or self.device_model['id'] != 'naga_v2_pro' or self.profile['plate'] != '12':
+            self.macro_bindings.status.setText('Select Mouse memory and the wired Naga V2 Pro twelve-button plate to read these assignments.')
+            return
+        self.macro_assignment.read()
+
+    def show_macro_binding(self, slot, layer, button):
+        panel = self.macro_assignment
+        if self.active_editor is not None or self.hardware_busy or panel.snapshot is None or not self.is_hardware():
+            self.macro_bindings.status.setText('Switch to Mouse memory in the Mouse workspace to inspect this stored assignment.')
+            return
+        mapping = next((m for m in panel.snapshot['mappings'] if m['normal']['slot'] == slot), None)
+        if mapping is None or not 1 <= button <= 16:
+            return
+        self.commit_fields()
+        # Use the actual stored readback; opening a row never copies it into a
+        # draft, activates a slot, saves a binding or uploads a macro.
+        self.on_event({'type': 'onboard_layers_snapshot', 'snapshot': mapping})
+        self.layer.setCurrentIndex(layer)
+        self.select_button(button - 1)
+        self.workspace.show_page(0)
+        self.status.setText(f'Stored macro assignment: slot {slot}, {self.button_title.text()}. Local drafts are unchanged.')
 
     def use_library_macro(self, entry):
         self.current().update(mode="macro", steps=entry["steps"], value="")
@@ -917,6 +967,7 @@ class Window(QMainWindow):
 
     def macro_busy_changed(self, busy):
         panel = self.macro_assignment
+        self.macro_tabs.tabBar().setEnabled(not busy)
         self.macro_progress.setVisible(busy)
         if busy:
             self.commit_fields()

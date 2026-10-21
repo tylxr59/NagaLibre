@@ -120,3 +120,7 @@ changes research documentation only; it does not add a recorder or change the
 already implemented upload/backup/undo contract.
 
 The subsequent [Device167 layout pass](SYNAPSE4_LAYOUT.md) traces the actual device frontend and corrects assignment placement: Macros now embeds authoring, while Customize assigns a saved macro to the selected physical button.
+
+The [lifecycle follow-up](SYNAPSE4_FLOW.md) rechecks the public entry pages,
+examines host-catalog deletion/persistence, and implements linked authoring and
+stored-binding navigation while retaining the native transaction limits.

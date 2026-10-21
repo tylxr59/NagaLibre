@@ -1,5 +1,5 @@
 """Shared sequence authoring widget for software and onboard macros."""
-from PySide6.QtCore import QEvent, QTimer
+from PySide6.QtCore import QEvent, QTimer, Signal, QSignalBlocker
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
@@ -35,6 +35,7 @@ class MacroTable(QTableWidget):
 
 
 class MacroEditor(QWidget):
+    changed = Signal()
     TYPES = [("Tap key", "tap"), ("Shortcut", "chord"), ("Wait (ms)", "wait_ms"), ("Hold key", "down"), ("Release key", "up")]
 
     def __init__(self, steps, parent=None, *, add_blank=True):
@@ -54,6 +55,7 @@ class MacroEditor(QWidget):
         self.table.verticalHeader().hide()
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.itemChanged.connect(lambda *_: self.changed.emit())
         layout.addWidget(self.table)
         controls = QHBoxLayout()
         for label, callback in [("Add step", lambda: self.add()), ("Remove", self.remove), ("Move up", lambda: self.move(-1)), ("Move down", lambda: self.move(1))]:
@@ -66,10 +68,12 @@ class MacroEditor(QWidget):
             self.add()
 
     def set_steps(self, steps):
-        self.table.setRowCount(0)
-        for step in steps:
-            kind, value = next(iter(step.items()))
-            self.add(kind, "+".join(display_key(k) for k in value) if kind == "chord" else str(value))
+        with QSignalBlocker(self):
+            self.table.setRowCount(0)
+            for step in steps:
+                kind, value = next(iter(step.items()))
+                self.add(kind, "+".join(display_key(k) for k in value) if kind == "chord" else str(value))
+        self.changed.emit()
 
     def add(self, kind="tap", value=""):
         row = self.table.rowCount()
@@ -81,12 +85,14 @@ class MacroEditor(QWidget):
         combo.setCurrentIndex(max(0, combo.findData(kind)))
         self.table.setCellWidget(row, 0, combo)
         self.table.setItem(row, 1, QTableWidgetItem(value))
+        combo.currentIndexChanged.connect(lambda *_: self.changed.emit())
         self.table.fit_action_column()
         self.table.setCurrentCell(row, 1)
 
     def remove(self):
         if self.table.currentRow() >= 0:
             self.table.removeRow(self.table.currentRow())
+            self.changed.emit()
 
     def move(self, delta):
         row = self.table.currentRow()

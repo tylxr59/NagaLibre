@@ -10,6 +10,29 @@ from macro_library import MacroLibrary
 
 class MacroLibraryWidget(QWidget):
     catalogChanged = Signal()
+    assignRequested = Signal(str)
+
+    def open_macro(self, identity):
+        entry = next((e for e in self.library.entries if e['id'] == identity), None) if self.library else None
+        if entry is None:
+            return False
+        if identity != self.identity:
+            if not self.keep_changes():
+                return False
+            self.load_entry(entry)
+        self.search.clear()
+        return True
+
+    def update_assignment_action(self, *_):
+        if hasattr(self, 'assign_button'):
+            saved = bool(self.library and self.identity and self.baseline is not None
+                         and self.draft_state() == self.baseline and not self.busy)
+            self.assign_button.setEnabled(saved)
+
+    def assign_macro(self):
+        self.update_assignment_action()
+        if self.assign_button.isEnabled():
+            self.assignRequested.emit(self.identity)
 
     def draft_state(self):
         table = self.sequence_editor.table
@@ -62,6 +85,7 @@ class MacroLibraryWidget(QWidget):
         self.baseline = self.draft_state()
         self.local_status.setText('Saved locally. Changes take effect on the mouse only after an assignment.')
         self.populate_tree()
+        self.update_assignment_action()
 
     def select_macro(self, current, previous):
         identity = current.data(0, Qt.ItemDataRole.UserRole) if current else None
@@ -93,6 +117,7 @@ class MacroLibraryWidget(QWidget):
         self.baseline = self.draft_state()
         self.local_status.setText('New local macro. Add steps, then save.')
         self.populate_tree()
+        self.update_assignment_action()
 
     def save_local(self):
         if not self.library or self.busy:
@@ -104,6 +129,7 @@ class MacroLibraryWidget(QWidget):
             self.baseline = self.draft_state()
             self.refresh_library()
             self.local_status.setText('Macro saved locally.')
+            self.update_assignment_action()
             return True
         except (OSError, ValueError, KeyError, TypeError) as error:
             self.local_status.setText(str(error))
@@ -199,9 +225,15 @@ class MacroLibraryWidget(QWidget):
         self.local_save.setProperty('role', 'primary')
         self.local_save.clicked.connect(self.save_local)
         controls.addWidget(self.local_save)
+        self.assign_button = QPushButton('Assign to mouse…')
+        self.assign_button.setToolTip('Save this macro first, then choose its button and playback in Customize.')
+        self.assign_button.clicked.connect(self.assign_macro)
+        controls.addWidget(self.assign_button)
         editor.addLayout(controls)
         layout.addWidget(group, 3)
         self.search.textChanged.connect(self.populate_tree)
+        self.name.textChanged.connect(self.update_assignment_action)
+        self.sequence_editor.changed.connect(self.update_assignment_action)
         self.tree.currentItemChanged.connect(self.select_macro)
         try:
             self.library = MacroLibrary(library_path)
@@ -213,6 +245,7 @@ class MacroLibraryWidget(QWidget):
             self.local_status.setText(f'Cannot open library; file left untouched: {error}')
         self.local_save.setEnabled(self.library is not None)
         self.baseline = self.draft_state()
+        self.update_assignment_action()
 
     @property
     def steps(self):
@@ -264,6 +297,7 @@ class MacroLibraryWidget(QWidget):
             self.current_folder = '' if name == 'Uncategorized' else self.library.folders[folders.index(name) - 1]
             self.show_location()
             self.local_status.setText('Location changed in the draft. Save macro to keep the move.')
+            self.update_assignment_action()
 
     def refresh_library(self):
         self.populate_tree()

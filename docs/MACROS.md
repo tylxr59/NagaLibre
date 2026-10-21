@@ -13,12 +13,27 @@ byte verification alone does not prove that a newly saved timeline is active.
 
 ## Create a macro
 
-1. Open **Macros**. No mouse connection or authentication is needed to author macros.
+1. Open **Macros → My Macros**. No mouse connection or authentication is needed to author macros.
 2. Use **New folder** beside **New macro** to create a folder. Select a folder (or **Uncategorized**) in the library tree, then choose **New macro**. Empty folders are saved and remain available after reopening the app.
 3. Enter a name, use **Add step** to enter keys, shortcuts and delays, then **Save macro**. **Location** shows the macro’s folder. Right-click a macro and choose **Move to folder…**, then save to keep the move. Search, rename through Name, duplicate or delete local macros from this view.
 4. Connect a wired Naga V2 Pro with its twelve-button plate. Select and activate the intended slot in Mouse memory.
 5. Open **Mouse → Customize**, choose the Normal or Hypershift layer and select a grid button or supported extra control. Choose **Macro** as its action, then select a saved macro and playback. Repeat count appears for counted playback only.
 6. Choose **Save macro to mouse** in that button’s pane. The app reads macro storage, prepares a fresh upload, saves the backup and assigns it to that button in the active slot. It reuses the connected helper.
+
+After saving a library macro, **Assign to mouse…** opens Customize with that
+saved sequence selected for the current button. Review the selected button and
+playback before saving the assignment. **Configure macro** opens the selected
+library entry for editing; switching away from another unsaved macro offers
+Save, Discard or Cancel. These links do not write mouse settings.
+
+**Macros → Key Binds → Read mouse assignments** lists macro bindings from mouse
+readback across inspected slots and layers. Filter by stored macro ID, select a
+row and choose **Show button in Customize** to inspect it. Opening an inactive
+slot does not activate it or change your drafts. Primary click rows are read-only.
+The overview shows stored copies rather than assuming they match a similarly
+named library item. Other plates, primary clicks in Hypershift and unrecognized
+assignments are outside the displayed coverage. **Manage mouse storage…** opens
+the separate inventory/deletion/recovery tools under Mouse memory.
 
 The reusable library is stored in `macros.json` beside the main `profiles.json`
 (by default `~/.config/NagaLibre/`). It is shared across device profiles.

@@ -84,7 +84,7 @@ class Workspace:
         ("Customize", "Button assignments", "Assignments and local drafts for your mouse buttons."),
         ("Mouse memory", "Profiles on your mouse", "Read, activate and manage onboard slots, or recover a saved backup."),
         ("Scrolling", "Wheel settings", "Manage HyperScroll stages independently of button assignments."),
-        ("Macros", "My Macros", "Create and edit sequences. Assign saved macros to buttons in Customize."),
+        ("Macros", "Macros", "Create and edit sequences, then review their mouse assignments."),
         ("Diagnostics", "Connection & support", "Inspect session details and find help for your device."),
     )
 

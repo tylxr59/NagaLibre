@@ -10,6 +10,8 @@ from app import Window
 from test_macro_storage import APP, snapshot, backup
 from test_gui_hypershift import paired_state
 from test_haptic import snapshot as wheel_snapshot
+from test_macro_bindings import bindings_snapshot
+import copy
 
 
 class FixedFieldStyle(QProxyStyle):
@@ -105,6 +107,92 @@ class EmbeddedWorkspaceTests(unittest.TestCase):
             self.assertFalse(hasattr(window, 'wheel_settings_button'))
             start.assert_not_called()
             send.assert_not_called()
+
+    def test_library_assignment_and_configure_links_keep_saved_identity_and_cancel_edits(self):
+        window = self.window
+        view = self.save_macro()
+        first = view.identity
+        second = view.library.put('Second', [{'tap': 'KEY_C'}])
+        view.refresh_library()
+        window.select_button(5)
+        window.workspace.show_page(3)
+        with patch.object(window.backend, 'send') as send, patch.object(window.backend, 'start') as start:
+            view.assign_button.click()
+            self.assertEqual(window.workspace.pages.currentIndex(), 0)
+            self.assertEqual(window.selected, 5)
+            self.assertEqual(window.mode.currentData(), 'macro')
+            self.assertEqual(window.macro_assignment.macro_choice.currentData(), first)
+            view.name.setText('Unsaved name')
+            window.macro_assignment.macro_choice.setCurrentIndex(window.macro_assignment.macro_choice.findData(second))
+            with patch.object(QMessageBox, 'question', return_value=QMessageBox.StandardButton.Cancel):
+                window.macro_assignment.configure_button.click()
+            self.assertEqual(window.workspace.pages.currentIndex(), 0)
+            self.assertEqual(view.identity, first)
+            self.assertEqual(view.name.text(), 'Unsaved name')
+            with patch.object(QMessageBox, 'question', return_value=QMessageBox.StandardButton.Discard):
+                window.macro_assignment.configure_button.click()
+            self.assertEqual(window.workspace.pages.currentIndex(), 3)
+            self.assertEqual(window.macro_tabs.currentIndex(), 0)
+            self.assertEqual(view.identity, second)
+            send.assert_not_called()
+            start.assert_not_called()
+
+    def test_key_binds_read_filters_and_opens_inactive_layer_without_writes_or_draft_changes(self):
+        window = self.window
+        self.save_macro()
+        window.show()
+        with patch.object(window.backend, 'send') as send:
+            self.connect_fixture()
+            window.workspace.show_page(3)
+            window.macro_tabs.setCurrentIndex(1)
+            self.assertEqual(window.macro_bindings.table.rowCount(), 0)
+            send.assert_not_called()
+            window.macro_bindings.read_button.click()
+            self.assertFalse(window.macro_tabs.tabBar().isEnabled())
+            self.assertIn('Reading mouse', window.macro_bindings.status.text())
+            window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': bindings_snapshot()})
+            APP.processEvents()
+            binds = window.macro_bindings
+            self.assertEqual(binds.table.rowCount(), 4)
+            binds.filter.setCurrentIndex(binds.filter.findData(8))
+            self.assertEqual(binds.table.rowCount(), 2)
+            self.assertIn('unrecognized', binds.scope.text())
+            before = copy.deepcopy(window.profile)
+            binds.table.selectRow(1)
+            binds.show_button.click()
+            self.assertEqual(window.workspace.pages.currentIndex(), 0)
+            self.assertEqual(window.slots.currentData(), 2)
+            self.assertEqual(window.editing_layer(), 1)
+            self.assertEqual(window.selected, 15)
+            self.assertEqual(window.profile, before)
+            self.assertFalse(window.apply_button.isEnabled())  # Inactive slots require explicit activation.
+            self.assertEqual([c.args[0]['command'] for c in send.call_args_list], ['faceplate', 'macro_read'])
+            window.backend.event.emit({'type': 'onboard_layers_saved', 'snapshot': paired_state()})
+            self.assertEqual(binds.table.rowCount(), 0)
+            self.assertIn('unread', binds.scope.text())
+
+    def test_key_binds_keeps_primary_clicks_read_only_and_clears_disconnected_readback(self):
+        window = self.window
+        with patch.object(window.backend, 'send') as send:
+            self.connect_fixture()
+            window.workspace.show_page(3)
+            window.macro_tabs.setCurrentIndex(1)
+            window.macro_bindings.read_button.click()
+            state = bindings_snapshot()
+            state['mappings'][0]['normal']['primary'][0].update(category=3, data=[0, 7, 1])
+            window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': state})
+            APP.processEvents()
+            binds = window.macro_bindings
+            binds.table.selectRow(0)
+            self.assertIn('Left click', binds.table.item(0, 3).text())
+            self.assertFalse(binds.show_button.isEnabled())
+            window.backend.ready = False
+            window.backend.connected.emit(False)
+            APP.processEvents()
+            self.assertEqual(binds.table.rowCount(), 0)
+            self.assertFalse(binds.show_button.isEnabled())
+            self.assertIn('unread', binds.scope.text())
+            self.assertEqual([c.args[0]['command'] for c in send.call_args_list], ['faceplate', 'macro_read'])
 
     def test_saved_library_macro_is_assigned_to_selected_software_button(self):
         window = self.window

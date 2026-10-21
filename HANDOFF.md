@@ -3,6 +3,43 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Synapse 4 macro lifecycle and linked views (2026-10-21)
+
+At the user's request, re-fetched the current Macro/Device167 entry pages and
+re-inspected the retained shipped macro main, authoring, Key Binds and device
+assignment chunks. Reviewed official Synapse 4 guide screenshots for authoring
+and bindings. Source identity, fresh route hashes, delete/persistence anchors,
+findings and limits are in [inspection/SYNAPSE4_FLOW.md](inspection/SYNAPSE4_FLOW.md).
+The library delete action updates the host catalog and persistence; this does
+not establish deletion of every firmware allocation or native bridge behavior.
+No Windows or downloaded frontend code was executed or copied into the app.
+
+The Macros page now has My Macros and Key Binds. Assign to mouse opens Customize
+with the saved library entry selected for the current physical button, without
+writing or starting the helper. Unsaved authoring disables that action; editor
+change signals are batched during bulk loading. Configure macro opens the chosen
+library entry, respecting unsaved Save/Discard/Cancel and clearing stale search.
+
+The new gui/macro_bindings.py shows actual stored macro IDs/names, slots, layers,
+buttons and playback, including equal-name and dangling-ID distinctions. Its
+explicit read borrows the existing helper; page navigation is offline. Stored
+rows open their exact button/layer/slot readback without activation, draft copy
+or writes. Primary clicks remain read-only; unknown records and missing coverage
+are reported. Mapping events/new connections invalidate the overview. Failed
+reads/disconnects clear it; intentional successful macro-save helper exit retains
+verified readback with a last-readback indication. Storage deletion/recovery and
+local library deletion retain their existing separate behavior. Recorder,
+automatic library-to-firmware updates and general existing-allocation editing
+remain unsupported.
+
+All 230 Python/Qt tests passed, including saved-only assignment navigation,
+unsaved configure cancellation, all-slot/layer filtering, equal names, primary
+click exclusions, disconnect clearing and inactive-slot navigation without
+settings writes or draft changes. Normal and minimum-size authoring/binding views
+were inspected offscreen. Whitespace checks passed. No Rust/backend/protocol
+change or engine rebuild was needed. No live hardware requests were performed;
+restart the GUI to load these Python changes.
+
 ## Delete selected owned macro (2026-10-21)
 
 Added Delete selected macro below the mouse storage table, separate from Restore

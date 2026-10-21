@@ -8,7 +8,8 @@ from macro_storage import OnboardMacrosDialog
 class MacroAssignmentPanel(OnboardMacrosDialog):
     busyChanged = Signal(bool)
     softwareAssigned = Signal(dict)
-    manageRequested = Signal()
+    manageRequested = Signal(str)
+    storageChanged = Signal()
 
     def __init__(self, profile_path, library_view, parent=None, *, backend):
         self.library_view = library_view
@@ -54,9 +55,10 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
         self.macro_choice.currentIndexChanged.connect(lambda *_: self.set_busy(self.busy))
         self.macro_choice.currentTextChanged.connect(self.macro_choice.setToolTip)
         self.fields.insertRow(0, 'Macro', self.macro_choice)
-        manage = QPushButton('Manage macros')
+        manage = QPushButton('Configure macro')
+        self.configure_button = manage
         manage.setStyleSheet('padding: 4px 0; border: 0; text-align: left; background: transparent; color: #44d62c;')
-        manage.clicked.connect(self.manageRequested.emit)
+        manage.clicked.connect(lambda: self.manageRequested.emit(self.macro_choice.currentData() or ''))
         self.fields.insertRow(1, manage)
         self.status.setText('Read macro storage to list macros stored on this mouse.')
         # Keep read results beside the storage controls, outside the assignment
@@ -114,11 +116,14 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
 
     def on_event(self, message):
         if not self.busy:
-            if message.get('type') == 'faceplate':
+            kind = message.get('type', '')
+            if (kind in ('faceplate', 'error', 'macro_error')
+                    or kind.startswith('onboard_') and kind.endswith(('snapshot', 'saved', 'activated', 'created'))):
                 self.invalidate()
             return
         self.last_result = message.get("type")
         super().on_event(message)
+        self.storageChanged.emit()
         if message.get('type') == 'macro_snapshot' and self.upload_after_read:
             self.upload_after_read = False
             if self.snapshot['guard']['active'] != self.expected_slot:
@@ -132,14 +137,22 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
         self.upload_after_read = False
         super().error(error)
 
+    def invalidate(self):
+        super().invalidate()
+        self.storageChanged.emit()
+
     def connected(self, ready):
         if not ready:
             self.upload_after_read = False
         if self.busy:
             super().connected(ready)
+        elif ready:
+            self.saved = False
+            self.invalidate()
         elif not ready and not self.saved:
             self.invalidate()
             self.set_busy(False)
+        self.storageChanged.emit()
 
     def set_busy(self, busy):
         was_busy = getattr(self, 'busy', False)
