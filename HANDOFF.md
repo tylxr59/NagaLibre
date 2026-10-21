@@ -8,13 +8,146 @@ Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 **Current work is TODO #4: onboard macros and richer playback.** Software
 implementation now includes the native compiler/planner, journaled fresh uploads,
 readback-before-binding, original-only recovery and a dedicated Qt dialog with
-inventory, playback controls, durable backup and undo. Hardware testing was
-explicitly deferred by the user. No new hardware reads or writes were performed
-in this implementation; only the earlier empty-inventory capacity/count capture
-is hardware evidence. Nonempty getter fidelity, firmware acceptance, physical
-output/release, all playback modes and reconnect/power-cycle persistence remain
-pending. Custom haptic implementation remains deferred; the user subsequently
-requested the static Ghidra follow-up below.
+inventory, playback controls, durable backup and undo. Hardware testing resumed
+on 2026-10-21: a small B/wait timeline passed wired upload/readback, once playback,
+counted playback at 3, held repetition and toggle start/stop, primary clicks,
+USB-reconnect persistence and exact scoped cleanup. The held trial's saved wording
+does not explicitly describe cessation on release; no failure was reported.
+Sequence mode progressed B, C, silent, B across taps on the tested fixture.
+The repeated Shift+B/C shortcut passed immediate output and explicit modifier
+release. The desktop save/app-exit/playback/undo flow also passed per the user's
+physical observations. Mouse outputs, explicit power-cycle persistence and other
+target/layer combinations remain unverified. Custom haptic implementation remains deferred; static research below
+is separate. No macro allocation is currently pending cleanup. The first shortcut trial failed
+immediate playback but worked after USB reconnect; investigate the open issue below
+before declaring #4 complete.
+
+## Macro hardware trial: readback and recovery passed (2026-10-21)
+
+The user resumed testing and ran `macro_controlled_test.py --readback-only`.
+The fresh upload and nonempty metadata/data readback matched the independently
+saved plan; binding apply completed. Inventory changed from zero to one entry
+(ID 15672), slot 1 active, scoped slots [1, 2, 3]. Physical output was not tested.
+Recovery failed during a guarded normal-bank getter for grid 6 (wire45): expected
+02/8c, but the last valid reply was 07/80 with matching transaction1f. Cleanup
+is unconfirmed; do not create another upload until recovery succeeds.
+
+Private durable evidence and helper-owned journal remain under
+`~/.config/NagaLibre/macro-trial-1792587462502048157/`. No new hardware requests
+were sent by the agent. A local OpenRazer daemon was still running; the agent
+stopped it cleanly using `openrazer-daemon --stop`. This is a plausible source of
+the conflicting reply, not a proven cause. The agent has no passwordless sudo.
+The user then ran the existing journal's `--restore` route successfully. Saved
+`recovered-1792588081253632500.json` independently matches the original entries
+(zero), scoped paired mappings/echoes, identity/state and active slot 1. The helper
+also verified normal middle clicks. Fresh upload, nonempty getter fidelity for
+this small sequence, binding readback and scoped recovery now have wired evidence.
+Free/reclaimable accounting is not treated as an exact flash restore. Physical
+playback/release, reconnect and power-cycle persistence remain unverified.
+Keep OpenRazer and other controllers stopped for subsequent trials. Next is the
+interactive `--playback once` trial, followed by counted/held/toggle modes if it
+passes. The earlier deferred/empty-inventory-only statements are superseded by
+this hardware evidence; no physical behavior should be inferred from it.
+
+The subsequent interactive once-playback trial passed. The user observed the
+expected output/release ("It works"), unchanged primary clicks ("All good") and
+USB-reconnect persistence ("It persisted"), after the upload helper had exited.
+Private evidence: `~/.config/NagaLibre/macro-trial-1792588281357273198/`.
+The agent independently compared `recovered.json` against `before.json`: original
+entries (zero), scoped paired records/echoes and identity/state match. This verifies
+one small B/wait timeline in once mode on wired slot 1, normal grid 1. Other
+playback modes and explicit power-cycle persistence remain pending. Next: counted
+playback with count 3, then while-held and toggle if earlier trials pass.
+
+Counted playback with count 3 also passed: the user observed "three distinct b
+presses", primary clicks "all good" and "persistence worked" after USB reconnect.
+Private evidence: `~/.config/NagaLibre/macro-trial-1792588752745467832/`.
+The agent independently compared recovered contents/scoped paired mappings,
+echoes and guard against the original checkpoint; original inventory is zero.
+Evidence covers count 3, not every count or physical timing bounds. Next is
+while-held repeat/release, then toggle. Sequence semantics and explicit
+power-cycle checks remain pending.
+
+While-held playback trial completed with exact recovery to zero entries and
+original scoped paired mappings/echoes/guard, independently compared by the agent.
+Private evidence: `~/.config/NagaLibre/macro-trial-1792589780645868451/`.
+User observations: "a press of 1 gives one b, 1 held keeps outputting b as expected";
+primary clicks "good"; "All good with reconnect". The test instructions included
+release/stop checks and the user reported no failure, but the saved wording does
+not explicitly describe cessation on release. Keep that distinction if a specific
+release guarantee is needed. Next: toggle start/stop with explicit silence/no stuck
+key observations. Sequence and explicit power-cycle checks remain pending.
+
+Toggle playback also passed: user observed "starting and stopping the repition
+works as expected", primary clicks "all good" and "reconnect works". Evidence:
+`~/.config/NagaLibre/macro-trial-1792590946861708309/`. The agent independently
+compared recovered entries (zero), scoped paired mappings/echoes and guard against
+the original. Next is sequence: the trial script now uses distinguishable B then
+C taps in that mode and requests per-press observations without assuming firmware
+advancement semantics. Other modes retain the same original B/wait fixture.
+
+Sequence mode trial passed readback, primary clicks, USB-reconnect persistence
+and exact scoped cleanup (zero original entries). The B/wait/C/wait fixture
+produced user-observed `b`, `c`, no output, then `b` on four separate taps.
+Do not label the third silent press a failure or infer its cause yet. This
+establishes press-wise progression for this fixture, not arbitrary segmentation.
+Evidence: `~/.config/NagaLibre/macro-trial-1792591645384056043/`; agent independently
+compared recovered contents/scoped paired mappings/echoes/guard with the original.
+The controlled trial now has `--timeline shortcut` (once only): Shift+B, wait,
+unmodified C. It requests `Bc` plus a manually typed lowercase d to check modifier
+release. Next is that richer native timeline before desktop physical validation.
+
+### Open macro issue: shortcut inactive until USB reconnect
+
+The first shortcut trial (`--playback once --timeline shortcut`) did not produce
+output before reconnect. After USB reconnect, the same uploaded timeline emitted
+`Bc`. Primary clicks remained good. The user did not explicitly record the manual
+lowercase-d modifier-release check. This is a failed immediate-activation test,
+not a clean shortcut pass; do not describe richer timelines as hardware verified.
+Private evidence: `~/.config/NagaLibre/macro-trial-1792593193440314779/`.
+The agent independently verified exact uploaded metadata/data against the plan,
+then original zero entries, scoped paired mappings/echoes and guard after recovery.
+Metadata event count is 10; bytes 120..131 are zero, as in the prior small fixtures.
+No OpenRazer process was running at investigation time. No allocation is pending.
+
+Matching wired DLL/hash was reconfirmed through GhidraMCP. Rechecked SetMacroData
+RVA58810, queue wrapper247c0 and upload routine2f020: the examined successful path
+allocates, writes metadata, uploads data chunks and returns; no additional finalize
+request was found in those routines. This does not establish that broader device
+lifecycle handling is irrelevant. No guessed flush/reset/mode request was added.
+Possible live playback/cache/transition behavior is a hypothesis, not established
+cause. Next diagnostic is the same shortcut fixture with multiple pre-reconnect
+presses and a delayed retry, then explicit output and modifier-release observations
+before and after reconnect. Keep exact undo and ownership rules intact.
+
+The repeated shortcut fixture passed immediate playback: user observed `Bc` and
+manual D-key input yielded lowercase `d`; primary clicks and USB reconnect also
+passed. Evidence: `~/.config/NagaLibre/macro-trial-1792593866545586390/`. The agent
+independently verified original zero entries, scoped mappings/echoes and guard
+from recovered.json. This establishes working modifier/chord output and release
+for this run, but does not explain or erase the first run's activation failure.
+Treat it as intermittent/unresolved until its cause is established. No allocation
+is pending. Next is the desktop physical save/app-exit/undo flow using a single B
+tap and its automatically created private journal.
+
+### Desktop macro physical trial passed
+
+The user completed the prescribed desktop list and reported "Everything worked
+as expected": wired slot 1, Grid 1 / Normal / Once, one B tap, private backup and
+journal creation, successful save, full NagaLibre exit, physical B output and
+primary clicks, then reopening and journal-based Undo upload. This is user-reported
+physical GUI evidence, distinct from mock Qt checks. The agent confirmed the
+private GUI backup exists (0600), captures zero baseline entries and the intended
+target/playback, and has a corresponding helper-owned journal. The journal is
+protected and not readable by the unprivileged agent; do not claim an independent
+post-GUI inventory read or journal audit. The UI's successful undo reports the
+engine's scoped recovery verification, and no cleanup failure was reported.
+
+Representative #4 software and desktop functionality are now physically exercised.
+Keep the first intermittent shortcut activation failure open; its successful
+retest is not a fix. Remaining coverage includes explicit power cycling, native
+mouse outputs, broader targets/layers, existing shared content and more timing/
+sequence boundaries. No new live hardware request was sent by the agent here.
 
 ## Custom wheel Ghidra follow-up
 

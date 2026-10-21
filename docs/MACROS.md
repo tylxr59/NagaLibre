@@ -2,8 +2,14 @@
 
 NagaLibre can upload a fresh key/mouse sequence and bind it to a grid button or
 supported extra control on wired Naga V2 Pro with the twelve-button plate.
-The implementation is experimental: capacity/count reads have hardware evidence,
-but nonempty contents, uploads, playback and persistence still need verification.
+The implementation is experimental. Small wired timelines have passed native
+upload/readback, once, counted (3), held and toggle playback, primary-click checks,
+USB reconnect and exact cleanup. Other timelines, targets and layer combinations
+still need verification.
+A shortcut timeline (Shift+B, then C) failed to play immediately after upload but
+worked after USB reconnect. A repeat passed immediately and confirmed modifier
+release, but the first activation failure remains unexplained. Stored
+byte verification alone does not prove that a newly saved timeline is active.
 
 ## Create a macro
 
@@ -31,10 +37,14 @@ implementation bounds, not measured firmware limits. Names allow 100 UTF-8 bytes
 | Repeat a fixed count | Play 1–255 times |
 | Repeat while held | Repeat while the target is held |
 | Toggle repeat | Press to start repeating, press again to stop |
-| Sequence | Native sequence selector; precise advancement behavior unverified |
+| Sequence | Advance on button presses; segmentation depends on the timeline |
 
-These modes come from the Razer host implementation. Physical timing, interruption
-and release behavior need independent verification. Stop toggled playback with its
+A B/wait/C/wait sequence produced B on the first press, C on the second, no
+output on the third and B again on the fourth. Other sequence segmentation and
+the reason for the silent press remain unverified.
+
+These modes come from the Razer host implementation. Precise timing and arbitrary
+interruption/release cases still need verification. Stop toggled playback with its
 button, or release held playback, before changing bindings or undoing an upload.
 Waits determine timeline delays; no separate hardware turbo/rate setting is exposed.
 
@@ -59,10 +69,11 @@ operation, preserve the journal and retry undo with the same mouse, slot and pla
 Undo is scoped to the captured controls; it is not complete profile restoration.
 Free/reclaimable storage counters may change even after exact content restoration.
 
-After a successful save, the helper exits. A readback confirms stored bytes, but
-physical playback without the app and persistence after reconnect/power cycling
-remain pending hardware tests. Software mode remains available for its supported
-macros and requires the helper to stay running.
+After a successful save, the helper exits. Representative wired physical trials
+passed with the helper exited and after USB reconnect. The desktop save, full app
+exit, B playback and reopening/undo flow also passed a physical trial. Explicit
+power-cycle persistence remains unverified. Software mode remains available for
+its supported macros and requires the helper to stay running.
 
 The [CLI guide](CLI.md#experimental-onboard-macro-uploads) describes the controlled
 hardware trial and recovery commands. [Protocol research](../inspection/MACROS.md)

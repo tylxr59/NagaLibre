@@ -22,7 +22,7 @@ def state():
 
 
 class MacroTrialTests(unittest.TestCase):
-    def run_trial(self, directory, *, failure=None, physical=False):
+    def run_trial(self, directory, *, failure=None, physical=False, timeline="keys"):
         original = state()
         backup = {"kind": "onboard_macro_transaction_backup", "complete_profile": False,
                   "contents": {"inspection": original}}
@@ -51,9 +51,9 @@ class MacroTrialTests(unittest.TestCase):
                 patch.object(trial.subprocess, "run", return_value=offline):
             if failure:
                 with self.assertRaises((ValueError, subprocess.CalledProcessError)):
-                    trial.trial(Path("engine"), directory, "once", physical=physical, observe=lambda _: "passed")
+                    trial.trial(Path("engine"), directory, "once", physical=physical, observe=lambda _: "passed", timeline=timeline)
             else:
-                trial.trial(Path("engine"), directory, "once", physical=physical, observe=lambda _: "user observation")
+                trial.trial(Path("engine"), directory, "once", physical=physical, observe=lambda _: "user observation", timeline=timeline)
         return commands
 
     def test_backup_plan_apply_and_final_recovery_order(self):
@@ -83,6 +83,17 @@ class MacroTrialTests(unittest.TestCase):
             observed = json.loads((directory / "observations.json").read_text())
             self.assertEqual(observed["outputs"], "user observation")
             self.assertEqual(observed["reconnect"], "user observation")
+
+    def test_shortcut_trial_failure_still_recovers_and_invalid_mode_never_prepares(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "trial"
+            commands = self.run_trial(directory, timeline="shortcut", failure="readback")
+            self.assertEqual(commands[-1], "onboard-macro-recover")
+            with patch.object(trial, "query") as query:
+                with self.assertRaises(ValueError):
+                    trial.trial(Path("engine"), Path(tmp) / "invalid", "toggle", timeline="shortcut")
+                query.assert_not_called()
+                self.assertFalse((Path(tmp) / "invalid").exists())
 
     def test_failed_backup_prevents_apply_and_new_guard_or_content_is_not_accepted_as_restored(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(trial, "query", return_value={

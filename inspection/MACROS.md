@@ -378,3 +378,31 @@ small sequence and recovers its own allocation. `--readback-only` excludes physi
 claims; interactive playback/release/reconnect observations are recorded separately.
 Nonempty getter fidelity, firmware acceptance, physical outputs, release behavior,
 all playback modes and power-cycle persistence still require hardware evidence.
+
+## Wired shortcut activation discrepancy (2026-10-21)
+
+Small key timelines passed once/count3/held/toggle tests with the upload helper
+exited. A B/wait/C/wait sequence progressed B, C, silent, B over four presses.
+All these trials passed primary clicks, user-observed USB-reconnect persistence
+and independent scoped recovery comparisons. The following shortcut fixture did
+not play immediately after upload, but did emit `Bc` after USB reconnect:
+Shift down, B down, wait80ms, B up, Shift up, wait120ms, C down, wait80ms,
+C up, wait120ms. Ten expanded events and exact sequence/metadata readback matched
+the plan. Original zero entries and paired mappings/echoes were restored exactly.
+Manual lowercase-d verification was not explicitly recorded. The activation
+failure remains open; do not infer successful live playback from getters alone.
+
+Rechecking wired RVA58810,247c0,2f020 found no added finalize command on the
+examined successful upload path. Reconnect fixing playback suggests a live-state
+or lifecycle distinction, but does not establish its cause or authorize guessed
+flush/mode/reset requests. Repeated pre-reconnect playback and a delayed retry
+are the next controlled observations; broader lifecycle/firmware analysis may
+still be required. Proprietary decompilation remains private.
+
+The identical shortcut fixture subsequently passed immediate `Bc` output and
+manual lowercase `d`, confirming modifier release on that run, with primary
+clicks, reconnect and exact cleanup. The initial activation failure remains
+unexplained. The user then completed the desktop save/full-app-exit/B-playback/
+primary-click/reopen/undo flow successfully. Private GUI backup presence and
+scope were checked by the agent; the helper-owned journal remains protected,
+and no independent post-GUI hardware read was performed by the agent.

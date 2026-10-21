@@ -147,8 +147,9 @@ After a successful save, it stops the helper. Saved bindings then work without
 NagaLibre running.
 
 For experimental native sequences, open **Onboard macros…** to edit playback,
-inspect storage and save a fresh macro with journaled undo. Uploads and physical
-playback still need hardware verification. See [the macro guide](docs/MACROS.md)
+inspect storage and save a fresh macro with journaled undo. Representative wired uploads, playback and desktop undo have passed physical
+tests; support remains experimental, with an intermittent activation issue under
+investigation. See [the macro guide](docs/MACROS.md)
 for supported steps, storage limits and recovery.
 
 To switch to a slot's stored bindings, select it in the dropdown and click

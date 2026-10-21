@@ -156,53 +156,46 @@ Continue with #4 next; do not resume Custom hardware experiments automatically.
 
 ## 4. Onboard macros and richer playback
 
-Goal: determine which sequences can run from mouse memory without a helper.
-The managed macro structures are not the USB wire format. Native storage,
-upload/delete, compact events and binding encodings are now traced. Host timing
-is milliseconds; metadata layout, journaled recovery and desktop controls are
-implemented. Firmware behavior and recovery on hardware still need verification.
+Implemented and experimental on wired V2 Pro with its twelve-button plate.
+Representative CLI and desktop hardware trials passed; an intermittent activation
+failure remains unresolved. See [the macro guide](docs/MACROS.md) and
+[protocol evidence](inspection/MACROS.md).
 
-- [x] Research chunk: document macro inventory, capacity, IDs, event encoding,
-      delays, allocation, upload, binding, deletion and any checksums/chunking.
-      [Native investigation](inspection/MACROS.md) traces both USB controllers
-      and the managed/native bridge. Direct storage methods match across wired
-      and receiver; this is static host evidence, not firmware verification.
-      Remaining device timing/reserved-byte/playback questions are explicit. Razer's cache
-      enumeration can delete empty-GUID entries and its compaction formats/rebuilds
-      storage; neither behavior is reproduced by NagaLibre.
-- [ ] Read-only chunk: inspect existing macro references and storage without
-      modifying or deleting user data. Establish actual firmware limitations.
-      Implemented `onboard-macros` and private `scripts/inspect_macros.py` export:
-      bounded inventory/metadata/data reads twice, exact opaque preservation,
-      all-slot paired mapping checks and state guards. Wired capacity/count capture
-      passed: 100 maximum entries, zero stored, 126,976 storage bytes, 125,696
-      available and 1,024 reclaimable. Slots 1/2/3 paired mappings checked exact;
-      no scoped macro references found. Empty inventory did not exercise ID,
-      size, metadata or sequence getters; these remain unverified.
-- [x] Recovery implementation: durable private content/mapping backup before
-      commit, helper-owned ownership journal, fresh-state checks, exact upload
-      verification, interrupted recovery and cleanup limited to the fresh ID.
-      Original records are restored before removal; existing entries stay intact.
-      Reference coverage remains explicitly incomplete; no full-profile claim.
-- [x] Write implementation: fresh allocation, 250-byte metadata and chunked
-      sequence upload, binding only after exact content readback. Compiler supports
-      keys/modifiers, five mouse outputs, chords and millisecond waits; unsupported
-      or unbalanced sequences fail explicitly. No formatting or compaction.
-- [x] Playback implementation: once, counted 1–255, while-held, toggle and
-      sequence native encodings. Dedicated turbo/rate semantics are not established;
-      waits provide timeline delays without claiming firmware timing guarantees.
-- [x] UI implementation: dedicated Onboard macros dialog, stored inventory and
-      available capacity, sequence editor, playback controls, durable backup and
-      journal-based undo. Software playback remains available for supported
-      sequences requiring a helper.
-- [ ] Hardware completion: nonempty getters, upload acceptance and exact recovery;
-      physical output/release for each playback mode, primary clicks, app exit,
-      reconnect and power-cycle persistence. The controlled trial is implemented;
-      hardware testing was explicitly deferred by the user. No new hardware
-      writes were performed during implementation.
+- [x] Research: inventory, capacity, IDs, compact events, delays, metadata,
+      allocation/upload, bindings and deletion traced through Device167.
+      Unsafe native empty-GUID deletion and format/rebuild compaction excluded.
+- [x] Read-only inspection: double content reads, opaque preservation and
+      scoped all-slot paired mapping/state checks. Capacity/count and nonempty
+      ID/size/metadata/data getters passed wired trials. Reported capacity 100;
+      arbitrary firmware event/storage limits are not established.
+- [x] Transaction: fresh allocation, chunked upload, exact readback before binding,
+      durable private backup, protected ownership journal and interrupted undo.
+      Restore original references before deleting only its own allocation.
+      Existing macros remain intact; reference coverage is explicitly incomplete.
+- [x] Playback: once, counted 1–255, held, toggle and sequence implemented.
+      Keys/modifiers, chords, mouse-button outputs and waits compile; unsupported
+      or unbalanced timelines fail. No dedicated turbo/rate capability claimed.
+- [x] Desktop: inventory/storage, sequence editing, playback, durable backup,
+      journal-based undo and draft/readback separation implemented. Physical
+      save, full app exit, B playback, primary clicks and reopening/undo passed.
+- [x] Representative wired trials: once, count 3, held repetition and toggle
+      start/stop passed with primary clicks, USB reconnect and exact scoped
+      cleanup. B/wait/C/wait sequence yielded b, c, silent, b on four presses.
+      A repeated Shift+B/C trial passed Bc and manual lowercase d, confirming
+      modifier release. The earlier held trial reported no failure, but its saved
+      wording did not explicitly describe cessation on release.
+- [ ] Investigate intermittent initial activation: first shortcut upload did
+      nothing until USB reconnect; identical fixture passed immediately on retry.
+      Exact bytes and cleanup passed in both. Retest success is not a fix.
+- [ ] Extend hardware evidence: explicit power-cycle persistence, mouse outputs,
+      additional targets/layers, existing shared contents and timing/sequence
+      boundaries. Compaction, complete-profile recovery and other connections
+      remain outside the verified macro scope.
 
-Software implementation is complete; #4 remains experimental pending these
-hardware checks. See [the macro guide](docs/MACROS.md).
+The initial recovery timeout received an unrelated reply while OpenRazer was
+running. Recovery succeeded after stopping its daemon; keep other controllers
+closed during these transactions. Detailed observations and private-evidence
+locations are retained in HANDOFF.md.
 
 ## 5. Richer native button actions
 

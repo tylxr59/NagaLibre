@@ -43,10 +43,17 @@ def restored(before, after):
         require(before["storage"][name] == after["storage"][name], f"Macro {name} changed")
 
 
-def trial(engine, directory, mode, count=3, physical=True, observe=input):
+def trial(engine, directory, mode, count=3, physical=True, observe=input, timeline="keys"):
+    require(timeline in ("keys", "shortcut"), "Unknown trial timeline")
+    require(timeline != "shortcut" or mode == "once", "Shortcut trial requires once playback")
     directory.mkdir(mode=0o700, parents=True, exist_ok=False)
     config = directory / "trial.toml"
-    durable_text(config, "tap_ms=80\n[[binding]]\ntrigger='KEY_1'\nsteps=[{tap='KEY_B'},{wait_ms=120}]\n")
+    steps = "{tap='KEY_B'},{wait_ms=120}"
+    if mode == "sequence":
+        steps += ",{tap='KEY_C'},{wait_ms=120}"
+    if timeline == "shortcut":
+        steps = "{chord=['KEY_LEFTSHIFT','KEY_B']},{wait_ms=120},{tap='KEY_C'},{wait_ms=120}"
+    durable_text(config, f"tap_ms=80\n[[binding]]\ntrigger='KEY_1'\nsteps=[{steps}]\n")
     request = {"trigger": "KEY_1", "guid": str(uuid.uuid4()), "name": "NagaLibre playback trial",
                "button": 1, "layer": 0, "playback": {"mode": mode}}
     if mode == "counted":
@@ -69,7 +76,7 @@ def trial(engine, directory, mode, count=3, physical=True, observe=input):
     durable_plan(directory / "offline-plan.json", plan)
     journal = directory / "transaction.journal.jsonl"
     applied = None
-    observations = {"playback": mode, "physical_testing_requested": physical,
+    observations = {"playback": mode, "timeline": timeline, "physical_testing_requested": physical,
                     "outputs": None, "primary_clicks": None, "reconnect": None}
     try:
         print("Uploading the fresh entry, checking nonempty getters, then binding grid 1…", flush=True)
@@ -83,7 +90,11 @@ def trial(engine, directory, mode, count=3, physical=True, observe=input):
                             "counted": f"Press grid 1 once: expect {count} B presses, then silence.",
                             "while_held": "Hold grid 1 to repeat B; release it and check repetition stops.",
                             "toggle": "Press grid 1 to start B repetition; press again and check it stops.",
-                            "sequence": "Press grid 1 repeatedly and describe the actual sequence behavior."}
+                            "sequence": "The timeline contains B then C. Tap grid 1 slowly four times, waiting a second "
+                                        "between taps. Record what each tap emits and whether output continues after release."}
+            if timeline == "shortcut":
+                descriptions["once"] = ("Turn Caps Lock off. Press grid 1 once in an empty editor: expect Bc "
+                                        "(uppercase B, lowercase c). Type d manually afterward: expect lowercase d.")
             print(descriptions[mode], flush=True)
             observations["outputs"] = observe("Record observed outputs/release behavior (include failures): ")
             observations["primary_clicks"] = observe("Check left/right/middle clicks and record the result: ")
@@ -106,6 +117,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", type=Path, default=ROOT / "target/release/naga-macros")
     parser.add_argument("--playback", choices=("once", "counted", "while_held", "toggle", "sequence"), default="once")
+    parser.add_argument("--timeline", choices=("keys", "shortcut"), default="keys",
+                        help="Shortcut tests Shift+B followed by unmodified C; requires once playback")
     parser.add_argument("--count", type=int, choices=range(1, 256), metavar="1..255", default=3)
     parser.add_argument("--readback-only", action="store_true", help="Upload/verify/recover immediately; records no physical verification")
     parser.add_argument("--restore", type=Path, metavar="JOURNAL", help="Resume recovery only; never creates another upload")
@@ -120,7 +133,7 @@ def main():
             print(f"Scoped transaction recovery verified. Private readback: {output}")
             return
         print("Close other NagaLibre/OpenRazer/Polychromatic controllers before this test.")
-        trial(engine, directory, args.playback, args.count, not args.readback_only)
+        trial(engine, directory, args.playback, args.count, not args.readback_only, timeline=args.timeline)
     except (OSError, ValueError, KeyError, TypeError, EOFError, subprocess.SubprocessError, KeyboardInterrupt) as error:
         parser.exit(1, f"Macro trial stopped: {error}\nPrivate evidence: {directory}\n"
                     "If recovery did not complete, keep the journal and resume with --restore JOURNAL.\n")

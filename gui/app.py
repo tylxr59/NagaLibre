@@ -251,7 +251,7 @@ class Window(QMainWindow):
         self.slot_summary = QLabel("Slot capacity: unread")
         self.slot_summary.setWordWrap(True)
         layout.addWidget(self.slot_summary)
-        self.memory_hint = QLabel("Each tile shows the stored binding and local draft. Save applies the 12 side-button drafts and explicitly edited wheel controls. Keep stored binding preserves a wheel control. Onboard macro sequences are unsupported.")
+        self.memory_hint = QLabel("Each tile shows the stored binding and local draft. Save applies the 12 side-button drafts and explicitly edited wheel controls. Keep stored binding preserves a wheel control. Use Onboard macros… to upload sequences separately.")
         self.memory_hint.setWordWrap(True)
         layout.addWidget(self.memory_hint)
         columns = QHBoxLayout()
