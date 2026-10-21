@@ -1,9 +1,37 @@
 """Shared sequence authoring widget for software and onboard macros."""
+from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from model import display_key, key_code, shortcut
+
+
+class MacroTable(QTableWidget):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.resize_timer = QTimer(self)
+        self.resize_timer.setSingleShot(True)
+        self.resize_timer.timeout.connect(self.fit_action_column)
+
+    def fit_action_column(self):
+        width = 0
+        for row in range(self.rowCount()):
+            combo = self.cellWidget(row, 0)
+            if combo is not None:
+                combo.ensurePolished()
+                width = max(width, combo.minimumWidth(), combo.sizeHint().width())
+        if width:
+            self.horizontalHeader().resizeSection(0, width + 1)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.fit_action_column()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange) and hasattr(self, "resize_timer"):
+            self.resize_timer.start(0)
 
 
 class MacroEditor(QWidget):
@@ -17,9 +45,11 @@ class MacroEditor(QWidget):
         help_label.setWordWrap(True)
         help_label.setProperty("role", "muted")
         layout.addWidget(help_label)
-        self.table = QTableWidget(0, 2)
+        self.table = MacroTable(0, 2)
         self.table.setHorizontalHeaderLabels(["Action", "Key / shortcut / milliseconds"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        # Size the embedded controls explicitly: native Qt styles can report a
+        # header-only width to ResizeToContents and place the next cell under them.
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().hide()
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -51,6 +81,7 @@ class MacroEditor(QWidget):
         combo.setCurrentIndex(max(0, combo.findData(kind)))
         self.table.setCellWidget(row, 0, combo)
         self.table.setItem(row, 1, QTableWidgetItem(value))
+        self.table.fit_action_column()
         self.table.setCurrentCell(row, 1)
 
     def remove(self):

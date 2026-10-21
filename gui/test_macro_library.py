@@ -23,6 +23,21 @@ class MacroLibraryTests(unittest.TestCase):
             library.remove(identity)
             self.assertEqual(MacroLibrary(path).entries, [{'id': duplicate, 'name': 'Duplicate', 'folder': '', 'steps': [{'tap': 'KEY_B'}]}])
 
+    def test_empty_folders_persist_and_legacy_folders_survive_last_macro_deletion(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'macros.json'
+            path.write_text(json.dumps({'version': 1, 'macros': [
+                {'id': 'old', 'name': 'Legacy', 'folder': 'Editing', 'steps': [{'tap': 'KEY_A'}]}]}))
+            library = MacroLibrary(path)
+            self.assertEqual(library.folders, ['Editing'])
+            library.add_folder('Gaming')
+            library.remove('old')
+            self.assertEqual(MacroLibrary(path).folders, ['Editing', 'Gaming'])
+            self.assertEqual(MacroLibrary(path).entries, [])
+            for name in ('', '   ', 'Editing', 'bad\0name'):
+                with self.assertRaises(ValueError):
+                    library.add_folder(name)
+
     def test_failed_atomic_write_keeps_saved_catalog(self):
         with tempfile.TemporaryDirectory() as root:
             library = MacroLibrary(Path(root) / 'macros.json')
@@ -66,8 +81,10 @@ class MacroWorkspaceTests(unittest.TestCase):
             backend.ready = False
             with patch.object(backend, 'start') as start:
                 dialog = MacroLibraryWidget(Path(root) / 'macros.json')
+                with patch('macro_library_view.QInputDialog.getText', return_value=('Editing', True)):
+                    dialog.new_folder()
+                dialog.new_macro()
                 dialog.name.setText('Copy')
-                dialog.folder.setCurrentText('Editing')
                 dialog.steps = [{'chord': ['KEY_LEFTCTRL', 'KEY_C']}]
                 self.assertTrue(dialog.save_local())
                 identity = dialog.identity
@@ -82,8 +99,75 @@ class MacroWorkspaceTests(unittest.TestCase):
                 dialog.close()
                 reopened = MacroLibraryWidget(Path(root) / 'macros.json')
                 self.assertEqual(len(reopened.library.entries), 2)
-                self.assertEqual(reopened.tree.topLevelItemCount(), 1)
+                self.assertEqual(reopened.tree.topLevelItemCount(), 2)
                 self.assertEqual(reopened.library.entries[0]["folder"], "Editing")
+
+    def test_tree_folder_selection_creates_macro_in_folder_and_search_finds_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            view = MacroLibraryWidget(Path(root) / 'macros.json')
+            with patch('macro_library_view.QInputDialog.getText', return_value=('Editing', True)):
+                view.new_folder()
+            folder = view.tree.topLevelItem(1)
+            self.assertEqual(folder.text(0), 'Editing')
+            self.assertEqual(folder.childCount(), 0)
+            self.assertEqual(view.library.entries, [])
+            view.new_macro()
+            self.assertEqual(view.location.text(), 'Editing')
+            view.name.setText('Copy')
+            view.steps = [{'tap': 'KEY_C'}]
+            self.assertTrue(view.save_local())
+            self.assertEqual(view.library.entries[0]['folder'], 'Editing')
+            view.search.setText('Editing')
+            self.assertEqual(view.tree.topLevelItemCount(), 1)
+            self.assertEqual(view.tree.topLevelItem(0).child(0).text(0), 'Copy')
+            view.search.clear()
+            view.tree.setCurrentItem(view.tree.topLevelItem(0))
+            self.assertEqual(view.current_folder, 'Editing')  # Selection alone never moves the current macro.
+            view.new_macro()
+            self.assertEqual(view.location.text(), 'Uncategorized')
+            self.assertEqual(view.library.entries[0]['folder'], 'Editing')
+
+    def test_new_folder_keeps_unsaved_macro_and_cancel_does_not_write(self):
+        with tempfile.TemporaryDirectory() as root:
+            view = MacroLibraryWidget(Path(root) / 'macros.json')
+            view.steps = [{'tap': 'KEY_A'}]
+            draft = view.draft_state()
+            with patch('macro_library_view.QInputDialog.getText', return_value=('Ignored', False)):
+                view.new_folder()
+            self.assertFalse(view.library.path.exists())
+            with patch('macro_library_view.QInputDialog.getText', return_value=('Work', True)):
+                view.new_folder()
+            self.assertEqual(view.draft_state(), draft)
+            with patch.object(QMessageBox, 'question', return_value=QMessageBox.StandardButton.Cancel):
+                view.new_macro()
+            self.assertEqual(view.draft_state(), draft)
+
+    def test_move_to_folder_is_a_draft_until_saved(self):
+        with tempfile.TemporaryDirectory() as root:
+            view = MacroLibraryWidget(Path(root) / 'macros.json')
+            view.steps = [{'tap': 'KEY_A'}]
+            view.save_local()
+            view.library.add_folder('Work')
+            with patch('macro_library_view.QInputDialog.getItem', return_value=('Folder: Work', True)):
+                view.move_to_folder()
+            self.assertEqual(view.location.text(), 'Work')
+            self.assertEqual(view.library.entries[0]['folder'], '')
+            view.discard_changes()
+            self.assertEqual(view.location.text(), 'Uncategorized')
+            with patch('macro_library_view.QInputDialog.getItem', return_value=('Folder: Work', True)):
+                view.move_to_folder()
+            self.assertTrue(view.save_local())
+            self.assertEqual(view.library.entries[0]['folder'], 'Work')
+            original = view.identity
+            view.duplicate_macro()
+            view.show()
+            APP.processEvents()
+            item = view.tree.topLevelItem(1).child(0)
+            position = view.tree.visualItemRect(item).center()
+            with patch('macro_library_view.QMenu') as menu:
+                menu.return_value.exec.return_value = None
+                view.show_tree_menu(position)
+            self.assertEqual(view.identity, original)
 
     def test_unsaved_sequence_edits_leave_saved_assignment_source_intact(self):
         with tempfile.TemporaryDirectory() as root:

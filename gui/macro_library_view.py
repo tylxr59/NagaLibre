@@ -2,8 +2,8 @@
 import copy
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFormLayout,
-    QGroupBox, QTreeWidget, QTreeWidgetItem, QLineEdit, QComboBox, QPushButton,
-    QLabel, QMessageBox, QSizePolicy)
+    QGroupBox, QTreeWidget, QTreeWidgetItem, QLineEdit, QInputDialog, QMenu, QPushButton,
+    QLabel, QMessageBox, QSizePolicy, QStyle)
 from macro_editor import MacroEditor
 from macro_library import MacroLibrary
 
@@ -13,7 +13,7 @@ class MacroLibraryWidget(QWidget):
 
     def draft_state(self):
         table = self.sequence_editor.table
-        return (self.name.text(), self.folder.currentText(), tuple(
+        return (self.name.text(), self.current_folder, tuple(
             (table.cellWidget(row, 0).currentData(), table.item(row, 1).text())
             for row in range(table.rowCount())))
 
@@ -30,28 +30,34 @@ class MacroLibraryWidget(QWidget):
     def populate_tree(self, *_):
         self.tree.blockSignals(True)
         self.tree.clear()
-        groups = {}
         if self.library:
-            for entry in sorted(self.library.entries, key=lambda e: (e.get('folder', '').casefold(), e['name'].casefold())):
-                folder = entry.get('folder', '')
-                if self.search.text().casefold() not in (folder + ' ' + entry['name']).casefold():
+            query = self.search.text().casefold()
+            entries = self.library.entries
+            for folder in [''] + self.library.folders:
+                matching = [e for e in entries if e.get('folder', '') == folder
+                            and query in (folder + ' ' + e['name']).casefold()]
+                if query and query not in folder.casefold() and not matching:
                     continue
-                parent = self.tree
-                if folder:
-                    if folder not in groups:
-                        groups[folder] = QTreeWidgetItem(self.tree, [folder])
-                        groups[folder].setExpanded(True)
-                    parent = groups[folder]
-                item = QTreeWidgetItem(parent, [entry['name']])
-                item.setData(0, Qt.ItemDataRole.UserRole, entry['id'])
-                if entry['id'] == self.identity:
-                    self.tree.setCurrentItem(item)
+                group = QTreeWidgetItem(self.tree, [folder or 'Uncategorized'])
+                group.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
+                group.setData(0, Qt.ItemDataRole.UserRole + 1, folder)
+                group.setExpanded(True)
+                if self.selected_node == ('folder', folder):
+                    self.tree.setCurrentItem(group)
+                for entry in sorted(matching, key=lambda e: e['name'].casefold()):
+                    item = QTreeWidgetItem(group, [entry['name']])
+                    item.setData(0, Qt.ItemDataRole.UserRole, entry['id'])
+                    if self.selected_node == ('macro', entry['id']):
+                        self.tree.setCurrentItem(item)
         self.tree.blockSignals(False)
 
     def load_entry(self, entry):
         self.identity = entry['id']
         self.name.setText(entry['name'])
-        self.folder.setCurrentText(entry.get('folder', ''))
+        self.current_folder = entry.get('folder', '')
+        self.selected_folder = self.current_folder
+        self.selected_node = ('macro', self.identity)
+        self.show_location()
         self.steps = entry['steps']
         self.baseline = self.draft_state()
         self.local_status.setText('Saved locally. Changes take effect on the mouse only after an assignment.')
@@ -59,7 +65,15 @@ class MacroLibraryWidget(QWidget):
 
     def select_macro(self, current, previous):
         identity = current.data(0, Qt.ItemDataRole.UserRole) if current else None
-        if not identity or identity == self.identity:
+        if current is not None and identity is None:
+            self.selected_folder = current.data(0, Qt.ItemDataRole.UserRole + 1)
+            self.selected_node = ('folder', self.selected_folder)
+            return
+        if not identity:
+            return
+        if identity == self.identity:
+            self.selected_folder = self.current_folder
+            self.selected_node = ('macro', identity)
             return
         if not self.keep_changes():
             self.populate_tree()
@@ -67,11 +81,14 @@ class MacroLibraryWidget(QWidget):
         self.load_entry(next(e for e in self.library.entries if e['id'] == identity))
 
     def new_macro(self):
+        folder = self.selected_folder
         if not self.keep_changes():
             return
         self.identity = None
         self.name.setText('New macro')
-        self.folder.setCurrentText('')
+        self.current_folder = self.selected_folder = folder
+        self.selected_node = ('folder', folder)
+        self.show_location()
         self.steps = []
         self.baseline = self.draft_state()
         self.local_status.setText('New local macro. Add steps, then save.')
@@ -81,7 +98,9 @@ class MacroLibraryWidget(QWidget):
         if not self.library or self.busy:
             return False
         try:
-            self.identity = self.library.put(self.name.text(), self.steps, self.folder.currentText(), self.identity)
+            self.identity = self.library.put(self.name.text(), self.steps, self.current_folder, self.identity)
+            self.selected_node = ('macro', self.identity)
+            self.selected_folder = self.current_folder
             self.baseline = self.draft_state()
             self.refresh_library()
             self.local_status.setText('Macro saved locally.')
@@ -111,6 +130,7 @@ class MacroLibraryWidget(QWidget):
         try:
             self.library.remove(self.identity)
             self.baseline = None
+            self.selected_folder = self.current_folder
             self.new_macro()
             self.refresh_library()
         except (OSError, ValueError) as error:
@@ -122,12 +142,15 @@ class MacroLibraryWidget(QWidget):
             self.load_entry(entry)
         else:
             self.baseline = None
+            self.selected_folder = self.current_folder
             self.new_macro()
 
     def __init__(self, library_path, parent=None):
         super().__init__(parent)
         self.identity = self.baseline = self.library = None
         self.busy = False
+        self.current_folder = self.selected_folder = ''
+        self.selected_node = ('folder', '')
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         browser = QVBoxLayout()
@@ -136,10 +159,18 @@ class MacroLibraryWidget(QWidget):
         browser.addWidget(self.search)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_tree_menu)
         self.tree.setMinimumWidth(180)
         self.tree.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
         browser.addWidget(self.tree, 1)
-        for title, callback in [('New macro', self.new_macro), ('Duplicate', self.duplicate_macro), ('Delete local macro', self.delete_macro)]:
+        create = QHBoxLayout()
+        browser.addLayout(create)
+        for title, callback in [('New macro', self.new_macro), ('New folder', self.new_folder)]:
+            button = QPushButton(title)
+            button.clicked.connect(callback)
+            create.addWidget(button)
+        for title, callback in [('Duplicate', self.duplicate_macro), ('Delete local macro', self.delete_macro)]:
             button = QPushButton(title)
             button.clicked.connect(callback)
             browser.addWidget(button)
@@ -150,10 +181,9 @@ class MacroLibraryWidget(QWidget):
         self.name = QLineEdit('New macro')
         self.name.setMaxLength(100)
         fields.addRow('Name', self.name)
-        self.folder = QComboBox()
-        self.folder.setEditable(True)
-        self.folder.setToolTip('Choose a folder or type a new folder name.')
-        fields.addRow('Folder', self.folder)
+        self.location = QLabel('Uncategorized')
+        self.location.setWordWrap(True)
+        fields.addRow('Location', self.location)
         editor.addLayout(fields)
         self.sequence_editor = MacroEditor([], add_blank=False)
         self.sequence_editor.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
@@ -192,12 +222,50 @@ class MacroLibraryWidget(QWidget):
     def steps(self, value):
         self.sequence_editor.set_steps(copy.deepcopy(value))
 
+    def show_location(self):
+        self.location.setText(self.current_folder or 'Uncategorized')
+
+    def new_folder(self):
+        if not self.library or self.busy:
+            return
+        name, accepted = QInputDialog.getText(self, 'New folder', 'Folder name')
+        if not accepted:
+            return
+        try:
+            folder = self.library.add_folder(name)
+            self.selected_folder = folder
+            self.selected_node = ('folder', folder)
+            self.search.clear()
+            self.refresh_library()
+            self.local_status.setText(f'Folder “{folder}” created. Choose New macro to add a sequence here.')
+        except (OSError, ValueError) as error:
+            self.local_status.setText(str(error))
+
+    def show_tree_menu(self, position):
+        item = self.tree.itemAt(position)
+        identity = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+        if identity is None:
+            return
+        self.tree.setCurrentItem(item)
+        if self.identity != identity:
+            return
+        menu = QMenu(self)
+        action = menu.addAction('Move to folder…')
+        if menu.exec(self.tree.viewport().mapToGlobal(position)) == action:
+            self.move_to_folder()
+
+    def move_to_folder(self):
+        if not self.library or self.busy:
+            return
+        folders = ['Uncategorized'] + [f'Folder: {name}' for name in self.library.folders]
+        index = self.library.folders.index(self.current_folder) + 1 if self.current_folder in self.library.folders else 0
+        name, accepted = QInputDialog.getItem(self, 'Move macro', 'Folder', folders, index, False)
+        if accepted:
+            self.current_folder = '' if name == 'Uncategorized' else self.library.folders[folders.index(name) - 1]
+            self.show_location()
+            self.local_status.setText('Location changed in the draft. Save macro to keep the move.')
+
     def refresh_library(self):
-        folder = self.folder.currentText()
-        self.folder.clear()
-        self.folder.addItem('')
-        self.folder.addItems(sorted({e.get('folder', '') for e in self.library.entries} - {''}))
-        self.folder.setCurrentText(folder)
         self.populate_tree()
         self.catalogChanged.emit()
 

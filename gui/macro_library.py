@@ -41,6 +41,9 @@ class MacroLibrary:
         self.data = json.loads(self.original) if self.original is not None else {'version': 1, 'macros': []}
         if not isinstance(self.data, dict) or self.data.get('version') != 1 or not isinstance(self.data.get('macros'), list):
             raise ValueError('Unsupported macro library. The file was left untouched.')
+        folders = self.data.get("folders", [])
+        if not isinstance(folders, list) or any(not isinstance(name, str) or not name.strip() or "\0" in name for name in folders):
+            raise ValueError("Invalid macro folders.")
         seen = set()
         for entry in self.entries:
             if not isinstance(entry, dict) or not isinstance(entry.get('id'), str) or entry['id'] in seen:
@@ -60,16 +63,34 @@ class MacroLibrary:
     def entries(self):
         return copy.deepcopy(self.data['macros'])
 
+    @property
+    def folders(self):
+        names = set(self.data.get('folders', [])) | {e.get('folder', '') for e in self.entries}
+        return sorted(names - {''}, key=str.casefold)
+
+    def add_folder(self, name):
+        name = name.strip()
+        if not name or len(name.encode('utf-8')) > 100 or '\0' in name:
+            raise ValueError('Folder name must contain 1–100 UTF-8 bytes without NUL.')
+        if name in self.folders:
+            raise ValueError('A folder with this name already exists.')
+        updated = copy.deepcopy(self.data)
+        updated['folders'] = self.folders + [name]
+        self._write(updated)
+        return name
+
     def put(self, name, steps, folder='', identity=None):
         validate_macro(name, steps)
         entry = {'id': identity or str(uuid.uuid4()), 'name': name, 'steps': copy.deepcopy(steps), 'folder': folder.strip()}
         updated = copy.deepcopy(self.data)
+        updated['folders'] = sorted(set(self.folders) | ({entry['folder']} if entry['folder'] else set()), key=str.casefold)
         updated['macros'] = [item for item in updated['macros'] if item['id'] != entry['id']] + [entry]
         self._write(updated)
         return entry['id']
 
     def remove(self, identity):
         updated = copy.deepcopy(self.data)
+        updated['folders'] = self.folders
         updated['macros'] = [item for item in updated['macros'] if item['id'] != identity]
         self._write(updated)
 

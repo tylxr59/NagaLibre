@@ -3,6 +3,34 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Macro table control geometry (2026-10-21)
+
+The user's desktop still reported dropdown/text overlap after the first column
+size-hint override. The shared macro editor now uses a fixed action-column resize
+mode and explicitly measures polished dropdowns when adding rows, showing the
+view and changing fonts/styles. It no longer relies on ResizeToContents to honor
+embedded widget width. The existing row-height sizing remains. A table-owned
+single-shot timer handles deferred restyling and is cancelled on destruction.
+Geometry regressions exercise a header-only width hint, hidden insertion/show,
+editing/focus changes and larger fonts. All 214 Python/Qt tests passed without Qt
+callback errors; whitespace checks passed. No engine rebuild or protocol change.
+
+## Explicit macro folder controls (2026-10-21)
+
+Replaced the editable Folder dropdown with a read-only Location label. New folder
+sits beside New macro; folders, including empty ones, are visible in the library
+tree. Selecting a folder or Uncategorized sets the destination for New macro without
+moving or discarding the sequence currently being edited. A macro's context menu
+offers Move to folder; the move stays in its draft until Save macro.
+
+The version-1 catalog now accepts an optional folders array and derives folders
+from legacy macro entries. Empty folders survive reopen and deleting their final
+macro. Atomic writes, conflict checks, existing entry identities and firmware
+assignment behavior remain unchanged. Folder creation/cancellation, legacy
+migration, selected-folder creation, searching, unsaved-draft preservation and
+saved/discarded moves are covered by the Python/Qt suite. No hardware behavior
+changed.
+
 ## Device layout and inline assignment pass (2026-10-21)
 
 The user flagged that Macros was a launcher for another window and that macro

@@ -14,8 +14,8 @@ byte verification alone does not prove that a newly saved timeline is active.
 ## Create a macro
 
 1. Open **Macros**. No mouse connection or authentication is needed to author macros.
-2. Choose **New macro**, enter a name, and use **Add step** to enter keys, shortcuts and delays. Edit, remove or reorder rows directly.
-3. Choose a folder or type a new folder name, then **Save macro**. Search, rename through the Name field, duplicate or delete local macros from this view.
+2. Use **New folder** beside **New macro** to create a folder. Select a folder (or **Uncategorized**) in the library tree, then choose **New macro**. Empty folders are saved and remain available after reopening the app.
+3. Enter a name, use **Add step** to enter keys, shortcuts and delays, then **Save macro**. **Location** shows the macro’s folder. Right-click a macro and choose **Move to folder…**, then save to keep the move. Search, rename through Name, duplicate or delete local macros from this view.
 4. Connect a wired Naga V2 Pro with its twelve-button plate. Select and activate the intended slot in Mouse memory.
 5. Open **Mouse → Customize**, choose the Normal or Hypershift layer and select a grid button or supported extra control. Choose **Macro** as its action, then select a saved macro and playback. Repeat count appears for counted playback only.
 6. Choose **Save macro to mouse** in that button’s pane. The app reads macro storage, prepares a fresh upload, saves the backup and assigns it to that button in the active slot. It reuses the connected helper.
