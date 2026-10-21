@@ -3,6 +3,18 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Explicit macro storage read (2026-10-21)
+
+Renamed the embedded storage tool's ambiguous Refresh mouse button to Read macro
+storage. Mouse memory now always shows its inventory table and local read/status
+feedback, without requiring the On mouse visibility toggle. Storage names, IDs,
+sequence sizes and capacity still come from the existing read-only macro_read
+path. Table ID/size columns fit their contents. No automatic reads or writes were
+added. A regression clicks the read button from Mouse memory with no saved local
+macro and verifies getter-only commands, populated results, error invalidation
+and restored navigation. All 217 Python/Qt tests and whitespace checks passed;
+the storage pane was inspected offscreen. No live hardware test was performed.
+
 ## Macro assignment sizing and long-save feedback (2026-10-21)
 
 Follow-up: the embedded macro panel retained the global QDialog background

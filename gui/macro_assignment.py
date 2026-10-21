@@ -34,7 +34,8 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
         self.fields.setRowVisible(self.target, False)
         self.fields.setRowVisible(self.layer, False)
         self.fields.setRowVisible(self.stored, False)
-        self.read_button.setText('Refresh mouse')
+        self.read_button.setText('Read macro storage')
+        self.read_button.setToolTip('Read stored macro names, IDs, sequence sizes and available space from the mouse.')
         self.close_buttons.hide()
         tools = self.layout().takeAt(2).layout()
         self.tools_widget = QGroupBox('Macro storage')
@@ -43,6 +44,8 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
         header = self.layout().itemAt(0).layout()
         header.removeWidget(self.read_button)
         tools.insertWidget(0, self.read_button)
+        header.removeWidget(self.status)
+        tool_layout.addWidget(self.status)
         for panel in (self.inventory_panel, self.details_panel):
             self.layout().removeWidget(panel)
             tool_layout.addWidget(panel)
@@ -55,10 +58,9 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
         manage.setStyleSheet('padding: 4px 0; border: 0; text-align: left; background: transparent; color: #44d62c;')
         manage.clicked.connect(self.manageRequested.emit)
         self.fields.insertRow(1, manage)
-        self.status.setText('')
-        # The workspace footer owns operation feedback; reserve this pane for
-        # assignment fields rather than duplicating a multiline status here.
-        self.status.hide()
+        self.status.setText('Read macro storage to list macros stored on this mouse.')
+        # Keep read results beside the storage controls, outside the assignment
+        # pane. The workspace footer also reports an active operation.
         self.library_view.catalogChanged.connect(self.refresh_macros)
         self.refresh_macros()
 
@@ -149,10 +151,9 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
             self.fields.setRowVisible(self.count, not self.software and self.playback.currentData() == 'counted')
             self.playback_hint.setVisible(not self.software and self.playback.currentData() == 'toggle')
             self.read_button.setVisible(not self.software)
-            self.inventory_button.setVisible(not self.software)
+            self.inventory_button.hide()
             self.undo_button.setVisible(not self.software)
-            if self.software:
-                self.inventory_button.setChecked(False)
+            self.inventory_button.setChecked(not self.software)
             self.save_button.setText('Use macro' if self.software else 'Save macro to mouse')
             self.save_button.setEnabled(not busy and self.allowed and self.macro_choice.count() > 0)
         if was_busy != busy:

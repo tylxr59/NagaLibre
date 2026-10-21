@@ -190,6 +190,8 @@ class OnboardMacrosDialog(QDialog):
         self.inventory.setHorizontalHeaderLabels(["Stored macro", "ID", "Sequence bytes"])
         self.inventory.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.inventory.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.inventory.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.inventory.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.inventory.verticalHeader().hide()
         self.inventory.setMaximumHeight(140)
         inventory_layout.addWidget(self.inventory)

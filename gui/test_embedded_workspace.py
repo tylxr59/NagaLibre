@@ -120,6 +120,42 @@ class EmbeddedWorkspaceTests(unittest.TestCase):
             send.assert_not_called()
             start.assert_not_called()
 
+    def test_mouse_memory_reads_storage_without_assigning_or_uploading(self):
+        window = self.window
+        panel = window.macro_assignment
+        window.show()
+        with patch.object(window.backend, 'send') as send:
+            self.connect_fixture()
+            window.workspace.show_page(1)
+            APP.processEvents()
+            self.assertEqual(panel.read_button.text(), 'Read macro storage')
+            self.assertFalse(panel.inventory_panel.isHidden())
+            self.assertTrue(panel.status.isVisible())
+            self.assertFalse(panel.inventory_button.isVisible())
+            panel.read_button.click()
+            self.assertIs(window.active_editor, panel)
+            self.assertIn('Reading mouse macro storage', panel.status.text())
+            self.assertEqual([call.args[0]['command'] for call in send.call_args_list],
+                             ['faceplate', 'macro_read'])
+            state = self.macro_snapshot()
+            state['storage'].update(stored_count=1, entries=[{'id': 7, 'metadata': [0] * 250, 'data': [1, 5]}])
+            window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': state})
+            APP.processEvents()
+            self.assertIsNone(window.active_editor)
+            self.assertFalse(window.hardware_busy)
+            self.assertEqual(panel.inventory.rowCount(), 1)
+            self.assertEqual(panel.inventory.item(0, 1).text(), '0007')
+            self.assertIn('1 / 100', panel.capacity.text())
+            self.assertEqual(window.workspace.pages.currentIndex(), 1)
+            self.assertNotIn('macro_prepare', [call.args[0]['command'] for call in send.call_args_list])
+            panel.read_button.click()
+            window.backend.event.emit({'type': 'macro_error', 'message': 'Storage read failed'})
+            APP.processEvents()
+            self.assertEqual(panel.status.text(), 'Storage read failed')
+            self.assertEqual(panel.inventory.rowCount(), 0)
+            self.assertEqual(panel.capacity.text(), 'Storage: unread')
+            self.assertFalse(window.hardware_busy)
+
     def test_inline_macro_selector_fills_pane_and_save_reports_progress(self):
         window = self.window
         self.save_macro()
