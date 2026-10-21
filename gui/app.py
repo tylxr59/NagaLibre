@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit, QPushButton, QStackedWidget, QSystemTrayIcon,
     QVBoxLayout, QWidget, QKeySequenceEdit, QFileDialog, QScrollArea, QFrame, QSizePolicy,
-    QStyle, QStyleOptionButton,
+    QStyle, QStyleOptionButton, QProgressBar,
 )
 
 from onboard import (hardware_buttons, hardware_controls, write_backup, write_creation_backup,
@@ -289,6 +289,10 @@ class Window(QMainWindow):
         self.stored_binding.setWordWrap(True)
         edit_layout.addWidget(self.stored_binding)
         form = QFormLayout()
+        # Desktop styles may keep fields at their size hint. The action combo
+        # ignores that hint so it can shrink in this narrow pane; let it fill
+        # the available field width instead of collapsing to zero.
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.binding_form = form
         trigger_row = QHBoxLayout()
         self.trigger = QLineEdit()
@@ -343,6 +347,7 @@ class Window(QMainWindow):
         self.macro_assignment.manageRequested.connect(self.open_onboard_macros)
         self.macro_assignment.softwareAssigned.connect(self.use_library_macro)
         self.macro_assignment.busyChanged.connect(self.macro_busy_changed)
+        self.macro_assignment.operationStatusChanged.connect(self.macro_operation_status)
         macro_layout.addWidget(self.macro_assignment)
         memory.insertWidget(memory.count() - 1, self.macro_assignment.tools_widget)
         self.stack.addWidget(macro_page)
@@ -380,6 +385,12 @@ class Window(QMainWindow):
         footer_layout.addLayout(actions)
         context_layout.removeWidget(self.status)
         footer_layout.addWidget(self.status)
+        self.macro_progress = QProgressBar()
+        self.macro_progress.setRange(0, 0)
+        self.macro_progress.setTextVisible(False)
+        self.macro_progress.setFixedHeight(4)
+        self.macro_progress.hide()
+        footer_layout.addWidget(self.macro_progress)
         self.workspace.pages.currentChanged.connect(lambda index: self.status.setVisible(index != 3))
         self.stop_button = QPushButton("Stop remapping")
         self.stop_button.clicked.connect(self.stop_remapping)
@@ -906,6 +917,7 @@ class Window(QMainWindow):
 
     def macro_busy_changed(self, busy):
         panel = self.macro_assignment
+        self.macro_progress.setVisible(busy)
         if busy:
             self.commit_fields()
             self.cancel_learning()
@@ -918,6 +930,11 @@ class Window(QMainWindow):
             self.workspace.set_navigation_enabled(False)
         else:
             QTimer.singleShot(0, self.finish_macro_operation)
+
+    def macro_operation_status(self, text):
+        if self.active_editor is self.macro_assignment:
+            self.status.setText(text)
+            self.stored_binding.setText('Mouse operation in progress · assignments refresh when finished.')
 
     def finish_macro_operation(self):
         panel = self.macro_assignment

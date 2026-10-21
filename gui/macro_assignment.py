@@ -1,7 +1,7 @@
 """Saved-macro assignment within the selected button's Customize pane."""
 import copy
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QComboBox, QPushButton, QGroupBox, QVBoxLayout
+from PySide6.QtWidgets import QComboBox, QPushButton, QGroupBox, QVBoxLayout, QFormLayout, QSizePolicy
 from macro_storage import OnboardMacrosDialog
 
 
@@ -18,6 +18,8 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
         self.allowed = False
         super().__init__(profile_path, parent, backend=backend, shared=True)
         self.setWindowFlags(Qt.WindowType.Widget)
+        self.setObjectName('macroAssignment')
+        self.setStyleSheet('QDialog#macroAssignment { background: transparent; }')
         self.setMinimumSize(0, 0)
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.columns.removeWidget(self.sequence_box)
@@ -26,6 +28,7 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
         self.assignment.setStyleSheet('QGroupBox { border: 0; margin: 0; padding: 0; background: transparent; }')
         self.assignment.layout().setContentsMargins(0, 0, 0, 0)
         self.fields.setVerticalSpacing(6)
+        self.fields.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.assignment.setMinimumWidth(0)
         self.assignment.setMaximumWidth(16777215)
         self.fields.setRowVisible(self.target, False)
@@ -44,13 +47,18 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
             self.layout().removeWidget(panel)
             tool_layout.addWidget(panel)
         self.macro_choice = QComboBox()
+        self.macro_choice.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.macro_choice.currentIndexChanged.connect(lambda *_: self.set_busy(self.busy))
+        self.macro_choice.currentTextChanged.connect(self.macro_choice.setToolTip)
         self.fields.insertRow(0, 'Macro', self.macro_choice)
         manage = QPushButton('Manage macros')
         manage.setStyleSheet('padding: 4px 0; border: 0; text-align: left; background: transparent; color: #44d62c;')
         manage.clicked.connect(self.manageRequested.emit)
         self.fields.insertRow(1, manage)
         self.status.setText('')
+        # The workspace footer owns operation feedback; reserve this pane for
+        # assignment fields rather than duplicating a multiline status here.
+        self.status.hide()
         self.library_view.catalogChanged.connect(self.refresh_macros)
         self.refresh_macros()
 
@@ -64,6 +72,7 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
             self.macro_choice.addItem(label, entry['id'])
         self.macro_choice.setCurrentIndex(max(0, self.macro_choice.findData(previous)))
         self.macro_choice.blockSignals(False)
+        self.macro_choice.setToolTip(self.macro_choice.currentText())
         self.set_busy(self.busy)
 
     def set_context(self, button, layer, *, software, slot, allowed):
@@ -133,6 +142,7 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
     def set_busy(self, busy):
         was_busy = getattr(self, 'busy', False)
         super().set_busy(busy)
+        self.operation_progress.hide()
         if hasattr(self, 'macro_choice'):
             self.macro_choice.setEnabled(not busy)
             self.fields.setRowVisible(self.playback, not self.software)

@@ -8,10 +8,11 @@ from pathlib import Path
 import re
 import uuid
 
+from PySide6.QtCore import QElapsedTimer, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QGroupBox, QHeaderView, QWidget,
+    QTableWidgetItem, QVBoxLayout, QGroupBox, QHeaderView, QWidget, QProgressBar,
 )
 from backend import Backend
 from macro_editor import MacroEditor
@@ -66,6 +67,8 @@ def inventory_rows(snapshot):
 
 
 class OnboardMacrosDialog(QDialog):
+    operationStatusChanged = Signal(str)
+
     def __init__(self, profile_path, parent=None, backend=None, steps=None, button=1, layer=0, *, shared=False):
         super().__init__(parent)
         self.profile_path = Path(profile_path)
@@ -80,6 +83,11 @@ class OnboardMacrosDialog(QDialog):
         self.saved = False
         self.pending = None
         self.last_journal = None
+        self.operation_phase = ''
+        self.operation_elapsed = QElapsedTimer()
+        self.operation_timer = QTimer(self)
+        self.operation_timer.setInterval(1000)
+        self.operation_timer.timeout.connect(self.update_operation_status)
         self.setWindowTitle("Onboard macros")
         self.resize(980, 640)
         self.setMinimumSize(840, 560)
@@ -90,6 +98,12 @@ class OnboardMacrosDialog(QDialog):
         self.status = QLabel("Create a sequence and assign it to a button.")
         self.status.setWordWrap(True)
         header.addWidget(self.status, 1)
+        self.operation_progress = QProgressBar()
+        self.operation_progress.setRange(0, 0)
+        self.operation_progress.setTextVisible(False)
+        self.operation_progress.setFixedWidth(40)
+        self.operation_progress.hide()
+        header.addWidget(self.operation_progress)
         self.read_button = QPushButton("Refresh")
         self.read_button.clicked.connect(self.read)
         header.addWidget(self.read_button)
@@ -240,6 +254,13 @@ class OnboardMacrosDialog(QDialog):
         self.show_binding()
 
     def set_busy(self, busy):
+        if busy and not self.busy:
+            self.operation_elapsed.start()
+            self.operation_timer.start()
+        elif not busy:
+            self.operation_timer.stop()
+            self.operation_phase = ''
+        self.operation_progress.setVisible(busy)
         self.busy = busy
         editable = not busy and self.snapshot is not None and not self.saved and self.backend.ready
         self.read_button.setEnabled(not busy)
@@ -252,6 +273,19 @@ class OnboardMacrosDialog(QDialog):
         self.fields.setRowVisible(self.count, counted)
         self.playback_hint.setVisible(self.playback.currentData() == "toggle")
         self.close_buttons.setEnabled(not busy)
+
+    def set_operation_status(self, phase):
+        self.operation_phase = phase
+        self.update_operation_status()
+
+    def update_operation_status(self):
+        if not self.busy or not self.operation_phase:
+            return
+        seconds = self.operation_elapsed.elapsed() // 1000
+        text = (f'{self.operation_phase}\nElapsed {seconds // 60}:{seconds % 60:02d} · '
+                'Mouse checks can take several minutes. Keep the mouse connected.')
+        self.status.setText(text)
+        self.operationStatusChanged.emit(text)
 
     def send(self, message):
         if self.backend.ready:
@@ -285,7 +319,7 @@ class OnboardMacrosDialog(QDialog):
         self.saved = False
         self.show_binding()
         self.set_busy(True)
-        self.status.setText("Loading macros…")
+        self.set_operation_status("Reading mouse macro storage…")
         try:
             self.send({"command": "macro_read"})
         except (OSError, ValueError) as error:
@@ -314,7 +348,7 @@ class OnboardMacrosDialog(QDialog):
             return
         try:
             self.set_busy(True)
-            self.status.setText("Saving macro…")
+            self.set_operation_status("Preparing recovery backup and checking mouse state…")
             self.send({"command": "macro_prepare", "config": config, "request": request})
         except (OSError, ValueError, KeyError, TypeError) as error:
             self.error(error)
@@ -327,7 +361,7 @@ class OnboardMacrosDialog(QDialog):
         self.saved = False
         self.invalidate()
         self.set_busy(True)
-        self.status.setText("Undoing macro save…")
+        self.set_operation_status("Restoring macro backup and verifying mouse state…")
         try:
             self.send({"command": "macro_recover", "journal": path})
         except (OSError, ValueError) as error:
@@ -362,7 +396,7 @@ class OnboardMacrosDialog(QDialog):
                 self.last_journal = str(journal)
                 self.log.appendPlainText(f"Private backup: {path}\nRecovery journal: {journal}")
                 self.backend.send({"command": "macro_commit", "token": message["token"], "journal": str(journal)})
-                self.status.setText("Saving macro…")
+                self.set_operation_status("Saving macro and verifying mouse state…")
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.backend.shutdown()
                 self.error(f"Backup failed; no macro commit sent: {error}")

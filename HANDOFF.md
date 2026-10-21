@@ -3,6 +3,45 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Macro assignment sizing and long-save feedback (2026-10-21)
+
+Follow-up: the embedded macro panel retained the global QDialog background
+(`#222222`) inside the assignment group's `#252525` background. Scoped its
+background to transparent; offscreen pixel samples now match the surrounding
+pane. Standalone dialogs retain their existing styling. Embedded workspace tests
+and whitespace checks passed.
+
+The user reported a failed macro save with a greyed UI, then clarified that it
+completed after a very long wait. This is a user-reported completion, without
+separate physical playback or persistence evidence. Inspection confirms that
+prepare and commit perform repeated recovery/stale-state and final readbacks;
+this change does not reduce those checks or claim a latency improvement.
+
+The inline macro form now explicitly grows fields across desktop styles, giving
+the saved-macro selector the available width and its full name as a tooltip.
+Operation feedback lives in the workspace footer with an activity indicator,
+read/backup/save-verification phases, elapsed time, and notice that mouse checks
+can take several minutes. During the operation, the stored-binding label explains
+that assignments will refresh when it finishes. Standalone macro tools also get
+elapsed/phase feedback. Timers stop on completion, error and disconnect; controls
+remain locked during the transaction. No forced timeout or protocol change.
+
+All 216 Python/Qt tests and whitespace checks passed, including desktop-style
+selector geometry, phase transitions, elapsed display and success/error cleanup.
+Idle/busy offscreen views were inspected. No live mouse access was performed.
+
+## Missing button assignment dropdown (2026-10-21)
+
+Reproduced the user's missing Action dropdown with a Qt style reporting
+`FieldsStayAtSizeHint`: the combo's Ignored horizontal size policy gave it zero
+width. The assignment form now explicitly uses `AllNonFixedFieldsGrow` so the
+dropdown fills the available field width across desktop styles. A regression
+uses that style hint and checks visible geometry and keyboard assignment edits
+in both destinations at normal/minimum window sizes and multiple grid positions.
+All 215 Python/Qt tests and whitespace checks passed; the corrected dropdown was
+also inspected in an offscreen render. No hardware/protocol behavior changed and
+no live mouse test was performed. Restart the GUI to load the Python change.
+
 ## Macro table control geometry (2026-10-21)
 
 The user's desktop still reported dropdown/text overlap after the first column
