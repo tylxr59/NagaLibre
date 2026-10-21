@@ -118,6 +118,12 @@ Run `./nagalibre` as your regular desktop user. **Connect mouse** opens the
 password prompt for the Rust helper; the Qt app stays unprivileged. The launcher
 uses the engine you built at `target/release/naga-macros`.
 
+Button assignments, Macros and Scrolling share that authenticated connection.
+Opening or closing an editor keeps the connection and stops software remapping.
+Returning to button assignments refreshes stored bindings without changing your
+draft. A successful onboard save or macro undo still ends the helper; reconnecting
+afterwards may prompt for authentication again.
+
 To update an existing checkout, pull the latest source and rebuild:
 
 ```sh

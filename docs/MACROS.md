@@ -20,6 +20,9 @@ byte verification alone does not prove that a newly saved timeline is active.
 5. Set a name and playback mode, then choose **Save macro to mouse**.
 
 Opening the dialog copies the selected button's draft sequence when present.
+It shares the main window's authenticated helper, so opening or closing the editor
+does not require another authentication. Software remapping stops when storage
+is read. Successful saves and undo still end the helper session.
 Editing is local until Save. The ordinary **Save bindings to mouse** action
 does not upload macro drafts; use the dedicated dialog for these sequences.
 Primary clicks are never available as mapping targets.

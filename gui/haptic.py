@@ -67,10 +67,14 @@ def describe_custom(state):
 
 
 class WheelDialog(QDialog):
-    def __init__(self, profile_path, parent=None, backend=None):
+    def __init__(self, profile_path, parent=None, backend=None, *, shared=False):
         super().__init__(parent)
         self.profile_path = Path(profile_path)
+        if shared and backend is None:
+            raise ValueError("A shared editor requires an existing backend")
+        self.shared_backend = shared
         self.backend = backend or Backend(self)
+        self.backend_attached = True
         self.snapshot = None
         self.busy = False
         self.pending = None
@@ -168,6 +172,8 @@ class WheelDialog(QDialog):
 
     def send(self, payload):
         if self.backend.ready:
+            if not getattr(self.backend, "haptic_settings", False):
+                raise ValueError("Wheel settings require wired Naga V2 Pro and an updated helper.")
             self.backend.send(payload)
         else:
             self.pending = payload
@@ -177,7 +183,8 @@ class WheelDialog(QDialog):
         if ready:
             if not self.backend.haptic_settings:
                 self.error("Wheel settings require wired Naga V2 Pro and an updated helper.")
-                self.backend.shutdown()
+                if not self.shared_backend:
+                    self.backend.shutdown()
                 return
             if self.pending:
                 payload, self.pending = self.pending, None
@@ -329,11 +336,20 @@ class WheelDialog(QDialog):
         self.log.appendPlainText(str(error))
         self.set_busy(False)
 
+    def detach_backend(self):
+        if self.backend_attached:
+            self.backend.event.disconnect(self.on_event)
+            self.backend.connected.disconnect(self.connected)
+            self.backend.log.disconnect(self.log.appendPlainText)
+            self.backend_attached = False
+
     def done(self, result):
         if self.busy:
             self.status.setText("Wait for the wheel operation to finish before closing.")
             return
-        self.backend.shutdown()
+        if not self.shared_backend:
+            self.backend.shutdown()
+        self.detach_backend()
         super().done(result)
 
     def closeEvent(self, event):

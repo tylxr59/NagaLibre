@@ -3,6 +3,32 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Shared GUI authentication helper (2026-10-21)
+
+Button assignments, native macro storage and wheel settings now reuse the main
+window's Backend/QProcess. Modal editors borrow the connection rather than
+shutting it down on entry or ordinary close. Their initial read commands already
+stop the software worker in the engine. No new protocol or firmware request was
+added. Standalone dialogs still own their helper by default.
+
+The main window defers event handling and connection initialization while an
+editor owns the session, retaining the latest faceplate event for return. Closed
+editors explicitly disconnect their event/log/connection handlers. Returning to
+hardware assignments invalidates prior snapshots and requests fresh readback;
+software remapping stays stopped. Main-window close and tray Stop cannot interrupt
+an editor transaction. Durable backup failure still closes the helper without
+acknowledging a commit. Successful onboard save/undo still ends the engine session;
+the GUI does not start a replacement automatically. Reconnecting then may require
+authentication again, as before.
+
+Validation: 189 Python/Qt tests passed, including a real QProcess bridge to a
+simulated helper that records one process across Connect → Macros → Scrolling →
+assignments, exclusive event handling, fresh reads and draft preservation.
+Additional regressions cover borrowed close/detach, busy close, disconnect,
+backup failure and no automatic reconnect after successful saves. No live mouse
+writes or desktop authentication tests were performed. The user should restart
+the GUI to exercise the changed Python code; Rust behavior is unchanged.
+
 ## UI workspace refresh (2026-10-21)
 
 The Qt window now uses persistent sidebar navigation: Customize, Mouse memory,
@@ -15,9 +41,10 @@ mode hides the software-only input-learning row. Support hints mark Diagnostics.
 Organization was informed by the device/profile context and separate Customize
 and Scrolling areas in Razer's official
 [Naga V2 Pro guide](https://dl.razerzone.com/master-guides/RazerSynapse3/NAGAV2PRO-00000167-en.pdf).
-NagaLibre's wheel and native macro editors retain their existing independent
-sessions, backup/commit boundaries and close behavior; the new pages launch those
-editors. Navigation itself sends no device commands. Presentation helpers and
+NagaLibre's wheel and native macro editors retain their existing backup/commit
+boundaries; the new pages launch those editors. Their originally independent
+helper sessions are superseded by the shared connection described above.
+Sidebar navigation itself sends no device commands. Presentation helpers and
 theme live in `gui/workspace.py`; transaction behavior remains in existing modules.
 
 Validation: all 184 Python/Qt tests passed using the available system PySide6 and

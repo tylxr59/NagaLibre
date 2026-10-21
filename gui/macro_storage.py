@@ -65,10 +65,14 @@ def inventory_rows(snapshot):
 
 
 class OnboardMacrosDialog(QDialog):
-    def __init__(self, profile_path, parent=None, backend=None, steps=None, button=1, layer=0):
+    def __init__(self, profile_path, parent=None, backend=None, steps=None, button=1, layer=0, *, shared=False):
         super().__init__(parent)
         self.profile_path = Path(profile_path)
+        if shared and backend is None:
+            raise ValueError("A shared editor requires an existing backend")
+        self.shared_backend = shared
         self.backend = backend or Backend(self)
+        self.backend_attached = True
         self.steps = copy.deepcopy(steps or [])
         self.snapshot = None
         self.busy = False
@@ -205,6 +209,8 @@ class OnboardMacrosDialog(QDialog):
 
     def send(self, message):
         if self.backend.ready:
+            if not getattr(self.backend, "onboard_macros", False):
+                raise ValueError("Onboard macros require wired Naga V2 Pro and an updated helper.")
             if message["command"] == "macro_read":
                 self.backend.send({"command": "faceplate"})
             self.backend.send(message)
@@ -216,7 +222,8 @@ class OnboardMacrosDialog(QDialog):
         if ready:
             if not getattr(self.backend, "onboard_macros", False):
                 self.error("Onboard macros require wired Naga V2 Pro and an updated helper.")
-                self.backend.shutdown()
+                if not self.shared_backend:
+                    self.backend.shutdown()
                 return
             if self.pending:
                 message, self.pending = self.pending, None
@@ -322,15 +329,23 @@ class OnboardMacrosDialog(QDialog):
         self.status.setText(str(error))
         self.log.appendPlainText(str(error))
 
+    def detach_backend(self):
+        if self.backend_attached:
+            self.backend.event.disconnect(self.on_event)
+            self.backend.connected.disconnect(self.connected)
+            self.backend.log.disconnect(self.log.appendPlainText)
+            self.backend_attached = False
+
     def done(self, result):
         if self.busy:
             return
-        self.backend.shutdown()
+        if not self.shared_backend:
+            self.backend.shutdown()
+        self.detach_backend()
         super().done(result)
 
     def closeEvent(self, event):
         if self.busy:
             event.ignore()
         else:
-            self.backend.shutdown()
             super().closeEvent(event)

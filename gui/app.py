@@ -177,6 +177,9 @@ class Window(QMainWindow):
         self.pending_onboard = None
         self.detected_module = None
         self.plate_detection = "offline"
+        self.active_editor = None
+        self.editor_faceplate = None
+        self.editor_reconnected = False
         self.hardware_busy = False
         self.hardware_saved = None
         self.snapshot = None
@@ -715,6 +718,12 @@ class Window(QMainWindow):
             self.fail(error)
 
     def connection_changed(self, connected):
+        if self.active_editor is not None:
+            self.connect_button.setText("Reconnect / rescan" if connected else "Connect mouse")
+            self.editor_reconnected = self.editor_reconnected or connected
+            if not connected:
+                self.snapshot = self.paired_snapshot = self.hardware_saved = None
+            return
         self.connect_button.setText("Reconnect / rescan" if connected else "Connect mouse")
         if connected:
             if not self.supports_layers():
@@ -848,28 +857,55 @@ class Window(QMainWindow):
             return f"{name}\nStored: {self.stored_text(index)}\nDraft: {draft}"
         return f"{index + 1}\n{draft}"
 
+    def run_hardware_editor(self, editor_type, **kwargs):
+        if self.hardware_busy or self.active_editor is not None:
+            return
+        self.commit_fields()
+        self.cancel_learning()
+        self.pending_config = self.pending_onboard = None
+        self.save_after_read = self.applying = False
+        self.snapshot = self.paired_snapshot = self.hardware_saved = None
+        dialog = editor_type(self.path, self, backend=self.backend, shared=True, **kwargs)
+        self.active_editor = dialog
+        self.editor_faceplate = None
+        self.editor_reconnected = False
+        self.refresh_hardware_view()
+        try:
+            # The read command stops software output in the engine before accessing hardware.
+            dialog.read()
+            dialog.exec()
+        finally:
+            dialog.detach_backend()
+            if dialog.saved:
+                # Successful firmware transactions end the engine session. Wait for EOF
+                # before considering any fresh reads, even if the final event arrived first.
+                self.backend.shutdown()
+            if self.editor_faceplate is not None and self.backend.ready:
+                # Apply the latest detection without issuing reads into the editor's session.
+                self.detected_plate(self.editor_faceplate)
+            self.active_editor = None
+            self.editor_faceplate = None
+            if self.editor_reconnected and self.backend.ready and not dialog.saved:
+                self.connection_changed(True)
+            elif self.backend.ready and not dialog.saved and self.is_hardware() and self.profile["plate"] == "12":
+                self.read_mouse()
+            else:
+                if dialog.saved or not self.backend.ready:
+                    self.connection_changed(False)
+                self.refresh_hardware_view()
+                if self.backend.ready and not dialog.saved:
+                    self.status.setText("Editor closed · software remapping remains stopped. Click Apply when ready.")
+            dialog.deleteLater()
+
     def open_wheel_settings(self):
         from haptic import WheelDialog
-        self.commit_fields()
-        self.backend.shutdown()
-        self.snapshot = self.paired_snapshot = None
-        self.hardware_saved = None
-        dialog = WheelDialog(self.path, self)
-        dialog.read()
-        dialog.exec()
-        self.refresh_hardware_view()
+        self.run_hardware_editor(WheelDialog)
 
     def open_onboard_macros(self):
         from macro_storage import OnboardMacrosDialog
         self.commit_fields()
         steps = self.current()["steps"] if self.current()["mode"] == "macro" else []
-        self.backend.shutdown()
-        self.snapshot = self.paired_snapshot = None
-        self.hardware_saved = None
-        dialog = OnboardMacrosDialog(self.path, self, steps=steps, button=self.selected + 1, layer=self.editing_layer())
-        dialog.read()
-        dialog.exec()
-        self.refresh_hardware_view()
+        self.run_hardware_editor(OnboardMacrosDialog, steps=steps, button=self.selected + 1, layer=self.editing_layer())
 
     def refresh_hardware_view(self, *args):
         hardware = self.is_hardware()
@@ -1059,10 +1095,10 @@ class Window(QMainWindow):
             self.paired_snapshot = None
             self.plate_hint.setText("No faceplate attached." if self.detected_module == 0 else f"Unrecognized faceplate ID {self.detected_module}.")
             self.status.setText("Attach a supported faceplate to apply bindings.")
-        if not self.is_hardware() and self.backend.ready:
+        if not self.is_hardware() and self.backend.ready and self.active_editor is None:
             self.backend.send({"command": "monitor"})
         self.refresh_hardware_view()
-        if self.is_hardware() and count == 12 and self.backend.ready and not self.hardware_busy:
+        if self.is_hardware() and count == 12 and self.backend.ready and not self.hardware_busy and self.active_editor is None:
             self.read_mouse()
 
     def learn_input(self):
@@ -1082,6 +1118,10 @@ class Window(QMainWindow):
         self.learn_button.setText("Learn input")
 
     def on_event(self, message):
+        if self.active_editor is not None:
+            if message.get("type") == "faceplate":
+                self.editor_faceplate = message
+            return
         kind = message.get("type")
         if kind == "faceplate":
             self.detected_plate(message)
@@ -1296,7 +1336,7 @@ class Window(QMainWindow):
             self.fail(error)
 
     def stop_remapping(self):
-        if self.hardware_busy:
+        if self.active_editor is not None or self.hardware_busy:
             return
         if self.is_hardware():
             self.backend.shutdown()
@@ -1338,7 +1378,7 @@ class Window(QMainWindow):
         self.close()
 
     def closeEvent(self, event):
-        if self.hardware_busy:
+        if self.active_editor is not None or self.hardware_busy:
             self.status.setText("Finish the hardware operation before closing NagaLibre.")
             event.ignore()
             return
