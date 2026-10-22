@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 
 from model import DEVICE_MODELS, key_code, shortcut, save_profile
+from native_actions import native_action, native_id, researched_label
 
 MODIFIERS = dict(zip(
     ("KEY_LEFTCTRL", "KEY_LEFTSHIFT", "KEY_LEFTALT", "KEY_LEFTMETA", "KEY_RIGHTCTRL", "KEY_RIGHTSHIFT", "KEY_RIGHTALT", "KEY_RIGHTMETA"),
@@ -60,6 +61,8 @@ def hardware_buttons(profile):
             action = {"category": defaults[i]["category"], "data": list(defaults[i]["data"])}
         elif mode == "disabled":
             action = {"category": 0, "data": []}
+        elif mode == "native":
+            raise ValueError("Connect by wired USB to save media and scrolling assignments.")
         elif mode in ("keep", "hypershift"):
             raise ValueError("This draft needs the wired paired-layer save path. Connect by USB to preserve stored grid actions or assign Hypershift.")
         elif mode == "key":
@@ -87,6 +90,8 @@ def hardware_controls(profile):
             action = {"category": 0, "data": []}
         elif mode == "hypershift":
             raise ValueError("Hypershift assignments require the wired paired-layer save path.")
+        elif mode == "native":
+            raise ValueError("Connect by wired USB to save media and scrolling assignments.")
         elif mode == "key":
             code = key_code(button["value"])
             action = {"category": 1, "data": [MOUSE_KEYS[code]]} if code in MOUSE_KEYS else keyboard_action([code])
@@ -140,6 +145,9 @@ def stored_label(record):
         return "Hold for Hypershift"
     if category == 0 and not data:
         return "Disabled"
+    label = researched_label(category, data)
+    if label:
+        return label
     if category == 1 and len(data) == 1:
         return {1: "Left click", 2: "Right click", 3: "Middle click", 4: "Back", 5: "Forward", 9: "Scroll up", 10: "Scroll down", 0x68: "Scroll left", 0x69: "Scroll right"}.get(data[0], f"Mouse {data[0]}")
     if category == 18 and data == [4]:
@@ -179,13 +187,15 @@ def layer_edits(profile):
                 action = {"category": 12, "data": [1]}
             elif mode == "disabled":
                 action = {"category": 0, "data": []}
+            elif mode == "native":
+                action = native_action(button["value"])
             elif mode == "key":
                 code = key_code(button["value"])
                 action = {"category": 1, "data": [MOUSE_KEYS[code]]} if code in MOUSE_KEYS else keyboard_action([code])
             elif mode == "shortcut":
                 action = keyboard_action(shortcut(button["value"]))
             else:
-                raise ValueError("Layers support keys, shortcuts, disabled actions and a normal-layer Hypershift trigger; macros and nested triggers are unsupported.")
+                raise ValueError("Layers support keys, shortcuts, media/scrolling, disabled actions and a normal-layer Hypershift trigger; use the Macro panel for native macros.")
             result.append({"layer": layer, "action": {"button": index+1, **action}})
     return result
 
@@ -199,6 +209,8 @@ def draft_from_record(record, secondary=False):
         draft["mode"] = "hypershift"
     elif category == 0 and data == []:
         draft["mode"] = "disabled"
+    elif native_id(category, data):
+        draft.update(mode="native", value=native_id(category, data))
     elif category == 1 and len(data) == 1 and 1 <= data[0] <= 5:
         draft.update(mode="key", value=next(k for k, v in MOUSE_KEYS.items() if v == data[0]))
     elif category == 2 and len(data) == 2:

@@ -201,7 +201,8 @@ impl<T: Transport> Mouse<T> {
                         && c.binding.data == edit.action.data
                 });
             if !(normal_factory
-                || edit.layer == 0 && edit.action.category == 0x0c && edit.action.data == [1])
+                || edit.layer == 0 && edit.action.category == 0x0c && edit.action.data == [1]
+                || native_actions::supported(&edit.action))
             {
                 validate_action(&edit.action)?;
             }

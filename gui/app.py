@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from onboard import (hardware_buttons, hardware_controls, write_backup, write_creation_backup,
                      stored_label, FACTORY_CONTROL_LABELS, layer_edits, draft_from_record, write_layer_backup)
 from backend import Backend, DeviceInventory, backend_path
+from native_actions import NATIVE_ACTIONS
 from support import device_issue_url
 from workspace import Workspace, card, label as text_label
 from macro_editor import MacroEditor
@@ -373,6 +374,17 @@ class Window(QMainWindow):
             page = QLabel(text)
             page.setWordWrap(True)
             self.stack.addWidget(page)
+        self.mode.addItem("Media / scrolling", "native")
+        native_page = QWidget()
+        native_layout = QVBoxLayout(native_page)
+        self.native_value = QComboBox()
+        for action in NATIVE_ACTIONS:
+            self.native_value.addItem(action["label"], action["id"])
+        native_layout.addWidget(self.native_value)
+        native_hint = QLabel("Stored on the mouse; no helper is needed after saving. Wired USB and the 12-button plate only. These assignments are experimental; physical output and hold/release behavior are unverified.")
+        native_hint.setWordWrap(True)
+        native_layout.addWidget(native_hint)
+        self.stack.addWidget(native_page)
         edit_layout.addWidget(self.stack)
         edit_layout.addStretch()
         per_button_reset = QPushButton("Use default for this button")
@@ -798,6 +810,8 @@ class Window(QMainWindow):
             button["value"] = self.key_value.text().strip()
         elif button["mode"] == "shortcut":
             button["value"] = self.shortcut_value.text().strip()
+        elif button["mode"] == "native":
+            button["value"] = self.native_value.currentData()
 
     def current_snapshot(self):
         if self.snapshot is not None and self.snapshot["slot"] == self.slots.currentData() and self.profile["plate"] == "12":
@@ -1122,6 +1136,10 @@ class Window(QMainWindow):
         self.mode.model().item(self.mode.findData("disabled")).setEnabled(self.is_hardware())
         self.mode.model().item(self.mode.findData("keep")).setEnabled(secondary or not self.is_hardware() or not self.backend.ready or self.supports_layers())
         self.mode.model().item(self.mode.findData("macro")).setEnabled(not self.is_hardware() or (self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12"))
+        native_allowed = (self.is_hardware() and self.device_model["id"] == "naga_v2_pro"
+                          and self.profile["plate"] == "12" and (not self.backend.ready or self.supports_layers()))
+        self.mode.model().item(self.mode.findData("native")).setEnabled(native_allowed)
+        self.mode.view().setRowHidden(self.mode.findData("native"), not native_allowed)
         for mode, hidden in (("default", secondary), ("factory", secondary or index < 12 or not self.is_hardware()),
                              ("hypershift", secondary or not self.is_hardware()), ("macro", self.is_hardware() and (self.device_model["id"] != "naga_v2_pro" or self.profile["plate"] != "12")),
                              ("keep", not secondary and (index >= 12 or not self.is_hardware())),
@@ -1136,6 +1154,7 @@ class Window(QMainWindow):
         self.stack.setCurrentIndex(self.mode.currentIndex())
         self.key_value.setText(button["value"] if button["mode"] == "key" else "")
         self.shortcut_value.setText(button["value"] if button["mode"] == "shortcut" else "")
+        self.native_value.setCurrentIndex(self.native_value.findData(button["value"]) if button["mode"] == "native" else 0)
         self.recorder.blockSignals(True)
         self.recorder.clear()
         self.recorder.blockSignals(False)

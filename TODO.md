@@ -201,15 +201,37 @@ locations are retained in HANDOFF.md.
 
 ## 5. Richer native button actions
 
-- [ ] Research and decode sensitivity clutch/temporary DPI and other supported
-      sensitivity actions, including release behavior.
-- [ ] Investigate firmware profile cycling/selection as button assignments.
-- [ ] Add supported consumer/media actions and any missing mouse actions with
-      explicit labels and position-scoped validation.
-- [ ] Consider software text entry, program launch and additional repeat modes;
-      show when the helper is required and release held outputs on stop/failure.
+Static research and the first media/scroll implementation chunk are complete;
+the feature remains open. See [native-action findings](inspection/NATIVE_ACTIONS.md)
+and [desktop usage and limits](docs/NATIVE_ACTIONS.md).
+
+- [x] Decode wired sensitivity records: up/down, stage selector, temporary X/Y
+      DPI and cycle directions. Native encoder/decoder, named JSON and managed
+      on-press conversion agree. Stored labels implemented; this is static
+      evidence, not firmware release-behavior verification.
+- [ ] Establish sensitivity bounds/stage numbering and current-DPI readback;
+      implement bounded assignments and physically verify temporary DPI restores
+      on release. Only the existing factory DPI-cycle assignment is writable.
+- [x] Investigate firmware profile cycling/selection as button assignments.
+      Four category-07 navigation records traced. They encode no slot/GUID;
+      managed keymap selection/clutch is a separate host path. Direct firmware
+      slot selection and navigation/release semantics remain unverified.
+- [ ] Implement profile navigation after establishing active-slot guards and a
+      recovery/test procedure that returns to the original slot before restore.
+- [x] Add seven traced consumer/media actions and four scrolling directions with
+      explicit labels and position-scoped validation. Wired twelve-button paired
+      saves support both banks; receiver/legacy/software paths reject the new
+      drafts. Exact records, lost-ack recovery and draft/Qt behavior tested.
+      Other native mouse actions/repeat encodings remain outside authoring.
+- [x] Consider software text entry, program launch and additional repeat modes.
+      Design constraints recorded: layout/Unicode strategy and unprivileged
+      desktop execution need separate work. No new software action is added;
+      existing native macro playback already supplies counted/held/toggle modes.
+      The new native-action UI explains that the helper stops after saving.
 - [ ] Verify each newly exposed action independently; keep unknown stored actions
-      intact. Research does not expand the primary-click writer restrictions.
+      intact. Media/scroll output, hold/release, app-exit/reconnect persistence and
+      exact restoration need physical trials. Other mouse actions need their own
+      semantic/timing verification. Primary-click writer restrictions remain.
 
 ## 6. Complete onboard profile management
 

@@ -16,6 +16,7 @@ pub mod macro_codec;
 pub mod macro_plan;
 pub mod macro_transaction;
 pub mod macros;
+mod native_actions;
 pub mod slot_trial;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -1721,6 +1722,177 @@ mod tests {
         let before = mouse.read_layers(None).unwrap();
         assert!(mouse.prepare_layers(&before, layer_edits()).is_err());
         assert!(mouse.transport.writes.is_empty());
+    }
+
+    #[test]
+    fn native_media_and_scroll_use_traced_wire_records_and_exact_paired_restore() {
+        // Independent Device167 encoder findings (NATIVE_ACTIONS.md), not a
+        // roundtrip generated from the editable action registry.
+        for (layer, button, record) in [
+            (0, 1, [10, 2, 0, 0xe9, 0, 0, 0]),
+            (1, 1, [10, 2, 0, 0xea, 0, 0, 0]),
+            (0, 13, [10, 2, 0, 0xe2, 0, 0, 0]),
+            (1, 1, [10, 2, 0, 0xcd, 0, 0, 0]),
+            (0, 15, [10, 2, 0, 0xb7, 0, 0, 0]),
+            (1, 1, [10, 2, 0, 0xb5, 0, 0, 0]),
+            (0, 12, [10, 2, 0, 0xb6, 0, 0, 0]),
+            (0, 1, [1, 1, 9, 0, 0, 0, 0]),
+            (1, 1, [1, 1, 10, 0, 0, 0, 0]),
+            (0, 14, [1, 1, 0x68, 0, 0, 0, 0]),
+            (1, 1, [1, 1, 0x69, 0, 0, 0, 0]),
+        ] {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let before = mouse.read_layers(None).unwrap();
+            let action = Button::from_record(button, record).unwrap();
+            let plan = mouse
+                .prepare_layers(
+                    &before,
+                    vec![layer_transaction::LayerEdit {
+                        layer,
+                        action: action.clone(),
+                    }],
+                )
+                .unwrap();
+            let backup = plan.backup().clone();
+            assert!(mouse.transport.writes.is_empty());
+            let after = mouse.commit_layers(plan).unwrap();
+            let entries = if layer == 0 {
+                &after.normal.buttons
+            } else {
+                &after.hypershift.buttons
+            };
+            let controls = if layer == 0 {
+                &after.normal.controls
+            } else {
+                &after.hypershift.controls
+            };
+            assert_eq!(
+                entries
+                    .iter()
+                    .chain(controls)
+                    .find(|b| b.button == button)
+                    .unwrap(),
+                &action
+            );
+            let id = control_id(button).unwrap();
+            let write = mouse
+                .transport
+                .operations
+                .iter()
+                .find(|(class, cmd, p)| (*class, *cmd) == (2, 0x0c) && p[1] == id && p[2] == layer)
+                .unwrap();
+            assert_eq!(&write.2[3..], &record);
+            let restore = mouse.prepare_layers_restore(&backup).unwrap();
+            mouse.commit_layers(restore).unwrap();
+            assert_eq!(mouse.read_layers(None).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn native_actions_reject_untraced_shapes_and_addresses_before_any_requests() {
+        for (button, category, data) in [
+            (0, 10, vec![0, 0xcd]),
+            (17, 10, vec![0, 0xcd]),
+            (0x30, 1, vec![9]),
+            (1, 10, vec![0xcd]),
+            (1, 10, vec![1, 0xcd]),
+            (1, 10, vec![0xcd, 0]),
+            (1, 10, vec![0, 0xcd, 0]),
+            (1, 10, vec![0, 0xb0]),
+            (1, 10, vec![0, 0xb1]),
+            (1, 1, vec![6]),
+            (1, 1, vec![7]),
+            (1, 1, vec![9, 0]),
+            (1, 6, vec![5, 3, 32, 3, 32]),
+            (1, 7, vec![4]),
+            (1, 14, vec![9, 0, 20]),
+        ] {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let before = mouse.read_layers(None).unwrap();
+            mouse.transport.operations.clear();
+            for layer in [0, 1] {
+                let action = Button {
+                    button,
+                    category,
+                    data: data.clone(),
+                    raw_record: None,
+                };
+                assert!(
+                    mouse
+                        .prepare_layers(
+                            &before,
+                            vec![layer_transaction::LayerEdit { layer, action }]
+                        )
+                        .is_err()
+                );
+            }
+            assert!(mouse.transport.operations.is_empty());
+        }
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        let before = mouse.read_layers(None).unwrap();
+        for layer in [0, 1] {
+            for button in 1..=16 {
+                let action = Button::from_record(button, [10, 2, 0, 0xcd, 0, 0, 0]).unwrap();
+                assert!(
+                    mouse
+                        .prepare_layers(
+                            &before,
+                            vec![layer_transaction::LayerEdit { layer, action }]
+                        )
+                        .is_ok()
+                );
+            }
+        }
+        assert!(mouse.transport.writes.is_empty());
+    }
+
+    #[test]
+    fn native_lost_ack_restores_captured_records_and_noop_keeps_unknown_padding() {
+        for layer in [0, 1] {
+            let mut mouse = Mouse {
+                transport: BankFake::new(),
+            };
+            let before = mouse.read_layers(None).unwrap();
+            let action = Button::from_record(1, [10, 2, 0, 0xcd, 0, 0, 0]).unwrap();
+            let plan = mouse
+                .prepare_layers(
+                    &before,
+                    vec![layer_transaction::LayerEdit { layer, action }],
+                )
+                .unwrap();
+            if layer == 0 {
+                mouse.transport.slots.get_mut(&1).unwrap().fail_once = Some(0x40);
+            } else {
+                mouse.transport.lose_ack = true;
+            }
+            let error = format!("{:#}", mouse.commit_layers(plan).unwrap_err());
+            assert!(error.contains("restored and verified"), "{error}");
+            assert_eq!(mouse.read_layers(None).unwrap(), before);
+        }
+        let mut mouse = Mouse {
+            transport: BankFake::new(),
+        };
+        mouse
+            .transport
+            .secondary
+            .insert((1, 0x40), [10, 2, 0, 0xcd, 17, 23, 42]);
+        let before = mouse.read_layers(None).unwrap();
+        let action = Button::from_record(1, [10, 2, 0, 0xcd, 0, 0, 0]).unwrap();
+        let plan = mouse
+            .prepare_layers(
+                &before,
+                vec![layer_transaction::LayerEdit { layer: 1, action }],
+            )
+            .unwrap();
+        mouse.commit_layers(plan).unwrap();
+        assert!(mouse.transport.writes.is_empty());
+        assert_eq!(mouse.read_layers(None).unwrap(), before);
     }
     #[test]
     fn paired_restore_rejects_diagnostic_envelope_and_different_device() {

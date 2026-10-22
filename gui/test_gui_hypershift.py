@@ -139,6 +139,38 @@ class LayerGui(unittest.TestCase):
             self.assertFalse(window.apply_button.isEnabled())
             self.assertIn("unread", window.stored_text(0))
 
+    def test_native_action_editor_keeps_layers_independent_and_receiver_cannot_apply(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "profile.json"
+            window = self.window(path)
+            native_index = window.mode.findData("native")
+            self.assertTrue(window.mode.model().item(native_index).isEnabled())
+            window.mode.setCurrentIndex(native_index)
+            window.native_value.setCurrentIndex(window.native_value.findData("play_pause"))
+            window.layer.setCurrentIndex(1)
+            window.select_button(15)
+            window.mode.setCurrentIndex(native_index)
+            window.native_value.setCurrentIndex(window.native_value.findData("scroll_right"))
+            window.layer.setCurrentIndex(0)
+            window.select_button(0)
+            self.assertEqual(window.mode.currentData(), "native")
+            self.assertEqual(window.native_value.currentData(), "play_pause")
+            window.save()
+            saved = load_profile(path)
+            self.assertEqual(saved["plates"]["12"][0]["value"], "play_pause")
+            self.assertEqual(saved["hypershift"][15]["value"], "scroll_right")
+            with patch.object(window.backend, "send") as send:
+                window.apply()
+                request = send.call_args.args[0]
+                self.assertEqual(request["command"], "onboard_layers_prepare")
+                self.assertIn({"layer": 0, "action": {"button": 1, "category": 10, "data": [0, 0xcd]}}, request["edits"])
+            window.backend.hypershift_transactions = False
+            window.select_button(0, commit=False)
+            self.assertFalse(window.mode.model().item(native_index).isEnabled())
+            with patch.object(window.backend, "send") as send, patch.object(window, "fail"):
+                window.apply()
+                self.assertFalse(any(call.args[0].get("command") in ("onboard_prepare", "onboard_layers_prepare") for call in send.call_args_list))
+
     def test_read_preserves_draft_and_copy_stored_keeps_unknown_actions(self):
         with tempfile.TemporaryDirectory() as temporary:
             window = self.window(Path(temporary) / "profile.json")

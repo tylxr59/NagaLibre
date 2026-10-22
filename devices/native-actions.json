@@ -1,0 +1,13 @@
+[
+  {"id": "volume_up", "label": "Volume up", "category": 10, "data": [0, 233]},
+  {"id": "volume_down", "label": "Volume down", "category": 10, "data": [0, 234]},
+  {"id": "mute", "label": "Mute audio", "category": 10, "data": [0, 226]},
+  {"id": "play_pause", "label": "Play / pause", "category": 10, "data": [0, 205]},
+  {"id": "stop", "label": "Stop playback", "category": 10, "data": [0, 183]},
+  {"id": "next_track", "label": "Next track", "category": 10, "data": [0, 181]},
+  {"id": "previous_track", "label": "Previous track", "category": 10, "data": [0, 182]},
+  {"id": "scroll_up", "label": "Scroll up", "category": 1, "data": [9]},
+  {"id": "scroll_down", "label": "Scroll down", "category": 1, "data": [10]},
+  {"id": "scroll_left", "label": "Scroll left", "category": 1, "data": [104]},
+  {"id": "scroll_right", "label": "Scroll right", "category": 1, "data": [105]}
+]

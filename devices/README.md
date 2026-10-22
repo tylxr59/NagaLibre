@@ -24,3 +24,11 @@ flags remain independent, and the backend retains an explicit safe address set
 excluding primary clicks. Receiver and physical verification limits remain in
 HANDOFF.md. DPI-cycle is a button assignment using the existing stage table, not
 a DPI-value configuration feature. Rebuild the engine after changing this file.
+
+`native-actions.json` lists the additional media/scrolling assignments shared by
+the GUI and compiled engine: stable `id`, display `label`, wire `category` and
+decoded `data`. This is an experimental wired paired-transaction allowlist, not
+a model-wide hardware-verification flag. It does not change writable positions,
+enable receiver writes or admit arbitrary consumer usages. See
+[native-action evidence](../inspection/NATIVE_ACTIONS.md); rebuild the engine
+after changing this table.

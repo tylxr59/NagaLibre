@@ -3,6 +3,56 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## TODO #5: native action research and media/scroll editing (2026-10-21)
+
+GhidraMCP identified the matching wired Device167 controller/hash and traced
+its record encoder/decoder, named JSON conversion and x86 parameter stores.
+The configured project was locked, so an isolated private copy was opened through
+the installed MCP Python stdio client. No existing lock/session was altered.
+Evidence, RVAs and unresolved semantics are in
+[inspection/NATIVE_ACTIONS.md](inspection/NATIVE_ACTIONS.md).
+
+Sensitivity records now have known static shapes (including big-endian temporary
+X/Y DPI), and four firmware profile-navigation actions are identified. Managed
+on-press intent does not prove release restoration; stage numbering/DPI bounds
+remain unknown. Firmware navigation records contain no target slot/GUID; host
+keymap GUID/clutch assignment is a separate path. Those actions gain stored
+labels only, with no new sensitivity/profile writer.
+
+The wired twelve-button desktop editor now offers **Media / scrolling**: seven
+media usages and four scroll directions, in either bank at existing permitted
+positions. The shared native-actions table is compiled into Rust and read by Qt.
+The controller encoder supports fewer media actions than the shared UI enum;
+untraced usages, shapes and repeat records are rejected. Receiver/legacy and
+software paths cannot apply these drafts. Draft profiles retain stable action
+IDs; software conversion explicitly rejects them.
+
+The existing paired transaction supplies all-slot durable backup, stale checks,
+unchanged-record preservation, semantic changed-action readback, exact original
+rollback/restoration and primary-click exclusions. Known stored records with
+unknown trailing bytes still preserve those bytes on unchanged saves. No new
+vendor command or writable address was added. No mouse requests occurred.
+New physical media/scroll output, hold/release and app-exit/reconnect persistence
+remain unverified; prior default-tilt evidence does not verify these new targets.
+TODO #5 remains open for independent trials, bounded sensitivity implementation
+and guarded profile-navigation work. User instructions for the current chunk
+are in [docs/NATIVE_ACTIONS.md](docs/NATIVE_ACTIONS.md).
+
+Software text/launch and additional repeat features were considered; layout/
+Unicode handling and unprivileged desktop execution need a separate design.
+No new software executor or repeat-rate writer is enabled. Native macro modes
+from the completed #4 remain available; Custom wheel editing remains deferred.
+
+Validation: 190 Rust and 234 Python/Qt tests passed. Formatting, Clippy with
+warnings denied, debug/release builds, example-config validation and whitespace
+checks passed. New regression coverage includes exact native media/scroll bytes,
+shape/address rejection before requests, lost-ack recovery in both banks,
+unchanged media records with opaque padding and native draft/UI routing.
+The test transport models the captured last-selector echo for secondary grid 1;
+additional secondary positions have preparation/scope coverage, not new physical
+or generalized firmware-echo evidence. Private MCP receipts and test logs remain
+in the ignored `inspection/payload/native-actions-research/` directory.
+
 ## TODO #4 closed (2026-10-21)
 
 The user accepted completion after the successful CLI playback/shortcut trials

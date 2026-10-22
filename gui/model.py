@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from native_actions import BY_ID, native_action
 
 DEVICE_MODELS = {m["id"]: m for m in json.loads((Path(__file__).resolve().parent.parent / "devices/models.json").read_text())}
 DEFAULT_KEYS = DEVICE_MODELS["naga_v2_pro"]["defaults"]["plates"]["12"]["keys"]
@@ -95,8 +96,12 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
         for button in buttons:
             if not isinstance(button, dict):
                 raise ValueError("Invalid button data.")
-            if button["mode"] not in ("default", "key", "shortcut", "macro", "keep", "disabled", "hypershift"):
+            if button["mode"] not in ("default", "key", "shortcut", "macro", "keep", "disabled", "hypershift", "native"):
                 raise ValueError("Unknown binding type.")
+            if button["mode"] == "native":
+                if device != "naga_v2_pro" or plate != "12":
+                    raise ValueError("Native actions require the Naga V2 Pro twelve-button plate.")
+                native_action(button.get("value"))
             if button["mode"] == "hypershift" and (device != "naga_v2_pro" or plate != "12"):
                 raise ValueError("Hypershift triggers require the Naga V2 Pro twelve-button plate.")
             if not isinstance(button["trigger"], str) or not isinstance(button["value"], str) or not isinstance(button["steps"], list):
@@ -113,8 +118,10 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
     if not isinstance(controls, list) or (controls and len(controls) not in (3, count)) or (controls and not count):
         raise ValueError("Invalid wheel controls.")
     for control in controls:
-        if not isinstance(control, dict) or control.get("mode") not in ("default", "factory", "key", "shortcut", "macro", "keep", "disabled", "hypershift"):
+        if not isinstance(control, dict) or control.get("mode") not in ("default", "factory", "key", "shortcut", "macro", "keep", "disabled", "hypershift", "native"):
             raise ValueError("Invalid wheel control binding.")
+        if control["mode"] == "native":
+            native_action(control.get("value"))
         if not isinstance(control.get("trigger"), str) or not isinstance(control.get("value"), str) or not isinstance(control.get("steps"), list):
             raise ValueError("Invalid wheel control data.")
     if controls:
@@ -126,10 +133,12 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
         if not isinstance(secondary, list) or len(secondary) != 16:
             raise ValueError("Invalid Hypershift draft.")
         for button in secondary:
-            if (not isinstance(button, dict) or button.get("mode") not in ("keep", "key", "shortcut", "disabled")
+            if (not isinstance(button, dict) or button.get("mode") not in ("keep", "key", "shortcut", "disabled", "native")
                     or not isinstance(button.get("trigger"), str) or not isinstance(button.get("value"), str)
                     or not isinstance(button.get("steps"), list)):
                 raise ValueError("Invalid Hypershift binding; nested triggers and macros are unsupported.")
+            if button["mode"] == "native":
+                native_action(button.get("value"))
         if not value.get("controls"):
             value["controls"] = [default_control() for _ in CONTROL_NAMES]
         value.update(version=2, hypershift=secondary)
@@ -166,7 +175,7 @@ def runtime_config(profile: dict) -> str:
             seen.add(trigger)
         if button["mode"] in ("default", "keep"):
             continue
-        if button["mode"] in ("hypershift", "disabled", "factory"):
+        if button["mode"] in ("hypershift", "disabled", "factory", "native"):
             raise ValueError("This binding requires Mouse memory mode; it is not a software macro.")
         if trigger in PROTECTED_INPUTS:
             raise ValueError("Main mouse buttons cannot be side-button inputs. Reset the plate or use Learn input to select a side button.")
@@ -210,6 +219,8 @@ def reset_plate(profile: dict, plate: str) -> None:
 
 
 def binding_label(button: dict) -> str:
+    if button["mode"] == "native":
+        return BY_ID.get(button["value"], {}).get("label", "Unknown native action")
     if button["mode"] == "keep":
         return "Keep stored binding"
     if button["mode"] == "hypershift":
