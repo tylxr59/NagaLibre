@@ -3,6 +3,24 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Desktop UI redesign (2026-10-26)
+
+Presentation-only rework of the Qt app at the user's request: new dark theme
+and component styles in gui/workspace.py, a sidebar listing every page with a
+device/connection card, a shared page header with a Mouse memory/Software
+segmented toggle (the hidden storage combo stays the source of truth), and a
+footer action bar. The Buttons page draws the side plate as painted keycaps
+with wheel/DPI controls in their own section and an inspector beside it; below
+1060px wide the inspector stacks under the plate. Default window size is
+1300×960, where no page scrolls by default; the wheel stage list fills spare
+Scrolling-page height. The amber keycap dot compares displayed draft/stored
+label text only and is a hint, not a decoded-action comparison.
+
+Every existing widget attribute, signal and enable/visibility rule was kept;
+no session, save, backup or protocol code changed and no mouse requests
+occurred. All 234 Python/Qt tests passed; layouts were inspected offscreen and
+by the user on their desktop. README's hero screenshot predates this redesign.
+
 ## TODO #5: native action research and media/scroll editing (2026-10-21)
 
 GhidraMCP identified the matching wired Device167 controller/hash and traced

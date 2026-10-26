@@ -56,7 +56,7 @@ class MacroEditor(QWidget):
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.itemChanged.connect(lambda *_: self.changed.emit())
-        layout.addWidget(self.table)
+        layout.addWidget(self.table, 1)
         controls = QHBoxLayout()
         for label, callback in [("Add step", lambda: self.add()), ("Remove", self.remove), ("Move up", lambda: self.move(-1)), ("Move down", lambda: self.move(1))]:
             button = QPushButton(label)

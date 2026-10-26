@@ -9,14 +9,15 @@ import subprocess
 import sys
 import tempfile
 
-from PySide6.QtCore import Qt, QTimer, QLockFile, QStandardPaths, QUrl
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap, QDesktopServices
+from PySide6.QtCore import Qt, QTimer, QLockFile, QPointF, QRectF, QStandardPaths, QUrl
+from PySide6.QtGui import (QAction, QColor, QFont, QFontMetrics, QIcon, QLinearGradient, QPainter, QPen,
+                           QPixmap, QDesktopServices)
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGridLayout,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
+    QApplication, QBoxLayout, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGridLayout,
+    QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit, QPushButton, QStackedWidget, QSystemTrayIcon,
-    QVBoxLayout, QWidget, QKeySequenceEdit, QFileDialog, QScrollArea, QFrame, QSizePolicy,
-    QStyle, QStyleOptionButton, QProgressBar, QTabWidget,
+    QVBoxLayout, QWidget, QKeySequenceEdit, QFileDialog, QFrame, QSizePolicy,
+    QProgressBar, QTabWidget,
 )
 
 from onboard import (hardware_buttons, hardware_controls, write_backup, write_creation_backup,
@@ -24,7 +25,8 @@ from onboard import (hardware_buttons, hardware_controls, write_backup, write_cr
 from backend import Backend, DeviceInventory, backend_path
 from native_actions import NATIVE_ACTIONS
 from support import device_issue_url
-from workspace import Workspace, card, label as text_label
+from workspace import (Workspace, SegmentedControl, StatusDot, card, divider, label as text_label, repolish,
+                       ACCENT, BORDER, BORDER_STRONG, FAINT, MUTED, TEXT, WARN, ACCENT_TEXT)
 from macro_editor import MacroEditor
 from macro_library_view import MacroLibraryWidget
 from macro_bindings import MacroBindingsWidget
@@ -37,19 +39,27 @@ from model import (
 
 
 def app_icon() -> QIcon:
-    pix = QPixmap(64, 64)
+    pix = QPixmap(128, 128)
     pix.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    gradient = QLinearGradient(0, 0, 128, 128)
+    gradient.setColorAt(0, QColor("#5fe549"))
+    gradient.setColorAt(1, QColor("#25a313"))
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor("#2dc4a2"))
-    painter.drawRoundedRect(5, 5, 54, 54, 15, 15)
-    painter.setPen(QColor("#10201e"))
+    painter.setBrush(gradient)
+    painter.drawRoundedRect(8, 8, 112, 112, 30, 30)
+    # Three-by-two dot grid: a nod to the side plate.
+    painter.setBrush(QColor(8, 26, 4, 70))
+    for column in range(3):
+        for row in range(2):
+            painter.drawEllipse(QPointF(44 + column * 20, 90 + row * 13), 4.2, 4.2)
+    painter.setPen(QColor("#0b1a07"))
     font = painter.font()
-    font.setPixelSize(36)
-    font.setBold(True)
+    font.setPixelSize(64)
+    font.setWeight(QFont.Weight.Black)
     painter.setFont(font)
-    painter.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, "N")
+    painter.drawText(QRectF(0, 4, 128, 84), Qt.AlignmentFlag.AlignCenter, "N")
     painter.end()
     return QIcon(pix)
 
@@ -90,23 +100,105 @@ class MacroDialog(QDialog):
 
 
 class BindingTile(QPushButton):
-    """Keep the physical grid visible; full stored/draft text stays in the tooltip."""
+    """One physical control, painted as a keycap.
+
+    The full stored/draft description stays in text() and the tooltip; the
+    painted face separates the label, the draft action and the stored readback.
+    """
+    def __init__(self, variant="key", parent=None):
+        super().__init__(parent)
+        self.variant = variant
+        self.full_text = ""
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
+
     def setText(self, text):
         self.full_text = text
         self.setToolTip(text)
-        self.render_text()
+        super().setText(text)
+        self.update()
 
-    def render_text(self):
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        contents = self.style().subElementRect(QStyle.SubElement.SE_PushButtonContents, option, self)
-        width = max(0, contents.width())
-        super().setText("\n".join(self.fontMetrics().elidedText(line, Qt.TextElideMode.ElideRight, width)
-                                  for line in getattr(self, "full_text", "").splitlines()))
+    def parts(self):
+        lines = self.full_text.splitlines() or [""]
+        name, stored, draft = lines[0], None, ""
+        for line in lines[1:]:
+            if line.startswith("Stored: "):
+                stored = line[len("Stored: "):]
+            elif line.startswith("Draft: "):
+                draft = line[len("Draft: "):]
+            else:
+                draft = line
+        return name, stored, draft
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.render_text()
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        checked, hovered, enabled = self.isChecked(), self.underMouse(), self.isEnabled()
+        fill = QColor("#1a2b16") if checked else QColor("#1f2427") if hovered else QColor("#181b1e")
+        border = QColor(ACCENT) if checked else QColor("#3d454c") if hovered else QColor(BORDER_STRONG)
+        if not enabled:
+            fill, border = QColor("#141618"), QColor(BORDER)
+        painter.setPen(QPen(border, 1.5 if checked else 1))
+        painter.setBrush(fill)
+        painter.drawRoundedRect(rect, 11, 11)
+        if not checked and enabled:
+            # Subtle top highlight so the caps read as raised.
+            painter.setPen(QPen(QColor(255, 255, 255, 14), 1))
+            painter.drawLine(QPointF(rect.left() + 11, rect.top() + 1.5), QPointF(rect.right() - 11, rect.top() + 1.5))
+
+        name, stored, draft = self.parts()
+        pad = 12
+        inner = rect.adjusted(pad, 9, -pad, -9)
+        text_color = QColor(TEXT if enabled else FAINT)
+        label_color = QColor(ACCENT_TEXT if checked else MUTED if self.variant == "control" else FAINT)
+        base = QFont(self.font())
+
+        title = QFont(base)
+        if self.variant == "key":
+            title.setPixelSize(20)
+            title.setWeight(QFont.Weight.Bold)
+        else:
+            title.setPixelSize(11)
+            title.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(title)
+        painter.setPen(label_color)
+        title_height = QFontMetrics(title).height()
+        painter.drawText(QRectF(inner.left(), inner.top(), inner.width() - 12, title_height),
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         QFontMetrics(title).elidedText(name, Qt.TextElideMode.ElideRight, int(inner.width() - 12)))
+
+        known = stored not in (None, "unread", "unknown")
+        if known and stored != draft:
+            # Draft text differs from the readback text: an unsaved change.
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(WARN))
+            painter.drawEllipse(QPointF(rect.right() - 12, rect.top() + 12), 3.5, 3.5)
+
+        action = QFont(base)
+        action.setPixelSize(13)
+        action.setWeight(QFont.Weight.DemiBold if self.variant == "key" else QFont.Weight.Medium)
+        small = QFont(base)
+        small.setPixelSize(11)
+        action_metrics, small_metrics = QFontMetrics(action), QFontMetrics(small)
+        bottom = inner.bottom()
+        if stored is not None:
+            painter.setFont(small)
+            painter.setPen(QColor(FAINT))
+            line = "On mouse: " + stored
+            painter.drawText(QRectF(inner.left(), bottom - small_metrics.height(), inner.width(), small_metrics.height()),
+                             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                             small_metrics.elidedText(line, Qt.TextElideMode.ElideRight, int(inner.width())))
+            bottom -= small_metrics.height() + 1
+        painter.setFont(action)
+        painter.setPen(text_color)
+        painter.drawText(QRectF(inner.left(), bottom - action_metrics.height(), inner.width(), action_metrics.height()),
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         action_metrics.elidedText(draft, Qt.TextElideMode.ElideRight, int(inner.width())))
+        if self.hasFocus() and not checked:
+            painter.setPen(QPen(QColor(ACCENT), 1, Qt.PenStyle.DotLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(2, 2, -2, -2), 9, 9)
 
 
 class Window(QMainWindow):
@@ -148,55 +240,81 @@ class Window(QMainWindow):
         self.backend.connected.connect(self.connection_changed)
         self.setWindowTitle("NagaLibre")
         self.setWindowIcon(app_icon())
-        self.resize(1180, 860)
+        self.resize(1300, 960)
         self.setMinimumSize(920, 640)
         self.workspace = Workspace(self)
-        layout = self.workspace.content
         customize, memory, scrolling, macros, diagnostics = self.workspace.layouts
-        context = QFrame()
-        context.setObjectName("context")
-        context_layout = QVBoxLayout(context)
-        context_layout.setContentsMargins(16, 12, 16, 12)
-        layout.addWidget(context)
-        layout.insertWidget(1, self.workspace.device_tabs)
-        self.workspace.pages.currentChanged.connect(lambda index: context.setVisible(index != 3))
-        connection = QHBoxLayout()
+        layout = self.workspace.content
+        self.workspace.brand_icon.setPixmap(app_icon().pixmap(36, 36))
+
+        # Sidebar device card: identity, connection state and the connect action.
+        device_head = QHBoxLayout()
+        device_head.setSpacing(8)
+        self.connection_dot = StatusDot()
+        device_head.addWidget(self.connection_dot, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.connection_label = text_label("Not connected", "faint")
+        device_head.addWidget(self.connection_label, 1)
+        self.workspace.device_layout.addLayout(device_head)
         self.device_label = QLabel("Looking for a supported Razer mouse…")
         self.device_label.setWordWrap(True)
-        connection.addWidget(self.device_label, 1)
+        self.device_label.setStyleSheet("font-weight: 600;")
+        self.workspace.device_layout.addWidget(self.device_label)
         self.connect_button = QPushButton("Connect mouse")
+        self.connect_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.connect_button.clicked.connect(self.connect_mouse)
-        connection.addWidget(self.connect_button)
-        context_layout.addLayout(connection)
+        self.workspace.device_layout.addWidget(self.connect_button)
+        self.backend.connected.connect(lambda *_: self.update_connection_badge())
+
+        support_card, support_layout = card("Device support", "Something not detected or behaving oddly? Open a prefilled GitHub form with diagnostic steps. You review and submit it yourself.")
         support_row = QHBoxLayout()
         self.support_hint = QLabel()
         self.support_hint.setWordWrap(True)
+        self.support_hint.setProperty("role", "muted")
         support_row.addWidget(self.support_hint, 1)
         self.support_button = QPushButton("Request device support…")
         self.support_button.setToolTip("Open a GitHub form with diagnostic instructions. Review and submit it yourself.")
         self.support_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(device_issue_url(self.support_devices))))
-        support_row.addWidget(self.support_button)
-        diagnostics.addLayout(support_row)
+        support_row.addWidget(self.support_button, 0, Qt.AlignmentFlag.AlignTop)
+        support_layout.addLayout(support_row)
+        diagnostics.addWidget(support_card)
+
         self.status = QLabel("Offline · edit bindings, then connect to test.")
         self.status.setWordWrap(True)
-        self.status.setStyleSheet("padding: 4px 0; color: #cccccc;")
-        context_layout.addWidget(self.status)
-        storage_row = QHBoxLayout()
+
+        # Header tools: where drafts go and which onboard slot is in view.
         self.storage = QComboBox()
         self.storage.addItem("Mouse memory · no background app", "hardware")
         self.storage.addItem("Software · background helper", "software")
         self.storage.setCurrentIndex(max(0, self.storage.findData(self.profile.get("storage", "hardware"))))
-        storage_row.addWidget(text_label("Draft destination", "muted"))
-        storage_row.addWidget(self.storage, 1)
+        self.storage.hide()
+        self.storage_switch = SegmentedControl(self.storage, {"hardware": "Mouse memory", "software": "Software"})
+        self.storage_switch.setToolTip("Mouse memory stores bindings on the mouse; no background app is needed.\n"
+                                       "Software remaps input through the NagaLibre helper while it runs.")
         self.slots = QComboBox()
         self.slots.addItem("Active mouse slot", None)
-        storage_row.addWidget(self.slots)
-        self.slots.setToolTip("The selected onboard slot. Read and manage slots in Mouse memory.")
-        slot_card, slot_layout = card("Onboard slots", "Reading leaves your local draft unchanged. Activate a slot to use its existing assignments without saving your draft.")
+        self.slots.setMinimumWidth(170)
+        self.slots.setToolTip("The selected onboard slot. Read and manage slots in Onboard memory.")
+        tools = self.workspace.header_tools_layout
+        tools.addWidget(self.storage)
+        tools.addWidget(self.storage_switch)
+        tools.addWidget(self.slots)
+        self.workspace.pages.currentChanged.connect(lambda index: self.workspace.header_tools.setVisible(index not in (3, 4)))
+
+        # Onboard memory page.
+        slot_card, slot_layout = card("Profile slots", "Reading leaves your local draft unchanged. Activate a slot to use its stored assignments without saving your draft.")
         self.memory_slot_card = slot_card
-        memory.addWidget(slot_card)
+        memory_cards = QHBoxLayout()
+        memory_cards.setSpacing(16)
+        memory_cards.addWidget(slot_card, 3)
+        memory.addLayout(memory_cards)
+        self.slot_summary = QLabel("Slot capacity: unread")
+        self.slot_summary.setWordWrap(True)
+        self.slot_summary.setProperty("role", "readout")
+        slot_layout.addWidget(self.slot_summary)
         slot_actions = QHBoxLayout()
+        slot_actions.setSpacing(8)
         self.read_button = QPushButton("Read slots")
+        self.read_button.setProperty("role", "primary")
         self.read_button.clicked.connect(self.read_mouse)
         slot_actions.addWidget(self.read_button)
         self.activate_button = QPushButton("Activate slot")
@@ -207,46 +325,69 @@ class Window(QMainWindow):
         self.create_button.clicked.connect(self.create_slot)
         self.create_button.setToolTip("Create an unused slot with factory bindings. The current slot stays active; save your draft separately.")
         slot_actions.addWidget(self.create_button)
-        self.restore_button = QPushButton("Restore backup…")
-        self.restore_button.clicked.connect(self.restore_backup)
+        slot_actions.addStretch()
         slot_layout.addLayout(slot_actions)
-        recovery_card, recovery_layout = card("Backup & recovery", "Restore mouse settings from a previously saved backup. Saving bindings creates a durable backup before any settings are written.")
-        recovery_layout.addWidget(self.restore_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.memory_hint = QLabel()
+        self.memory_hint.setWordWrap(True)
+        self.memory_hint.setProperty("role", "muted")
+        slot_layout.addWidget(divider())
+        slot_layout.addWidget(self.memory_hint)
+        self.use_stored_button = QPushButton("Use stored bindings as draft")
+        self.use_stored_button.setToolTip("Copy both stored layers into your local draft. Unknown actions stay set to Keep stored binding.")
+        self.use_stored_button.clicked.connect(self.use_stored_draft)
+        slot_layout.addWidget(self.use_stored_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.restore_button = QPushButton("Restore backup…")
+        self.restore_button.setProperty("role", "danger")
+        self.restore_button.clicked.connect(self.restore_backup)
+        recovery_card, recovery_layout = card("Backup & recovery", "Every save writes a durable backup before any settings change. Restore one here if something goes wrong.")
+        recovery_buttons = QVBoxLayout()
+        recovery_buttons.setSpacing(8)
+        recovery_buttons.addWidget(self.restore_button)
+        recovery_layout.addLayout(recovery_buttons)
         self.memory_recovery_card = recovery_card
-        memory.addWidget(recovery_card)
-        self.memory_mode_hint = text_label("Onboard slots are available in Mouse memory mode. Change Draft destination above to manage them.", "muted")
+        recovery_layout.addStretch()
+        memory_cards.addWidget(recovery_card, 2)
+        self.memory_mode_hint = text_label("Onboard slots are available in Mouse memory mode. Switch the destination above to manage them.", "readout")
         memory.addWidget(self.memory_mode_hint)
         memory.addStretch()
+
+        # Scrolling page. Its restore action joins the other recovery actions.
         self.wheel_panel = WheelPanel(self.path, self, self.backend)
         self.wheel_panel.busyChanged.connect(self.wheel_busy_changed)
         self.wheel_panel.layout().itemAt(1).layout().removeWidget(self.wheel_panel.restore_button)
         self.wheel_panel.layout().itemAt(1).layout().addStretch()
-        recovery_layout.addWidget(self.wheel_panel.restore_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.wheel_panel.restore_button.setProperty("role", "danger")
+        recovery_buttons.addWidget(self.wheel_panel.restore_button)
+        recovery_buttons.addStretch()
         scrolling.addWidget(self.wheel_panel, 1)
+
         self.macro_library_view = MacroLibraryWidget(self.base_profile_path.parent / "macros.json", self)
         self.macro_tabs = QTabWidget()
         self.macro_tabs.addTab(self.macro_library_view, 'My Macros')
         self.macro_library_view.assignRequested.connect(self.assign_library_macro)
         macros.addWidget(self.macro_tabs, 1)
-        context_layout.addLayout(storage_row)
         layout.addWidget(self.workspace.pages, 1)
-        self.slot_summary = QLabel("Slot capacity: unread")
-        self.slot_summary.setWordWrap(True)
-        slot_layout.insertWidget(1, self.slot_summary)
-        self.memory_hint = QLabel("Each tile shows the stored binding and local draft. Save applies the 12 side-button drafts and explicitly edited wheel controls. Keep stored binding preserves a wheel control. Choose Macro on a button to assign a saved sequence.")
-        self.memory_hint.setWordWrap(True)
-        self.memory_hint.setProperty("role", "muted")
-        slot_layout.addWidget(self.memory_hint)
-        columns = QHBoxLayout()
-        left = QGroupBox("Mouse buttons")
+
+        # Buttons page: a picture of the side plate on the left, an inspector on the right.
+        columns = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        columns.setSpacing(18)
+        self.customize_columns = columns
+        left = QFrame()
+        left.setObjectName("plateCard")
         left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(20, 18, 20, 18)
+        left_layout.setSpacing(12)
+        plate_title = QHBoxLayout()
+        plate_title.addWidget(text_label("Side plate", "cardTitle"), 1)
+        left_layout.addLayout(plate_title)
+        plate_controls = QHBoxLayout()
+        plate_controls.setSpacing(8)
         self.plate = QComboBox()
         self.plate.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         for p in ("12", "6", "2"):
             self.plate.addItem(f"{p}-button plate", p)
         self.plate.setCurrentIndex(self.plate.findData(self.profile["plate"]))
         self.plate.currentIndexChanged.connect(self.change_plate)
-        plate_controls = QHBoxLayout()
         plate_controls.addWidget(self.plate, 1)
         self.layer = QComboBox()
         self.layer.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
@@ -255,49 +396,68 @@ class Window(QMainWindow):
         self.layer.currentIndexChanged.connect(self.change_layer)
         plate_controls.addWidget(self.layer, 1)
         left_layout.addLayout(plate_controls)
-        self.use_stored_button = QPushButton("Use stored bindings as draft")
-        self.use_stored_button.setToolTip("Copy both stored layers into your local draft. Unknown actions stay set to Keep stored binding.")
-        self.use_stored_button.clicked.connect(self.use_stored_draft)
-        slot_layout.addWidget(self.use_stored_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.reset_button = QPushButton("Reset plate to defaults")
+        self.reset_button.setProperty("role", "ghost")
+        self.reset_button.clicked.connect(self.reset_defaults)
+        plate_title.addWidget(self.reset_button)
+        hint_row = QHBoxLayout()
         self.plate_hint = QLabel("Connect mouse to detect the attached plate automatically.")
         self.plate_hint.setWordWrap(True)
-        self.plate_hint.setProperty("role", "muted")
-        left_layout.addWidget(self.plate_hint)
-        self.grid_host = QWidget()
-        self.grid_host.setObjectName("buttonGrid")
+        self.plate_hint.setProperty("role", "faint")
+        hint_row.addWidget(self.plate_hint, 1)
+        self.last_input = QLabel("Last press: —")
+        self.last_input.setProperty("role", "faint")
+        hint_row.addWidget(self.last_input, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        left_layout.addLayout(hint_row)
+        self.grid_host = QFrame()
+        self.grid_host.setObjectName("plate")
+        self.grid_host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.grid = QGridLayout(self.grid_host)
-        self.grid.setContentsMargins(0, 10, 12, 10)
+        self.grid.setContentsMargins(16, 16, 16, 16)
         self.grid.setHorizontalSpacing(10)
         self.grid.setVerticalSpacing(10)
-        self.grid_scroll = QScrollArea()
-        self.grid_scroll.setWidgetResizable(True)
-        self.grid_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.grid_scroll.setMinimumHeight(180)
-        self.grid_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
-        self.grid_scroll.setWidget(self.grid_host)
-        left_layout.addWidget(self.grid_scroll, 1)
-        self.last_input = QLabel("Last press: —")
-        self.last_input.setWordWrap(True)
-        left_layout.addWidget(self.last_input)
-        self.reset_button = QPushButton("Reset plate to defaults")
-        self.reset_button.clicked.connect(self.reset_defaults)
-        left_layout.addWidget(self.reset_button)
+        left_layout.addWidget(self.grid_host)
+        self.extra_title = text_label("WHEEL & DPI CONTROLS", "eyebrow")
+        left_layout.addSpacing(4)
+        left_layout.addWidget(self.extra_title)
+        self.extra_host = QWidget()
+        self.extra_grid = QGridLayout(self.extra_host)
+        self.extra_grid.setContentsMargins(0, 0, 0, 0)
+        self.extra_grid.setSpacing(8)
+        left_layout.addWidget(self.extra_host)
+        left_layout.addStretch()
         columns.addWidget(left, 1)
-        editor = QGroupBox("Button assignment")
+
+        editor = QFrame()
+        editor.setObjectName("inspector")
         self.editor = editor
-        editor.setMaximumWidth(360)
+        editor.setMinimumWidth(290)
+        editor.setMaximumWidth(350)
         edit_layout = QVBoxLayout(editor)
+        edit_layout.setContentsMargins(20, 18, 20, 18)
+        edit_layout.setSpacing(12)
+        badge_row = QHBoxLayout()
+        self.layer_badge = QLabel()
+        self.layer_badge.setProperty("role", "pill")
+        badge_row.addWidget(self.layer_badge)
+        badge_row.addStretch()
+        edit_layout.addLayout(badge_row)
         self.button_title = QLabel()
-        self.button_title.setStyleSheet("font-size: 20px; font-weight: 600;")
-        edit_layout.addWidget(self.button_title)
+        self.button_title.hide()  # Full "Layer · Button" label kept for status messages.
+        self.button_heading = QLabel()
+        self.button_heading.setProperty("role", "title")
+        edit_layout.addWidget(self.button_heading)
         self.stored_binding = QLabel()
         self.stored_binding.setWordWrap(True)
+        self.stored_binding.setProperty("role", "readout")
         edit_layout.addWidget(self.stored_binding)
         form = QFormLayout()
         # Desktop styles may keep fields at their size hint. The action combo
         # ignores that hint so it can shrink in this narrow pane; let it fill
         # the available field width instead of collapsing to zero.
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        form.setVerticalSpacing(6)
         self.binding_form = form
         trigger_row = QHBoxLayout()
         self.trigger = QLineEdit()
@@ -309,42 +469,42 @@ class Window(QMainWindow):
         self.learn_button = QPushButton("Learn input")
         self.learn_button.clicked.connect(self.learn_input)
         trigger_row.addWidget(self.learn_button)
-        form.addRow("Input", trigger_row)
+        form.addRow(text_label("INPUT", "eyebrow"), trigger_row)
         self.mode = QComboBox()
         self.mode.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         for label, data in [("Default / pass through", "default"), ("Keyboard key", "key"), ("Shortcut", "shortcut"), ("Macro", "macro")]:
             self.mode.addItem(label, data)
         self.mode.currentIndexChanged.connect(self.mode_changed)
-        form.addRow("Action", self.mode)
+        form.addRow(text_label("ACTION", "eyebrow"), self.mode)
         edit_layout.addLayout(form)
         self.stack = QStackedWidget()
         self.stack.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        default_page = QLabel("Mouse memory: restore this position’s factory key. Software: pass the current input through.")
+        default_page = text_label("Mouse memory: restore this position’s factory key. Software: pass the current input through.", "muted")
         self.default_page = default_page
-        default_page.setWordWrap(True)
         self.stack.addWidget(default_page)
         key_page = QWidget()
         key_layout = QVBoxLayout(key_page)
+        key_layout.setContentsMargins(0, 0, 0, 0)
         self.key_value = QLineEdit()
         self.key_value.setPlaceholderText("A, F13, Enter, KEY_LEFTCTRL, BTN_SIDE…")
         key_layout.addWidget(self.key_value)
-        key_hint = QLabel("Pressing and releasing the mouse button presses and releases this key.")
-        key_hint.setWordWrap(True)
-        key_layout.addWidget(key_hint)
+        key_layout.addWidget(text_label("Pressing and releasing the mouse button presses and releases this key.", "muted"))
         self.stack.addWidget(key_page)
         shortcut_page = QWidget()
         shortcut_layout = QVBoxLayout(shortcut_page)
+        shortcut_layout.setContentsMargins(0, 0, 0, 0)
         self.shortcut_value = QLineEdit()
         self.shortcut_value.setPlaceholderText("Ctrl+C, Alt+Tab, Super+E…")
         shortcut_layout.addWidget(self.shortcut_value)
         self.recorder = QKeySequenceEdit()
         self.recorder.setMaximumSequenceLength(1)
         self.recorder.keySequenceChanged.connect(lambda value: self.shortcut_value.setText(value.toString()))
-        shortcut_layout.addWidget(QLabel("Or click below and press a shortcut:"))
+        shortcut_layout.addWidget(text_label("Or click below and press the shortcut:", "muted"))
         shortcut_layout.addWidget(self.recorder)
         self.stack.addWidget(shortcut_page)
         macro_page = QWidget()
         macro_layout = QVBoxLayout(macro_page)
+        macro_layout.setContentsMargins(0, 0, 0, 0)
         self.macro_summary = QLabel()
         self.macro_summary.setWordWrap(True)
         macro_layout.addWidget(self.macro_summary)
@@ -353,6 +513,8 @@ class Window(QMainWindow):
         self.macro_assignment.softwareAssigned.connect(self.use_library_macro)
         self.macro_assignment.busyChanged.connect(self.macro_busy_changed)
         self.macro_assignment.operationStatusChanged.connect(self.macro_operation_status)
+        self.macro_assignment.configure_button.setStyleSheet("")
+        self.macro_assignment.configure_button.setProperty("role", "link")
         self.macro_bindings = MacroBindingsWidget(self.macro_assignment, self)
         self.macro_tabs.addTab(self.macro_bindings, 'Key Binds')
         self.macro_bindings.readRequested.connect(self.read_macro_bindings)
@@ -362,69 +524,73 @@ class Window(QMainWindow):
         memory.insertWidget(memory.count() - 1, self.macro_assignment.tools_widget)
         self.stack.addWidget(macro_page)
         self.mode.addItem("Factory default", "factory")
-        factory_page = QLabel("Restore this control's default function. Click Save bindings to mouse to apply.")
-        factory_page.setWordWrap(True)
-        self.stack.addWidget(factory_page)
+        self.stack.addWidget(text_label("Restore this control's default function. Save bindings to mouse to apply.", "muted"))
         for label, mode, text in (
             ("Keep stored binding", "keep", "Preserve the exact binding already stored on the mouse."),
             ("Disabled", "disabled", "Disable this control in the selected layer."),
             ("Hold for Hypershift", "hypershift", "Hold this normal-layer button to use Hypershift assignments; release it to return to normal."),
         ):
             self.mode.addItem(label, mode)
-            page = QLabel(text)
-            page.setWordWrap(True)
-            self.stack.addWidget(page)
+            self.stack.addWidget(text_label(text, "muted"))
         self.mode.addItem("Media / scrolling", "native")
         native_page = QWidget()
         native_layout = QVBoxLayout(native_page)
+        native_layout.setContentsMargins(0, 0, 0, 0)
         self.native_value = QComboBox()
         for action in NATIVE_ACTIONS:
             self.native_value.addItem(action["label"], action["id"])
         native_layout.addWidget(self.native_value)
-        native_hint = QLabel("Stored on the mouse; no helper is needed after saving. Wired USB and the 12-button plate only. These assignments are experimental; physical output and hold/release behavior are unverified.")
-        native_hint.setWordWrap(True)
-        native_layout.addWidget(native_hint)
+        native_layout.addWidget(text_label("Experimental · stored on the mouse, so no helper is needed after saving. Wired USB and the 12-button plate only; physical output and hold/release behavior are unverified.", "muted"))
         self.stack.addWidget(native_page)
         edit_layout.addWidget(self.stack)
         edit_layout.addStretch()
         per_button_reset = QPushButton("Use default for this button")
+        per_button_reset.setProperty("role", "ghost")
         self.per_button_reset = per_button_reset
         per_button_reset.clicked.connect(self.reset_selected)
+        edit_layout.addWidget(divider())
         edit_layout.addWidget(per_button_reset)
-        columns.insertWidget(0, editor, 1)
+        columns.addWidget(editor, 0)
         customize.addLayout(columns, 1)
-        self.assignment_actions = QWidget()
-        assignment_actions = QHBoxLayout(self.assignment_actions)
-        assignment_actions.setContentsMargins(0, 0, 0, 0)
-        self.draft_hint = text_label("Local draft · saving a draft does not activate it.", "muted")
-        assignment_actions.addWidget(self.draft_hint, 1)
-        actions = QHBoxLayout()
+
+        # Footer action bar: status on the left, page actions on the right.
         footer = QFrame()
         footer.setObjectName("footer")
-        footer_layout = QVBoxLayout(footer)
-        footer_layout.setContentsMargins(14, 10, 14, 10)
-        footer_layout.addLayout(actions)
-        context_layout.removeWidget(self.status)
-        footer_layout.addWidget(self.status)
+        footer_row = QHBoxLayout(footer)
+        footer_row.setContentsMargins(28, 12, 28, 12)
+        footer_row.setSpacing(12)
+        status_column = QVBoxLayout()
+        status_column.setSpacing(4)
+        status_column.addWidget(self.status)
         self.macro_progress = QProgressBar()
         self.macro_progress.setRange(0, 0)
         self.macro_progress.setTextVisible(False)
         self.macro_progress.setFixedHeight(4)
         self.macro_progress.hide()
-        footer_layout.addWidget(self.macro_progress)
+        status_column.addWidget(self.macro_progress)
+        status_column.addWidget(text_label("Esc  stop remapping   ·   Ctrl+Q  quit", "faint"))
+        footer_row.addLayout(status_column, 1)
         self.workspace.pages.currentChanged.connect(lambda index: self.status.setVisible(index != 3))
         self.stop_button = QPushButton("Stop remapping")
+        self.stop_button.setProperty("role", "danger")
+        self.stop_button.setToolTip("Stop software remaps and release held keys. Bindings saved on the mouse stay active.")
         self.stop_button.clicked.connect(self.stop_remapping)
-        actions.addWidget(self.stop_button)
-        actions.addStretch()
+        footer_row.addWidget(self.stop_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.assignment_actions = QWidget()
+        assignment_actions = QHBoxLayout(self.assignment_actions)
+        assignment_actions.setContentsMargins(0, 0, 0, 0)
+        assignment_actions.setSpacing(8)
+        self.draft_hint = text_label("Local draft · saving a draft does not activate it.", "faint")
+        self.draft_hint.hide()
         save = QPushButton("Save draft")
+        save.setToolTip(self.draft_hint.text())
         save.clicked.connect(self.save)
         assignment_actions.addWidget(save)
         self.apply_button = QPushButton("Apply bindings")
         self.apply_button.setProperty("role", "primary")
         self.apply_button.clicked.connect(self.apply)
         assignment_actions.addWidget(self.apply_button)
-        actions.addWidget(self.assignment_actions, 1)
+        footer_row.addWidget(self.assignment_actions, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(footer)
         self.workspace.pages.currentChanged.connect(self.refresh_hardware_view)
         self.workspace.pages.currentChanged.connect(self.refresh_visible_assignments)
@@ -436,15 +602,14 @@ class Window(QMainWindow):
         quit_action.setShortcut("Ctrl+Q")
         quit_action.triggered.connect(self.quit)
         self.addAction(quit_action)
-        footer_layout.addWidget(text_label("Esc  Stop remapping     ·     Ctrl+Q  Quit", "muted"))
         self.logs = QPlainTextEdit()
         self.logs.setReadOnly(True)
         self.logs.setMaximumBlockCount(150)
-        self.logs.setMinimumHeight(180)
+        self.logs.setMinimumHeight(220)
         self.logs.setPlaceholderText("Connection and validation details appear here.")
-        diagnostics.addWidget(text_label("Session log", "eyebrow"))
-        diagnostics.addWidget(self.logs, 1)
-        diagnostics.addWidget(text_label("Logs describe connection, validation and save results. Include only relevant details when reporting an issue.", "muted"))
+        log_card, log_layout = card("Session log", "Connection, validation and save results. Include only relevant details when reporting an issue.")
+        log_layout.addWidget(self.logs, 1)
+        diagnostics.addWidget(log_card, 1)
         self.tray = QSystemTrayIcon(app_icon(), self)
         self.tray.setToolTip("NagaLibre")
         menu = QMenu(self)
@@ -569,9 +734,20 @@ class Window(QMainWindow):
         self.hardware_busy = busy
         for widget in (self.storage, self.slots, self.read_button, self.activate_button, self.create_button, self.restore_button,
                        self.apply_button, self.plate, self.reset_button, self.stop_button,
-                       self.connect_button, self.layer, self.use_stored_button, self.editor, self.grid_host):
+                       self.connect_button, self.layer, self.use_stored_button, self.editor, self.grid_host, self.extra_host):
             widget.setEnabled(not busy)
+        self.update_connection_badge()
         self.refresh_hardware_view()
+
+    def update_connection_badge(self):
+        if self.hardware_busy:
+            tone, text = "busy", "Working with mouse…"
+        elif self.backend.ready:
+            tone, text = "live", "Connected · helper running"
+        else:
+            tone, text = "idle", "Not connected"
+        self.connection_dot.set_tone(tone)
+        self.connection_label.setText(text)
 
     def storage_changed(self):
         if hasattr(self, "editing_button"):
@@ -1083,33 +1259,39 @@ class Window(QMainWindow):
                 tile.setText(self.tile_text(i))
 
     def rebuild_grid(self):
-        while self.grid.count():
-            item = self.grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        for grid in (self.grid, self.extra_grid):
+            while grid.count():
+                item = grid.takeAt(0)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
         self.tiles = []
         count = len(self.buttons())
-        columns = 3 if count in (6, 12) or count > 12 else 2
-        for column in range(6):
-            self.grid.setColumnStretch(column, 1 if count > 12 or column < columns else 0)
+        plate = min(count, 12)
+        columns = 3 if plate in (6, 12) else 2
+        for column in range(3):
+            self.grid.setColumnStretch(column, 1 if column < columns else 0)
+        for column in range(2):
+            self.extra_grid.setColumnStretch(column, 1)
+        hardware = self.is_hardware()
         for index, button in enumerate(self.buttons()):
-            tile = BindingTile()
+            control = index >= 12
+            tile = BindingTile("control" if control else "key")
             tile.setText(self.tile_text(index))
-            tile.setMinimumHeight(76)
-            tile.setMinimumWidth(80)
-            tile.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            tile.setMinimumHeight((60 if control else 84) if hardware else (52 if control else 72))
+            tile.setMinimumWidth(60)
+            tile.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             tile.setCheckable(True)
             tile.setChecked(index == self.selected)
             tile.clicked.connect(lambda checked=False, i=index: self.select_button(i))
-            if count > 12:
-                # Keep the physical 3-column plate; give long control labels two wider columns.
-                if index < 12:
-                    self.grid.addWidget(tile, index // 3, (index % 3) * 2, 1, 2)
-                else:
-                    self.grid.addWidget(tile, 4 + (index - 12) // 2, ((index - 12) % 2) * 3, 1, 3)
+            if control:
+                # Wheel tilts, scroll-mode and DPI sit outside the physical plate.
+                self.extra_grid.addWidget(tile, (index - 12) // 2, (index - 12) % 2)
             else:
                 self.grid.addWidget(tile, index // columns, index % columns)
             self.tiles.append(tile)
+        self.extra_title.setVisible(count > 12)
+        self.extra_host.setVisible(count > 12)
         self.reset_button.setText("Clear Hypershift draft" if self.editing_layer() else "Restore defaults")
         self.reset_button.setToolTip("Restore this layout's draft defaults, including wheel and DPI button bindings. Save applies the draft to mouse memory.")
 
@@ -1123,6 +1305,10 @@ class Window(QMainWindow):
         self.editing_button = button
         name = CONTROL_NAMES[index - 12] if index >= 12 else f"Button {index + 1}"
         self.button_title.setText(("Hypershift · " if self.editing_layer() else "Normal · ") + name if self.is_hardware() else name)
+        self.button_heading.setText(name)
+        self.layer_badge.setText("HYPERSHIFT LAYER" if self.editing_layer() else "NORMAL LAYER" if self.is_hardware() else "SOFTWARE REMAP")
+        self.layer_badge.setProperty("tone", "hypershift" if self.editing_layer() else "")
+        repolish(self.layer_badge)
         self.mode.setItemText(0, "Keep stored binding" if index >= 12 else "Factory key" if self.is_hardware() else "Pass through")
         self.default_page.setText("Preserve this control's currently stored binding. Choose Factory default to restore its standard function." if index >= 12 else "Mouse memory: restore this position’s factory key. Software: pass the current input through.")
         secondary = self.editing_layer() == 1
@@ -1152,6 +1338,7 @@ class Window(QMainWindow):
             selected_mode = "macro"
         self.mode.setCurrentIndex(self.mode.findData(selected_mode))
         self.stack.setCurrentIndex(self.mode.currentIndex())
+        self.fit_stack()
         self.key_value.setText(button["value"] if button["mode"] == "key" else "")
         self.shortcut_value.setText(button["value"] if button["mode"] == "shortcut" else "")
         self.native_value.setCurrentIndex(self.native_value.findData(button["value"]) if button["mode"] == "native" else 0)
@@ -1168,8 +1355,18 @@ class Window(QMainWindow):
 
         self.refresh_hardware_view()
 
+    def fit_stack(self):
+        # A stack sizes to its tallest page by default; size it to the visible one.
+        for index in range(self.stack.count()):
+            page = self.stack.widget(index)
+            current = index == self.stack.currentIndex()
+            page.setSizePolicy(QSizePolicy.Policy.Preferred if current else QSizePolicy.Policy.Ignored,
+                               QSizePolicy.Policy.Preferred if current else QSizePolicy.Policy.Ignored)
+        self.stack.updateGeometry()
+
     def mode_changed(self):
         self.stack.setCurrentIndex(self.mode.currentIndex())
+        self.fit_stack()
         if not self.loading and hasattr(self, "macro_assignment"):
             self.refresh_macro_context()
             self.refresh_hardware_view()
@@ -1504,6 +1701,17 @@ class Window(QMainWindow):
             self.status.setText("Defaults restored in your draft. Click Save bindings to mouse to apply.")
         else:
             self.apply()
+
+    STACK_BELOW = 1060
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Narrow windows stack the inspector under the plate instead of squeezing both.
+        stacked = self.width() < self.STACK_BELOW
+        direction = QBoxLayout.Direction.TopToBottom if stacked else QBoxLayout.Direction.LeftToRight
+        if self.customize_columns.direction() != direction:
+            self.customize_columns.setDirection(direction)
+            self.editor.setMaximumWidth(16777215 if stacked else 350)
 
     def show_window(self):
         self.showNormal()

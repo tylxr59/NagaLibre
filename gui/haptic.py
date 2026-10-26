@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
-    QPlainTextEdit, QVBoxLayout,
+    QPlainTextEdit, QSizePolicy, QVBoxLayout,
 )
 from backend import Backend
 from model import save_profile
@@ -370,8 +370,12 @@ class WheelPanel(WheelDialog):
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.close_buttons.hide()
         self.log.hide()
-        self.stages.setMinimumHeight(130)
-        self.stages.setMaximumHeight(150)
+        # Show every stage without scrolling; the list takes any spare page height.
+        self.stages.setMinimumHeight(6 * 38 + 8)
+        self.stages.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        stage_box = self.stages.parentWidget()
+        stage_box.layout().setStretchFactor(self.stages, 1)
+        self.active.setMinimumWidth(220)
         self.status.setText('Read the mouse to configure wheel stages.')
         details = self.details_button.parentWidget()
         details.layout().removeWidget(self.details_button)
@@ -382,6 +386,10 @@ class WheelPanel(WheelDialog):
         self.details_button.toggled.connect(details.setVisible)
         self.details_button.toggled.connect(self.log.setVisible)
         self.save_button.setProperty('role', 'primary')
+        self.status.setProperty('role', 'muted')
+        self.stored.setProperty('role', 'readout')
+        self.layout().setSpacing(14)
+        self.layout().setStretchFactor(stage_box, 1)
 
     def set_busy(self, value):
         previous = getattr(self, 'busy', False)
