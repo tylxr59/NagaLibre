@@ -11,6 +11,7 @@ from macro_library import MacroLibrary
 class MacroLibraryWidget(QWidget):
     catalogChanged = Signal()
     assignRequested = Signal(str)
+    entryChanged = Signal()
 
     def open_macro(self, identity):
         entry = next((e for e in self.library.entries if e['id'] == identity), None) if self.library else None
@@ -86,6 +87,7 @@ class MacroLibraryWidget(QWidget):
         self.local_status.setText('Saved locally. Changes take effect on the mouse only after an assignment.')
         self.populate_tree()
         self.update_assignment_action()
+        self.entryChanged.emit()
 
     def select_macro(self, current, previous):
         identity = current.data(0, Qt.ItemDataRole.UserRole) if current else None
@@ -118,6 +120,7 @@ class MacroLibraryWidget(QWidget):
         self.local_status.setText('New local macro. Add steps, then save.')
         self.populate_tree()
         self.update_assignment_action()
+        self.entryChanged.emit()
 
     def save_local(self):
         if not self.library or self.busy:

@@ -393,6 +393,9 @@ class OnboardMacrosDialog(QDialog):
     def assignment_macro(self):
         return self.name.text(), self.steps
 
+    def upload_guid(self):
+        return str(uuid.uuid4())
+
     def save(self):
         if self.busy or self.snapshot is None or self.saved:
             return
@@ -403,7 +406,7 @@ class OnboardMacrosDialog(QDialog):
             playback = {"mode": self.playback.currentData()}
             if playback["mode"] == "counted":
                 playback["count"] = self.count.value()
-            request = {"trigger": "KEY_F24", "guid": str(uuid.uuid4()), "name": name,
+            request = {"trigger": "KEY_F24", "guid": self.upload_guid(), "name": name,
                        "button": self.target.currentData(), "layer": self.layer.currentIndex(),
                        "playback": playback}
             config = macro_config(steps)

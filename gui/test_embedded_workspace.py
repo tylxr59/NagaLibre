@@ -12,6 +12,7 @@ from test_gui_hypershift import paired_state
 from test_haptic import snapshot as wheel_snapshot
 from test_macro_bindings import bindings_snapshot
 import copy
+import uuid
 
 
 class FixedFieldStyle(QProxyStyle):
@@ -208,19 +209,21 @@ class EmbeddedWorkspaceTests(unittest.TestCase):
             send.assert_not_called()
             start.assert_not_called()
 
-    def test_mouse_memory_reads_storage_without_assigning_or_uploading(self):
+    def test_on_mouse_tab_reads_storage_without_assigning_or_uploading(self):
         window = self.window
         panel = window.macro_assignment
         window.show()
         with patch.object(window.backend, 'send') as send:
             self.connect_fixture()
-            window.workspace.show_page(1)
+            window.workspace.show_page(3)
+            window.macro_tabs.setCurrentIndex(1)
             APP.processEvents()
-            self.assertEqual(panel.read_button.text(), 'Read macro storage')
-            self.assertFalse(panel.inventory_panel.isHidden())
-            self.assertTrue(panel.status.isVisible())
+            self.assertTrue(window.macro_bindings.read_button.isVisible())
+            self.assertTrue(panel.inventory.isVisible())
+            self.assertTrue(window.macro_bindings.status.isVisible())
             self.assertFalse(panel.inventory_button.isVisible())
-            panel.read_button.click()
+            self.assertFalse(panel.tools_widget.isVisible())
+            window.macro_bindings.read_button.click()
             self.assertIs(window.active_editor, panel)
             self.assertIn('Reading mouse macro storage', panel.status.text())
             self.assertEqual([call.args[0]['command'] for call in send.call_args_list],
@@ -234,7 +237,10 @@ class EmbeddedWorkspaceTests(unittest.TestCase):
             self.assertEqual(panel.inventory.rowCount(), 1)
             self.assertEqual(panel.inventory.item(0, 1).text(), '0007')
             self.assertIn('1 / 100', panel.capacity.text())
-            self.assertEqual(window.workspace.pages.currentIndex(), 1)
+            self.assertIn('1 of 100', window.macro_meter.toolTip())
+            self.assertEqual(panel.inventory.item(0, 4).text(), 'Unused')
+            self.assertEqual(panel.inventory.item(0, 3).text(), 'Not linked')
+            self.assertEqual(window.workspace.pages.currentIndex(), 3)
             self.assertNotIn('macro_prepare', [call.args[0]['command'] for call in send.call_args_list])
             panel.read_button.click()
             window.backend.event.emit({'type': 'macro_error', 'message': 'Storage read failed'})
@@ -362,6 +368,56 @@ class EmbeddedWorkspaceTests(unittest.TestCase):
             window.backend.ready = False
             window.backend.connected.emit(False)
             self.assertIn('Macro 0001', window.stored_text(15))
+
+    def test_upload_links_stored_copy_to_library_and_reports_later_edits(self):
+        window = self.window
+        view = self.save_macro()
+        identity = view.identity
+        with patch.object(window.backend, 'send') as send, patch.object(window.backend, 'shutdown'):
+            self.connect_fixture()
+            window.select_button(0)
+            window.mode.setCurrentIndex(window.mode.findData('macro'))
+            self.assertEqual(window.macro_preview.chips, [('B', 'key')])
+            window.macro_assignment.save()
+            window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': self.macro_snapshot()})
+            request = send.call_args.args[0]
+            self.assertEqual(request['command'], 'macro_prepare')
+            guid = request['request']['guid']
+            self.assertEqual(window.macro_links.lookup(guid)['library_id'], identity)
+            window.backend.event.emit({'type': 'macro_prepared', 'token': '123', 'backup': backup()})
+            final = self.macro_snapshot()
+            final['mappings'][0]['normal']['buttons'][0].update(category=3, data=[0, 1, 1])
+            raw = uuid.UUID(guid).bytes_le
+            final['storage'].update(stored_count=1, entries=[{'id': 1, 'data': [1, 5],
+                'metadata': list(raw + bytes(4) + b'Saved sequence' + bytes(216))}])
+            window.backend.event.emit({'type': 'macro_saved', 'snapshot': final, 'journal': send.call_args.args[0]['journal']})
+            APP.processEvents()
+        inventory = window.macro_assignment.inventory
+        self.assertEqual(inventory.item(0, 3).text(), 'Saved sequence · current')
+        self.assertEqual(inventory.item(0, 4).text(), '1')
+        self.assertEqual(len(window.macro_status[identity]['uses']), 1)
+        self.assertIn('matches', window.macro_link_status.text())
+        self.assertIn('“Saved sequence”', window.tiles[0].text())
+        self.assertIn('Macro 0001', window.stored_text(0))
+        window.open_onboard_macros(identity)
+        self.assertIn('ON MOUSE · 1 BUTTON', window.macro_usage.badge.text())
+        view.steps = [{'tap': 'KEY_C'}]
+        self.assertTrue(view.save_local())
+        self.assertEqual(inventory.item(0, 3).text(), 'Saved sequence · older version')
+        self.assertTrue(window.macro_status[identity]['differs'])
+        self.assertIn('CHANGED SINCE UPLOAD', window.macro_usage.badge.text())
+
+    def test_link_write_failure_never_blocks_the_upload(self):
+        window = self.window
+        self.save_macro()
+        with patch.object(window.backend, 'send') as send, \
+             patch.object(window.macro_links, 'record', side_effect=OSError('read-only')):
+            self.connect_fixture()
+            window.mode.setCurrentIndex(window.mode.findData('macro'))
+            window.macro_assignment.save()
+            window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': self.macro_snapshot()})
+            self.assertEqual(send.call_args.args[0]['command'], 'macro_prepare')
+            self.assertIn('Library link not recorded', window.macro_assignment.log.toPlainText())
 
     def test_slot_change_aborts_assignment_before_preparation(self):
         window = self.window

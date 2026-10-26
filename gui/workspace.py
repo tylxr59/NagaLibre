@@ -48,6 +48,9 @@ QLabel[role="pill"] { color: @ACCENT_TEXT; background: @ACCENT_SOFT; border: 1px
     border-radius: 9px; padding: 1px 8px; font-size: 11px; font-weight: 700; }
 QLabel[role="pill"][tone="hypershift"] { color: #c9a6ff; background: rgba(160, 110, 255, 0.12);
     border-color: rgba(160, 110, 255, 0.45); }
+QLabel[role="pill"][tone="warn"] { color: #f6cb7a; background: rgba(242, 181, 68, 0.12);
+    border-color: rgba(242, 181, 68, 0.45); }
+QLabel[role="pill"][tone="idle"] { color: @MUTED; background: @RAISED; border-color: @BORDER_STRONG; }
 QLabel[role="readout"] { color: @MUTED; background: @INSET; border: 1px solid @BORDER;
     border-radius: 8px; padding: 9px 11px; }
 
@@ -96,6 +99,10 @@ QPushButton[role="segment"] { background: transparent; border: 0; border-radius:
 QPushButton[role="segment"]:hover { color: @TEXT; background: #1c2024; }
 QPushButton[role="segment"]:checked { background: @BORDER_STRONG; color: @TEXT; font-weight: 600; }
 QPushButton[role="segment"]:disabled { color: #3f464c; }
+QPushButton[role="useRow"] { text-align: left; padding: 7px 10px; background: @INSET; border: 1px solid @BORDER;
+    border-radius: 8px; color: @TEXT; }
+QPushButton[role="useRow"]:hover { border-color: @ACCENT_LINE; background: #131719; }
+QPushButton[role="useRow"]:disabled { color: @MUTED; background: @INSET; border-color: @BORDER; }
 QFrame#segmented { background: @INSET; border: 1px solid @BORDER; border-radius: 9px; }
 
 /* Inputs */

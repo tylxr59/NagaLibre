@@ -53,9 +53,10 @@ class MacroBindingsWidget(QWidget):
         self.rows = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        note = QLabel('Mouse memory assignments · read the mouse to see which buttons use each stored macro. '
-                      'Names here describe stored copies; editing a library macro does not update them automatically.')
+        note = QLabel('Which buttons play each stored macro, across every slot and layer.')
         note.setWordWrap(True)
+        note.setProperty('role', 'muted')
+        self.note = note
         layout.addWidget(note)
         actions = QHBoxLayout()
         self.read_button = QPushButton('Read mouse assignments')
@@ -83,12 +84,14 @@ class MacroBindingsWidget(QWidget):
         self.scope.setWordWrap(True)
         layout.addWidget(self.scope)
         footer = QHBoxLayout()
-        self.show_button = QPushButton('Show button in Customize')
+        self.show_button = QPushButton('Show in Buttons')
         self.show_button.clicked.connect(self.show_selected)
         footer.addWidget(self.show_button)
         storage = QPushButton('Manage mouse storage…')
         storage.clicked.connect(self.storageRequested.emit)
+        self.storage_button = storage
         footer.addWidget(storage)
+        footer.addStretch()
         layout.addLayout(footer)
         self.table.itemSelectionChanged.connect(self.update_selection)
         panel.storageChanged.connect(self.refresh)

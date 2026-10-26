@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QPlainTextEdit, QPushButton, QStackedWidget, QSystemTrayIcon,
     QVBoxLayout, QWidget, QKeySequenceEdit, QFileDialog, QFrame, QSizePolicy,
-    QProgressBar, QTabWidget,
+    QProgressBar, QTabWidget, QHeaderView, QTableWidgetItem,
 )
 
 from onboard import (hardware_buttons, hardware_controls, write_backup, write_creation_backup,
@@ -31,6 +31,8 @@ from macro_editor import MacroEditor
 from macro_library_view import MacroLibraryWidget
 from macro_bindings import MacroBindingsWidget
 from macro_assignment import MacroAssignmentPanel
+from macro_links import MacroLinks, catalog
+from macro_workspace import CapacityMeter, MacroStatusDelegate, MacroUsagePanel, StepChips
 from haptic import WheelPanel
 from model import (
     binding_label, config_path, default_button, display_key, load_profile,
@@ -336,6 +338,7 @@ class Window(QMainWindow):
         self.use_stored_button.setToolTip("Copy both stored layers into your local draft. Unknown actions stay set to Keep stored binding.")
         self.use_stored_button.clicked.connect(self.use_stored_draft)
         slot_layout.addWidget(self.use_stored_button, 0, Qt.AlignmentFlag.AlignLeft)
+        slot_layout.addStretch()
         self.restore_button = QPushButton("Restore backup…")
         self.restore_button.setProperty("role", "danger")
         self.restore_button.clicked.connect(self.restore_backup)
@@ -362,8 +365,26 @@ class Window(QMainWindow):
         scrolling.addWidget(self.wheel_panel, 1)
 
         self.macro_library_view = MacroLibraryWidget(self.base_profile_path.parent / "macros.json", self)
+        self.macro_links = MacroLinks(self.base_profile_path.parent / "macro_links.json")
+        self.macro_catalog = None
+        self.macro_status = {}
+        self.macro_usage = MacroUsagePanel()
+        library_layout = self.macro_library_view.layout()
+        library_layout.setSpacing(16)
+        sequence_group = library_layout.itemAt(1).widget()
+        library_layout.removeWidget(sequence_group)
+        sequence_group.setMinimumHeight(420)
+        # The editor and usage panel share a column that stacks in narrow windows.
+        detail = QWidget()
+        self.macro_detail_columns = QBoxLayout(QBoxLayout.Direction.LeftToRight, detail)
+        self.macro_detail_columns.setContentsMargins(0, 0, 0, 0)
+        self.macro_detail_columns.setSpacing(16)
+        self.macro_detail_columns.addWidget(sequence_group, 1)
+        self.macro_detail_columns.addWidget(self.macro_usage, 0)
+        library_layout.addWidget(detail, 3)
+        self.macro_library_view.tree.setItemDelegate(MacroStatusDelegate(self.macro_status.get, self.macro_library_view.tree))
         self.macro_tabs = QTabWidget()
-        self.macro_tabs.addTab(self.macro_library_view, 'My Macros')
+        self.macro_tabs.addTab(self.macro_library_view, 'Library')
         self.macro_library_view.assignRequested.connect(self.assign_library_macro)
         macros.addWidget(self.macro_tabs, 1)
         layout.addWidget(self.workspace.pages, 1)
@@ -515,13 +536,26 @@ class Window(QMainWindow):
         self.macro_assignment.operationStatusChanged.connect(self.macro_operation_status)
         self.macro_assignment.configure_button.setStyleSheet("")
         self.macro_assignment.configure_button.setProperty("role", "link")
+        self.macro_assignment.links = self.macro_links
+        self.macro_preview = StepChips()
+        self.macro_assignment.fields.insertRow(2, self.macro_preview)
+        self.macro_link_status = text_label("", "faint")
+        self.macro_assignment.fields.insertRow(3, self.macro_link_status)
         self.macro_bindings = MacroBindingsWidget(self.macro_assignment, self)
-        self.macro_tabs.addTab(self.macro_bindings, 'Key Binds')
         self.macro_bindings.readRequested.connect(self.read_macro_bindings)
         self.macro_bindings.showButtonRequested.connect(self.show_macro_binding)
-        self.macro_bindings.storageRequested.connect(lambda: self.workspace.show_page(1))
+        self.macro_bindings.storageRequested.connect(lambda: self.macro_tabs.setCurrentIndex(1))
         macro_layout.addWidget(self.macro_assignment)
-        memory.insertWidget(memory.count() - 1, self.macro_assignment.tools_widget)
+        self.macro_tabs.addTab(self.build_on_mouse_tab(recovery_buttons), 'On mouse')
+        self.macro_usage.readRequested.connect(self.read_macro_bindings)
+        self.macro_usage.showRequested.connect(self.show_macro_binding)
+        for signal in (self.macro_assignment.storageChanged, self.macro_assignment.busyChanged,
+                       self.macro_library_view.catalogChanged, self.backend.connected):
+            signal.connect(lambda *_: self.update_macro_catalog())
+        self.macro_library_view.entryChanged.connect(self.refresh_macro_usage)
+        self.macro_library_view.tree.setMinimumWidth(250)
+        self.macro_assignment.macro_choice.currentIndexChanged.connect(lambda *_: self.refresh_macro_preview())
+        self.update_macro_catalog()
         self.stack.addWidget(macro_page)
         self.mode.addItem("Factory default", "factory")
         self.stack.addWidget(text_label("Restore this control's default function. Save bindings to mouse to apply.", "muted"))
@@ -570,7 +604,6 @@ class Window(QMainWindow):
         status_column.addWidget(self.macro_progress)
         status_column.addWidget(text_label("Esc  stop remapping   ·   Ctrl+Q  quit", "faint"))
         footer_row.addLayout(status_column, 1)
-        self.workspace.pages.currentChanged.connect(lambda index: self.status.setVisible(index != 3))
         self.stop_button = QPushButton("Stop remapping")
         self.stop_button.setProperty("role", "danger")
         self.stop_button.setToolTip("Stop software remaps and release held keys. Bindings saved on the mouse stay active.")
@@ -1005,6 +1038,16 @@ class Window(QMainWindow):
         record = next((b for b in snapshot["buttons"] + snapshot.get("controls", []) if b["button"] == index + 1), None)
         return stored_label(record) if record else "unknown"
 
+    def stored_display(self, index):
+        """stored_text, naming a stored macro copy when the last macro read knows it."""
+        stored = self.stored_text(index)
+        if stored.startswith("Macro ") and self.macro_catalog is not None:
+            prefix, _, rest = stored.partition(" · ")
+            copy = next((c for c in self.macro_catalog["copies"] if f"Macro {c['id']:04x}" == prefix), None)
+            if copy is not None:
+                return f"“{copy['name']}” · {rest}" if rest else f"“{copy['name']}”"
+        return stored
+
     def tile_text(self, index):
         draft = binding_label(self.buttons()[index])
         if self.is_hardware():
@@ -1013,7 +1056,7 @@ class Window(QMainWindow):
                 draft = "Keep stored binding"
             elif index >= 12 and self.buttons()[index]["mode"] == "factory":
                 draft = FACTORY_CONTROL_LABELS[index - 12]
-            return f"{name}\nStored: {self.stored_text(index)}\nDraft: {draft}"
+            return f"{name}\nStored: {self.stored_display(index)}\nDraft: {draft}"
         return f"{index + 1}\n{draft}"
 
     def refresh_visible_assignments(self, *args):
@@ -1126,11 +1169,147 @@ class Window(QMainWindow):
         instruction = 'Choose playback and save the assignment.' if self.is_hardware() else 'Choose Use macro, then Apply bindings.'
         self.status.setText(f'Assign “{entry["name"]}” to {self.button_title.text()}. {instruction}')
 
+    def build_on_mouse_tab(self, recovery_buttons):
+        """Stored macros and their assignments, read together from one macro read."""
+        panel, binds = self.macro_assignment, self.macro_bindings
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setSpacing(16)
+        top, top_layout = card("Macro storage", "")
+        row = QHBoxLayout()
+        row.setSpacing(16)
+        binds.read_button.setText("Read mouse")
+        binds.read_button.setProperty("role", "primary")
+        binds.read_button.setToolTip("Read stored macros and every slot's macro assignments. Nothing is written.")
+        binds.layout().itemAt(1).layout().removeWidget(binds.read_button)
+        row.addWidget(binds.read_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.macro_meter = CapacityMeter()
+        row.addWidget(self.macro_meter, 1)
+        top_layout.addLayout(row)
+        binds.layout().removeWidget(binds.status)
+        binds.status.setProperty("role", "muted")
+        top_layout.addWidget(binds.status)
+        layout.addWidget(top)
+        columns = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        columns.setSpacing(16)
+        self.on_mouse_columns = columns
+        stored, stored_layout = card("Stored macros", "Every macro in mouse memory, matched to your library by the ID recorded when NagaLibre uploaded it.")
+        # The storage tools move here from Onboard memory; only restore joins
+        # the other recovery actions there.
+        panel.tools_widget.hide()
+        for widget in (panel.read_button, panel.status, panel.capacity):
+            widget.hide()
+        panel.undo_button.setProperty("role", "danger")
+        recovery_buttons.insertWidget(recovery_buttons.count() - 1, panel.undo_button)
+        panel.inventory.setColumnCount(5)
+        panel.inventory.setHorizontalHeaderLabels(["Stored macro", "ID", "Bytes", "Library", "Buttons"])
+        header = panel.inventory.horizontalHeader()
+        for column in range(1, 5):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        panel.inventory.setMaximumHeight(16777215)
+        panel.inventory.setMinimumHeight(160)
+        panel.inventory_panel.setParent(None)
+        stored_layout.addWidget(panel.inventory_panel, 1)
+        panel.inventory_panel.show()
+        details_row = QHBoxLayout()
+        panel.details_button.setProperty("role", "ghost")
+        panel.details_button.setParent(None)
+        details_row.addWidget(panel.details_button)
+        details_row.addStretch()
+        stored_layout.addLayout(details_row)
+        panel.details_panel.setParent(None)
+        stored_layout.addWidget(panel.details_panel)
+        columns.addWidget(stored, 1)
+        assignments, assignments_layout = card("Assignments", "")
+        binds.note.hide()
+        binds.storage_button.hide()
+        assignments_layout.addWidget(binds, 1)
+        columns.addWidget(assignments, 1)
+        layout.addLayout(columns, 1)
+        return page
+
+    def update_macro_catalog(self):
+        panel = self.macro_assignment
+        library = self.macro_library_view.library
+        self.macro_catalog = None
+        if panel.snapshot is not None and library is not None:
+            try:
+                self.macro_catalog = catalog(panel.snapshot, library.entries, self.macro_links)
+            except (KeyError, TypeError, ValueError, IndexError) as error:
+                self.log(f"Macro readback could not be matched to the library: {error}")
+        self.macro_status.clear()
+        if self.macro_catalog is not None:
+            self.macro_status.update(self.macro_catalog["status"])
+        self.macro_library_view.tree.viewport().update()
+        storage = panel.snapshot["storage"] if panel.snapshot is not None else None
+        self.macro_meter.set_storage(storage)
+        names = {e["id"]: e["name"] for e in library.entries} if library else {}
+        states = {"current": "{} · current", "differs": "{} · older version",
+                  "orphaned": "Deleted from library", "unlinked": "Not linked"}
+        copies = {c["id"]: c for c in self.macro_catalog["copies"]} if self.macro_catalog else {}
+        for row in range(panel.inventory.rowCount()):
+            item = panel.inventory.item(row, 1)
+            copy = copies.get(int(item.text(), 16)) if item is not None else None
+            if copy is None:
+                continue
+            library_text = states[copy["state"]].format(names.get(copy["library_id"], ""))
+            uses = len(copy["uses"])
+            for column, text in ((3, library_text), (4, str(uses) if uses else "Unused")):
+                cell = QTableWidgetItem(text)
+                if column == 3 and copy["state"] == "differs":
+                    cell.setForeground(QColor(WARN))
+                elif column == 4 and not uses or column == 3 and copy["state"] in ("orphaned", "unlinked"):
+                    cell.setForeground(QColor(FAINT))
+                panel.inventory.setItem(row, column, cell)
+        self.refresh_macro_usage()
+        self.refresh_macro_preview()
+        for i, tile in enumerate(getattr(self, "tiles", [])):
+            if i < len(self.buttons()):
+                tile.setText(self.tile_text(i))
+
+    def macro_reads_allowed(self):
+        return self.is_hardware() and self.device_model["id"] == "naga_v2_pro" and self.profile["plate"] == "12"
+
+    def refresh_macro_usage(self):
+        view = self.macro_library_view
+        library = view.library
+        entry = next((e for e in library.entries if e["id"] == view.identity), None) if library else None
+        status = self.macro_status.get(entry["id"]) if entry and self.macro_catalog is not None else None
+        if entry and self.macro_catalog is not None and status is None:
+            status = {"copies": [], "uses": [], "differs": False}
+        self.macro_usage.set_state(entry, status, readable=self.macro_reads_allowed(),
+                                   busy=self.active_editor is not None or self.hardware_busy,
+                                   stale=self.macro_catalog is not None and not self.backend.ready)
+
+    def refresh_macro_preview(self):
+        panel = self.macro_assignment
+        library = self.macro_library_view.library
+        entry = next((e for e in library.entries if e["id"] == panel.macro_choice.currentData()), None) if library else None
+        self.macro_preview.empty_text = "Save a macro in Macros to assign it."
+        self.macro_preview.set_steps(entry["steps"] if entry else [])
+        text = ""
+        snapshot = self.current_snapshot()
+        if self.macro_catalog is not None and self.is_hardware() and snapshot is not None:
+            use = next((u for u in self.macro_catalog["uses"] if not u["primary"] and u["slot"] == snapshot["slot"]
+                        and u["layer"] == self.editing_layer() and u["button"] == self.selected + 1), None)
+            copy = next((c for c in self.macro_catalog["copies"] if use and c["id"] == use["id"]), None)
+            if copy is not None:
+                names = {e["id"]: e["name"] for e in library.entries} if library else {}
+                state = {"current": f"matches “{names.get(copy['library_id'], '')}” in your library",
+                         "differs": f"an older version of “{names.get(copy['library_id'], '')}”",
+                         "orphaned": "its library macro was deleted",
+                         "unlinked": "not linked to your library"}[copy["state"]]
+                text = f"This button now plays “{copy['name']}” ({copy['id']:04x}) · {state}."
+        self.macro_link_status.setText(text)
+        self.macro_link_status.setVisible(bool(text))
+
     def read_macro_bindings(self):
         if self.active_editor is not None or self.hardware_busy:
             return
         if not self.is_hardware() or self.device_model['id'] != 'naga_v2_pro' or self.profile['plate'] != '12':
             self.macro_bindings.status.setText('Select Mouse memory and the wired Naga V2 Pro twelve-button plate to read these assignments.')
+            self.status.setText(self.macro_bindings.status.text())
             return
         self.macro_assignment.read()
 
@@ -1253,7 +1432,7 @@ class Window(QMainWindow):
             else:
                 active = "active" if snapshot["slot"] == snapshot["active"] else "inactive"
                 driver = " · driver mode; firmware bindings may be bypassed" if snapshot.get("mode") == [3, 0] else ""
-                self.stored_binding.setText(f"Stored in slot {snapshot['slot']} ({active}): {self.stored_text(self.selected)}{driver}")
+                self.stored_binding.setText(f"Stored in slot {snapshot['slot']} ({active}): {self.stored_display(self.selected)}{driver}")
         for i, tile in enumerate(getattr(self, "tiles", [])):
             if i < len(self.buttons()):
                 tile.setText(self.tile_text(i))
@@ -1377,6 +1556,8 @@ class Window(QMainWindow):
             and self.profile["plate"] == "12" and snapshot is not None and snapshot["slot"] == snapshot["active"])
         self.macro_assignment.set_context(self.selected + 1, self.editing_layer(), software=not self.is_hardware(),
             slot=self.slots.currentData(), allowed=allowed)
+        if hasattr(self, "macro_link_status"):
+            self.refresh_macro_preview()
 
 
     def change_plate(self):
@@ -1703,6 +1884,7 @@ class Window(QMainWindow):
             self.apply()
 
     STACK_BELOW = 1060
+    MACRO_STACK_BELOW = 1240
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1712,6 +1894,16 @@ class Window(QMainWindow):
         if self.customize_columns.direction() != direction:
             self.customize_columns.setDirection(direction)
             self.editor.setMaximumWidth(16777215 if stacked else 350)
+            self.on_mouse_columns.setDirection(direction)
+            # The library list moves above the editor too.
+            self.macro_library_view.layout().setDirection(direction)
+            self.macro_library_view.tree.setMinimumHeight(200 if stacked else 0)
+        # The library editor needs more width than the plate, so its usage panel stacks earlier.
+        usage_stacked = self.width() < self.MACRO_STACK_BELOW
+        usage_direction = QBoxLayout.Direction.TopToBottom if usage_stacked else QBoxLayout.Direction.LeftToRight
+        if self.macro_detail_columns.direction() != usage_direction:
+            self.macro_detail_columns.setDirection(usage_direction)
+            self.macro_usage.setMaximumWidth(16777215 if usage_stacked else 330)
 
     def show_window(self):
         self.showNormal()

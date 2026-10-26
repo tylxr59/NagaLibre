@@ -3,6 +3,40 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Macro workspace consolidation (2026-10-26)
+
+Phase 1 of a macro UX rework at the user's request; GUI only, with no Rust,
+session-protocol or vendor-command change and no mouse requests.
+
+Library links: the native planner already stores the request GUID in metadata
+bytes 0..16 (Windows memory order, macro_plan.rs::guid_bytes). The embedded
+assignment panel now records `GUID → library id, name, sha256 of canonical steps`
+in macro_links.json before macro_prepare (gui/macro_links.py). One macro read
+then classifies each stored copy as current, differs (library edited after
+upload), orphaned (library entry deleted) or unlinked. Names never link. The
+file is display bookkeeping, not a backup or journal: a write failure is logged
+and does not block the upload, an unreadable file is left untouched, and no
+write path consults it. Uploads made before this change show as unlinked.
+
+Layout: Macros has **Library** (status badges in the tree, step-chip preview
+and an **On your mouse** panel listing copies and clickable uses) and **On
+mouse** (one Read mouse for storage and assignments, capacity meter, inventory
+with Library/Buttons columns, delete, details, assignments table). The macro
+storage tools left Onboard memory; Restore macro backup joined Backup &
+recovery there. Buttons names stored macro copies on keycaps/readout and says
+whether the selected button's copy matches the library. Macro tabs stack below
+1240/1060px window widths. The footer status now shows on every page.
+
+Unchanged: fresh-upload transaction, backup-before-commit, ownership-journal
+deletion limits, primary-click exclusions and the separate Save macro to mouse
+path. Phase 2 (macro assignments in the ordinary draft, saved by one combined
+transaction) needs a new Rust transaction and physical testing; not started.
+
+Validation: 239 Python/Qt tests passed (new: GUID layout, link persistence and
+untouched corrupt file, catalog states with equal names, upload-to-link
+round trip and later-edit detection, link-failure non-blocking, Macros page
+horizontal overflow at 920×640). No Rust changes, so cargo checks were not rerun.
+
 ## Desktop UI redesign (2026-10-26)
 
 Presentation-only rework of the Qt app at the user's request: new dark theme

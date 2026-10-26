@@ -137,24 +137,27 @@ cargo build --release --locked
 
 ## Set up your buttons
 
-The sidebar contains **Mouse**, **Macros** and **Diagnostics**. Under Mouse,
-**Customize**, **Scrolling** and **Mouse memory** share the device/profile bar.
-Changing pages keeps your edits and does not write to the mouse. Stored assignments
-refresh when needed on Customize or Mouse memory; other pages skip that refresh.
+The sidebar lists **Buttons**, **Scrolling**, **Onboard memory**, **Macros** and
+**Diagnostics**, with the connected mouse and **Connect mouse** above them. The
+page header holds the draft destination (**Mouse memory** or **Software**) and
+slot picker. Changing pages keeps your edits and does not write to the mouse.
+Stored assignments refresh when needed on Buttons or Onboard memory; other pages
+skip that refresh.
 
-Use **Mouse → Customize** for the button grid and assignment pane. Choose a button,
-then its action, including **Macro** for a saved library sequence. **Mouse memory**
-holds slot management, backups and macro inventory/recovery. **Scrolling** contains
-the wheel-stage editor directly. **Macros** contains the local library and sequence
-editor directly; no connection is needed to author sequences. **Diagnostics**
-contains connection logs and the device support form.
+Use **Buttons** for the side plate, the wheel and DPI controls, and the assignment
+pane. Choose a button, then its action, including **Macro** for a saved library
+sequence. **Onboard memory** holds slot management and backup recovery.
+**Scrolling** contains the wheel-stage editor. **Macros** has the local library
+and sequence editor (no connection is needed to author sequences) and an **On
+mouse** view of stored macros and their assignments. **Diagnostics** contains
+connection logs and the device support form.
 **Save draft** saves local binding edits; apply/save-to-mouse activates them.
 For native macro assignments, use **Save macro to mouse** in the selected button's
 pane. **Stop remapping** and Esc remain available outside an in-flight transaction.
 
 1. Connect the mouse by USB and choose **Mouse memory** as the draft destination.
-2. Click **Connect mouse**, then select an existing slot. Use **Mouse memory → Read slots** to refresh it.
-3. In **Customize**, choose a numbered button and edit its key or shortcut in the draft editor.
+2. Click **Connect mouse**, then select an existing slot. Use **Onboard memory → Read slots** to refresh it.
+3. In **Buttons**, choose a numbered button and edit its key or shortcut in the draft editor.
 4. Click **Save bindings to mouse** to apply the draft to the selected slot.
 
 Each tile distinguishes **Stored** (read from that slot) from **Draft** (your
@@ -168,12 +171,12 @@ The app saves a backup before writing and reads the result back to check it.
 After a successful save, it stops the helper. Saved bindings then work without
 NagaLibre running.
 
-Create reusable local sequences directly in **Macros** without connecting the mouse. Save the macro, then select a button in **Mouse → Customize**, choose **Macro**, select the sequence and playback, and use **Save macro to mouse** for a journaled upload. Representative wired uploads, playback and desktop undo have passed physical
+Create reusable local sequences directly in **Macros** without connecting the mouse. Save the macro, then select a button in **Buttons**, choose **Macro**, select the sequence and playback, and use **Save macro to mouse** for a journaled upload. Representative wired uploads, playback and desktop undo have passed physical
 tests for the wired twelve-button scope; broader combinations remain experimental. See [the macro guide](docs/MACROS.md)
 for supported steps, storage limits and recovery.
 
-To remove an unassigned NagaLibre upload, open **Mouse memory → Macro storage**,
-read storage, select its row and choose **Delete selected macro…**. Its original
+To remove an unassigned NagaLibre upload, open **Macros → On mouse**, choose
+**Read mouse**, select its row and choose **Delete selected macro…**. Its original
 upload journal is required. Button assignments and the local library are preserved;
 this selected-delete path remains unverified on hardware. Entries still in use or
 whose ownership cannot be established are refused.

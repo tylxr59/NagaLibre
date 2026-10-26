@@ -12,27 +12,51 @@ checks; test a newly saved timeline in its intended application.
 
 ## Create a macro
 
-1. Open **Macros → My Macros**. No mouse connection or authentication is needed to author macros.
+1. Open **Macros → Library**. No mouse connection or authentication is needed to author macros.
 2. Use **New folder** beside **New macro** to create a folder. Select a folder (or **Uncategorized**) in the library tree, then choose **New macro**. Empty folders are saved and remain available after reopening the app.
 3. Enter a name, use **Add step** to enter keys, shortcuts and delays, then **Save macro**. **Location** shows the macro’s folder. Right-click a macro and choose **Move to folder…**, then save to keep the move. Search, rename through Name, duplicate or delete local macros from this view.
-4. Connect a wired Naga V2 Pro with its twelve-button plate. Select and activate the intended slot in Mouse memory.
-5. Open **Mouse → Customize**, choose the Normal or Hypershift layer and select a grid button or supported extra control. Choose **Macro** as its action, then select a saved macro and playback. Repeat count appears for counted playback only.
+4. Connect a wired Naga V2 Pro with its twelve-button plate. Select and activate the intended slot in Onboard memory.
+5. Open **Buttons**, choose the Normal or Hypershift layer and select a grid button or supported extra control. Choose **Macro** as its action, then select a saved macro (its steps are previewed below the picker) and playback. Repeat count appears for counted playback only.
 6. Choose **Save macro to mouse** in that button’s pane. The app reads macro storage, prepares a fresh upload, saves the backup and assigns it to that button in the active slot. It reuses the connected helper.
 
-After saving a library macro, **Assign to mouse…** opens Customize with that
+After saving a library macro, **Assign to mouse…** opens Buttons with that
 saved sequence selected for the current button. Review the selected button and
 playback before saving the assignment. **Configure macro** opens the selected
 library entry for editing; switching away from another unsaved macro offers
 Save, Discard or Cancel. These links do not write mouse settings.
 
-**Macros → Key Binds → Read mouse assignments** lists macro bindings from mouse
-readback across inspected slots and layers. Filter by stored macro ID, select a
-row and choose **Show button in Customize** to inspect it. Opening an inactive
-slot does not activate it or change your drafts. Primary click rows are read-only.
-The overview shows stored copies rather than assuming they match a similarly
-named library item. Other plates, primary clicks in Hypershift and unrecognized
-assignments are outside the displayed coverage. **Manage mouse storage…** opens
-the separate inventory/deletion/recovery tools under Mouse memory.
+## See what is on the mouse
+
+**Macros → On mouse → Read mouse** reads macro storage and every inspected
+slot's macro assignments together. Nothing is written. The storage meter shows
+used entries and free bytes. **Stored macros** lists each entry with its ID,
+size, library link and how many inspected buttons play it. **Assignments** lists
+those bindings by slot, layer and button; filter by stored macro, select a row
+and choose **Show in Buttons** to inspect it. Opening an inactive slot does not
+activate it or change your drafts. Primary click rows are read-only. Other
+plates, primary clicks in Hypershift and unrecognized assignments are outside
+the displayed coverage.
+
+In **Macros → Library**, each macro shows its mouse status after a read, and
+the **On your mouse** panel lists its stored copies and the buttons that play
+them; choose a button there to open it in Buttons. Buttons also names the stored
+copy and says whether it matches your library.
+
+### Library links
+
+Every upload stores a random ID in the macro's metadata. When NagaLibre uploads
+a library macro it records that ID with the library entry and a fingerprint of
+its steps in `macro_links.json` beside `macros.json`. A later read matches stored
+copies to library entries only through those recorded IDs; equal names never
+create a link. A copy is **current** when the library steps still match,
+**older version** when you edited the library macro afterward, **deleted from
+library** when the library entry is gone and **not linked** when it came from
+Synapse, another install or an upload made before links were recorded.
+
+Library edits never change the mouse. To update a button, assign the edited
+macro to it again; the old copy becomes unused and can then be deleted. The
+link file is display bookkeeping only. It is not a backup, never authorizes a
+write, and a failure to update it does not block an upload.
 
 The reusable library is stored in `macros.json` beside the main `profiles.json`
 (by default `~/.config/NagaLibre/`). It is shared across device profiles.
@@ -41,16 +65,15 @@ unsaved editor changes are not uploaded. Local edits and deletion never change
 existing mouse allocations. Switching library entries or quitting offers Save, Discard or
 Cancel for unsaved edits. Navigating between pages keeps the current draft. A corrupt or concurrently changed library is not overwritten.
 
-Under **Mouse → Mouse memory → Macro storage**, **Read macro storage** reads the
-macro inventory. Storage usage and stored entries appear directly below it.
-**Details** contains support notes, backup/journal paths and operation logs.
-**Restore macro backup…** restores the button assignments from before a
+Under **Macros → On mouse**, **Details** contains support notes, backup/journal
+paths and operation logs. **Onboard memory → Backup & recovery → Restore macro
+backup…** restores the button assignments from before a
 NagaLibre upload and removes the macro that upload added, using its recovery
 journal. It does not delete the selected inventory row.
 
 **Delete selected macro…** removes the selected mouse entry without restoring
 old button assignments or deleting anything from your local library. Read macro
-storage, select a row, and choose Delete selected macro. Confirm the displayed
+the mouse in Macros → On mouse, select a row, and choose Delete selected macro. Confirm the displayed
 name and ID. If it is still assigned, the app reports the slot, layer and buttons;
 change those assignments and save them before trying again.
 

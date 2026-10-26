@@ -21,7 +21,7 @@ verification remains outstanding. Receiver/Bluetooth wheel programming is disabl
 
 1. Build the source engine with `cargo build --release --locked`, then launch
    NagaLibre using the normal unprivileged launcher.
-2. Connect/rescan the mouse and open **Mouse → Scrolling**. The wheel editor is part of this tab.
+2. Connect/rescan the mouse and open **Scrolling**. The wheel editor is part of this page.
 3. Choose **Read wheel**. Reading stops software remaps and releases held outputs/grabs. **Stored** shows the active slot, current mode and cycle order.
 4. Check the standard modes to include in cycling, drag them into the desired
    order, and choose the active mode. The description follows your choice.
@@ -44,7 +44,7 @@ does not reset button bindings. Existing Custom entries remain preserved.
 
 ## Backups and failures
 
-Wheel stage backups are separate from binding backups. **Mouse → Mouse memory → Backup & recovery → Restore wheel backup…**
+Wheel stage backups are separate from binding backups. **Onboard memory → Backup & recovery → Restore wheel backup…**
 accepts the wheel transaction format and restores captured selection/order.
 It does not restore firmware, generate curves or restore unknown macro contents.
 Backups are stored privately beside your profile under `backups/`; retain them.

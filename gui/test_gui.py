@@ -270,6 +270,11 @@ class QtFlow(unittest.TestCase):
             window.workspace.show_page(4)
             self.app.processEvents()
             self.assertTrue(window.logs.isVisible())
+            for tab in (0, 1):
+                window.workspace.show_page(3)
+                window.macro_tabs.setCurrentIndex(tab)
+                self.app.processEvents()
+                self.assertEqual(window.workspace.pages.currentWidget().horizontalScrollBar().maximum(), 0)
 
     def test_unknown_and_experimental_devices_offer_user_opened_support_form(self):
         with tempfile.TemporaryDirectory() as directory:

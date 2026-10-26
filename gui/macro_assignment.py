@@ -17,6 +17,8 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
         self.upload_after_read = False
         self.expected_slot = None
         self.allowed = False
+        self.links = None
+        self.upload_entry = None
         super().__init__(profile_path, parent, backend=backend, shared=True)
         self.setWindowFlags(Qt.WindowType.Widget)
         self.setObjectName('macroAssignment')
@@ -94,7 +96,19 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
 
     def assignment_macro(self):
         entry = self.assignment_entry()
+        self.upload_entry = entry
         return entry['name'], entry['steps']
+
+    def upload_guid(self):
+        guid = super().upload_guid()
+        # Link the stored copy to its library entry before the upload is
+        # prepared. A failed upload leaves an unused link, which is harmless.
+        if self.links is not None and self.upload_entry is not None:
+            try:
+                self.links.record(guid, self.upload_entry)
+            except (OSError, ValueError) as error:
+                self.log.appendPlainText(f'Library link not recorded; the upload is unaffected: {error}')
+        return guid
 
     def save(self):
         if self.busy or not self.allowed:
