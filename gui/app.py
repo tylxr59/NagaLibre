@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QTabWidget, QHeaderView, QTableWidgetItem,
 )
 
+from onboard import (onboard_macro_jobs, without_macros, edits_change_mouse)
 from onboard import (hardware_buttons, hardware_controls, write_backup, write_creation_backup,
                      stored_label, FACTORY_CONTROL_LABELS, layer_edits, draft_from_record, write_layer_backup)
 from backend import Backend, DeviceInventory, backend_path
@@ -35,7 +37,7 @@ from macro_links import MacroLinks, catalog
 from macro_workspace import CapacityMeter, MacroStatusDelegate, MacroUsagePanel, StepChips
 from haptic import WheelPanel
 from model import (
-    binding_label, config_path, default_button, display_key, load_profile,
+    binding_label, playback_label, config_path, default_button, display_key, load_profile,
     new_profile, reset_plate, runtime_config, save_profile, PROTECTED_INPUTS, DEVICE_MODELS, CONTROL_NAMES, default_control, keep_binding,
 )
 
@@ -171,7 +173,7 @@ class BindingTile(QPushButton):
                          QFontMetrics(title).elidedText(name, Qt.TextElideMode.ElideRight, int(inner.width() - 12)))
 
         known = stored not in (None, "unread", "unknown")
-        if known and stored != draft:
+        if known and stored != draft and draft != "Keep stored binding":
             # Draft text differs from the readback text: an unsaved change.
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(WARN))
@@ -233,6 +235,7 @@ class Window(QMainWindow):
         self.snapshot = None
         self.paired_snapshot = None
         self.save_after_read = False
+        self.batch = None
         self.applying = False
         self.fault = False
         self.quitting = False
@@ -555,6 +558,9 @@ class Window(QMainWindow):
         self.macro_library_view.entryChanged.connect(self.refresh_macro_usage)
         self.macro_library_view.tree.setMinimumWidth(250)
         self.macro_assignment.macro_choice.currentIndexChanged.connect(lambda *_: self.refresh_macro_preview())
+        panel = self.macro_assignment
+        for signal in (panel.macro_choice.currentIndexChanged, panel.playback.currentIndexChanged, panel.count.valueChanged):
+            signal.connect(lambda *_: self.macro_draft_changed())
         self.update_macro_catalog()
         self.stack.addWidget(macro_page)
         self.mode.addItem("Factory default", "factory")
@@ -953,6 +959,8 @@ class Window(QMainWindow):
             else:
                 self.backend.send({"command": "monitor"})
         else:
+            if self.batch is not None:
+                self.abort_batch("Helper disconnected during the save. Read the mouse again before saving.")
             self.detected_module = None
             self.plate_detection = "offline"
             self.plate_hint.setText("Connect mouse to detect the attached plate automatically." if self.device_model["faceplate"] else "Select the layout and use Learn input · experimental model.")
@@ -1009,18 +1017,57 @@ class Window(QMainWindow):
         self.device_label.setText(model["name"] + (" · experimental, hardware unverified" if not model["verified"] else ""))
 
     def commit_fields(self):
-        if self.loading:
+        # A running save batch owns the macro panel's fields; drafts stay frozen.
+        if self.loading or self.batch is not None:
             return
         button = self.editing_button if hasattr(self, "editing_button") else self.current()
         button["trigger"] = self.trigger.text().strip()
-        if not (self.is_hardware() and self.mode.currentData() == "macro"):
-            button["mode"] = self.mode.currentData()
+        if self.is_hardware() and self.mode.currentData() == "macro":
+            entry = self.library_entry(self.macro_assignment.macro_choice.currentData())
+            if entry is not None:
+                button.update(mode="macro", value="", steps=copy.deepcopy(entry["steps"]),
+                              library=entry["id"], playback=self.panel_playback())
+            return
+        button["mode"] = self.mode.currentData()
+        if button["mode"] != "macro":
+            button.pop("library", None)
+            button.pop("playback", None)
         if button["mode"] == "key":
             button["value"] = self.key_value.text().strip()
         elif button["mode"] == "shortcut":
             button["value"] = self.shortcut_value.text().strip()
         elif button["mode"] == "native":
             button["value"] = self.native_value.currentData()
+
+    def macro_draft_changed(self):
+        if self.loading or self.batch is not None or not self.is_hardware() or self.mode.currentData() != "macro":
+            return
+        self.commit_fields()
+        if self.selected < len(getattr(self, "tiles", [])):
+            self.tiles[self.selected].setText(self.tile_text(self.selected))
+
+    def library_entry(self, identity):
+        library = self.macro_library_view.library
+        return next((e for e in library.entries if e["id"] == identity), None) if library and identity else None
+
+    def panel_playback(self):
+        panel = self.macro_assignment
+        playback = {"mode": panel.playback.currentData()}
+        if playback["mode"] == "counted":
+            playback["count"] = panel.count.value()
+        return playback
+
+    def show_panel_macro(self, button):
+        """Load a macro draft's library entry and playback into the macro panel."""
+        panel = self.macro_assignment
+        if button.get("library"):
+            index = panel.macro_choice.findData(button["library"])
+            if index >= 0:
+                panel.macro_choice.setCurrentIndex(index)
+        playback = button.get("playback") or {"mode": "once"}
+        panel.playback.setCurrentIndex(max(0, panel.playback.findData(playback["mode"])))
+        if playback["mode"] == "counted":
+            panel.count.setValue(playback["count"])
 
     def current_snapshot(self):
         if self.snapshot is not None and self.snapshot["slot"] == self.slots.currentData() and self.profile["plate"] == "12":
@@ -1050,6 +1097,10 @@ class Window(QMainWindow):
 
     def tile_text(self, index):
         draft = binding_label(self.buttons()[index])
+        button = self.buttons()[index]
+        entry = self.library_entry(button.get("library")) if button["mode"] == "macro" else None
+        if entry is not None and self.is_hardware():
+            draft = f"“{entry['name']}” · {playback_label(button.get('playback'))}"
         if self.is_hardware():
             name = CONTROL_NAMES[index - 12] if index >= 12 else str(index + 1)
             if index >= 12 and self.buttons()[index]["mode"] == "default":
@@ -1166,7 +1217,7 @@ class Window(QMainWindow):
         self.workspace.show_page(0)
         self.mode.setCurrentIndex(self.mode.findData('macro'))
         self.macro_assignment.macro_choice.setCurrentIndex(self.macro_assignment.macro_choice.findData(identity))
-        instruction = 'Choose playback and save the assignment.' if self.is_hardware() else 'Choose Use macro, then Apply bindings.'
+        instruction = 'Choose playback, then Save bindings to mouse.' if self.is_hardware() else 'Choose Use macro, then Apply bindings.'
         self.status.setText(f'Assign “{entry["name"]}” to {self.button_title.text()}. {instruction}')
 
     def build_on_mouse_tab(self, recovery_buttons):
@@ -1331,7 +1382,7 @@ class Window(QMainWindow):
         self.status.setText(f'Stored macro assignment: slot {slot}, {self.button_title.text()}. Local drafts are unchanged.')
 
     def use_library_macro(self, entry):
-        self.current().update(mode="macro", steps=entry["steps"], value="")
+        self.current().update(mode="macro", steps=entry["steps"], value="", library=entry["id"], playback={"mode": "once"})
         self.macro_summary.setText(f"{entry['name']} · {len(entry['steps'])} steps · once per press")
 
     def macro_busy_changed(self, busy):
@@ -1371,13 +1422,52 @@ class Window(QMainWindow):
             slot = active if panel.saved else panel.expected_slot
             mapping = next((m for m in panel.snapshot["mappings"] if m["normal"]["slot"] == slot),
                            next(m for m in panel.snapshot["mappings"] if m["normal"]["slot"] == active))
+            batch = self.batch
             if panel.last_result == "macro_saved":
                 # Future ordinary saves must preserve this independently uploaded macro.
-                self.current().update(mode="keep", value="", steps=[])
+                target = self.batch_draft(*batch["current"]) if batch else self.current()
+                target.clear()
+                target.update(trigger="", mode="keep", value="", steps=[])
+                if batch:
+                    batch["done"].append(batch["current"])
+                    try:
+                        self.persist()
+                    except (OSError, ValueError) as error:
+                        self.log(f"Could not save the updated draft: {error}")
+            self.loading = True  # The snapshot handler must not re-record the old macro fields.
+            try:
+                self.select_button(self.selected, commit=False)
+            finally:
+                self.loading = False
             self.on_event({"type": "onboard_layers_snapshot", "snapshot": mapping})
+            if batch is not None and panel.last_result == "macro_saved" and panel.batch_keep_open:
+                # Continue in this helper session. Each upload reads fresh macro
+                # storage and mappings; the binding save reads both layers again.
+                jobs = onboard_macro_jobs(self.profile)
+                if jobs:
+                    self.start_macro_job(jobs[0], remaining=len(jobs) - 1)
+                else:
+                    self.snapshot = self.paired_snapshot = None
+                    self.apply()
+                return
             if panel.saved:
                 self.hardware_saved = active
                 self.backend.shutdown()
+            if batch is not None:
+                if panel.last_result == "macro_saved":
+                    self.batch = None
+                    panel.batch_keep_open = False
+                    self.select_button(self.selected, commit=False)
+                    self.status.setText(f"Saved {len(batch['done'])} macro{'s' if len(batch['done']) != 1 else ''} to the mouse · helper stopped.")
+                    self.refresh_hardware_view()
+                    return
+                self.abort_batch(panel.status.text())
+                self.refresh_hardware_view()
+                return
+        elif self.batch is not None:
+            self.abort_batch(panel.status.text())
+            self.refresh_hardware_view()
+            return
         self.status.setText(panel.status.text())
         self.refresh_hardware_view()
 
@@ -1421,8 +1511,7 @@ class Window(QMainWindow):
             self.apply_button.setEnabled(False)
             self.reset_button.setEnabled(False)
         if hasattr(self, "assignment_actions"):
-            self.assignment_actions.setVisible(self.workspace.pages.currentIndex() == 0
-                and not (hardware and self.mode.currentData() == "macro"))
+            self.assignment_actions.setVisible(self.workspace.pages.currentIndex() == 0)
         if hasattr(self, "macro_assignment") and not self.macro_assignment.busy:
             self.refresh_macro_context()
         if hasattr(self, "stored_binding"):
@@ -1507,15 +1596,14 @@ class Window(QMainWindow):
         self.mode.view().setRowHidden(self.mode.findData("native"), not native_allowed)
         for mode, hidden in (("default", secondary), ("factory", secondary or index < 12 or not self.is_hardware()),
                              ("hypershift", secondary or not self.is_hardware()), ("macro", self.is_hardware() and (self.device_model["id"] != "naga_v2_pro" or self.profile["plate"] != "12")),
-                             ("keep", not secondary and (index >= 12 or not self.is_hardware())),
+                             ("keep", not secondary and (index >= 12 or not self.is_hardware() or button["mode"] != "keep")),
                              ("disabled", not self.is_hardware())):
             self.mode.view().setRowHidden(self.mode.findData(mode), hidden)
         self.per_button_reset.setText("Keep stored for this button" if secondary else "Use default for this button")
         self.trigger.setText(button["trigger"])
-        selected_mode = button["mode"]
-        if self.is_hardware() and selected_mode == "keep" and self.stored_text(index).startswith("Macro "):
-            selected_mode = "macro"
-        self.mode.setCurrentIndex(self.mode.findData(selected_mode))
+        self.mode.setCurrentIndex(self.mode.findData(button["mode"]))
+        if button["mode"] == "macro" and self.batch is None:
+            self.show_panel_macro(button)
         self.stack.setCurrentIndex(self.mode.currentIndex())
         self.fit_stack()
         self.key_value.setText(button["value"] if button["mode"] == "key" else "")
@@ -1699,6 +1787,11 @@ class Window(QMainWindow):
                 self.fail(f"Backup failed; mouse was not changed: {error}")
                 self.backend.shutdown()
         elif kind in ("onboard_layers_saved", "onboard_saved"):
+            if self.batch is not None:
+                done = len(self.batch["done"])
+                self.batch = None
+                self.macro_assignment.batch_keep_open = False
+                self.log(f"Save batch complete: {done} macro upload(s), then paired bindings.")
             self.fault = False
             self.paired_snapshot = message["snapshot"] if kind == "onboard_layers_saved" else None
             self.snapshot = self.paired_snapshot["normal"] if self.paired_snapshot else message["snapshot"]
@@ -1707,6 +1800,11 @@ class Window(QMainWindow):
             self.set_hardware_busy(False)
             self.backend.shutdown()
         elif kind == "error":
+            if self.batch is not None:
+                summary = self.batch_summary()
+                self.batch = None
+                self.macro_assignment.batch_keep_open = False
+                message = dict(message, message=summary + message["message"])
             self.fault = True
             self.snapshot = None
             self.paired_snapshot = None
@@ -1797,17 +1895,23 @@ class Window(QMainWindow):
         return text
 
     def apply(self):
-        if self.is_hardware() and self.mode.currentData() == "macro":
-            self.macro_assignment.save()
-            return
         try:
             if self.plate_detection in ("pending", "unknown"):
                 raise ValueError("Wait for a supported faceplate to be detected before applying bindings.")
             self.commit_fields()
             if self.is_hardware():
                 paired = self.supports_layers()
-                edits = layer_edits(self.profile) if paired else None
+                jobs = onboard_macro_jobs(self.profile)
+                if jobs and not paired:
+                    raise ValueError("Mouse-memory macros need the wired Naga V2 Pro with its twelve-button plate.")
+                edits = layer_edits(without_macros(self.profile)) if paired else None
                 buttons = None if paired else hardware_buttons(self.profile)
+                for _, _, draft in jobs:
+                    entry = self.library_entry(draft["library"])
+                    if entry is None:
+                        raise ValueError("A macro in this draft was deleted from your library. Choose another macro for that button.")
+                    # Uploads always use the saved library version.
+                    draft["steps"] = copy.deepcopy(entry["steps"])
                 self.persist()
                 self.rebuild_grid()
                 self.hardware_saved = None
@@ -1816,11 +1920,26 @@ class Window(QMainWindow):
                     self.save_after_read = True
                     self.read_mouse()
                     return
+                if paired and (self.paired_snapshot is None or self.snapshot["slot"] != self.snapshot["active"]
+                               or self.snapshot.get("mode") != [0, 0]):
+                    raise ValueError("Read both layers of the active slot in normal mode before saving. Activate another slot separately if needed.")
+                if jobs:
+                    if self.batch is None:
+                        layers = edits_change_mouse(edits, self.paired_snapshot)
+                        if (len(jobs) > 1 or layers) and not getattr(self.backend, "macro_batch", False):
+                            raise ValueError("Rebuild the engine to save macros together with other changes, "
+                                             "or save one macro at a time.")
+                        if not getattr(self.backend, "onboard_macros", False):
+                            raise ValueError("Connect a wired Naga V2 Pro with its twelve-button plate first.")
+                        self.batch = {"total": len(jobs), "done": [], "layers": layers, "current": None}
+                    self.start_macro_job(jobs[0], remaining=len(jobs) - 1)
+                    return
+                if self.batch is not None and not self.batch["layers"]:
+                    self.finish_batch()
+                    return
                 self.set_hardware_busy(True)
                 self.status.setText("Checking current mouse state before backup…")
                 if paired:
-                    if self.paired_snapshot is None or self.snapshot["slot"] != self.snapshot["active"] or self.snapshot.get("mode") != [0,0]:
-                        raise ValueError("Read both layers of the active slot in normal mode before saving. Activate another slot separately if needed.")
                     self.hardware_command({"command": "onboard_layers_prepare", "edits": edits})
                     return
                 command = {"command": "onboard_prepare", "buttons": buttons}
@@ -1847,8 +1966,57 @@ class Window(QMainWindow):
                 self.connect_mouse()
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             self.applying = False
+            if self.batch is not None:
+                error = self.batch_summary() + str(error)
+                self.batch = None
+                self.macro_assignment.batch_keep_open = False
             self.set_hardware_busy(False)
             self.fail(error)
+
+    def start_macro_job(self, job, remaining):
+        """Upload one pending macro through the existing journaled transaction."""
+        layer, button, draft = job
+        panel = self.macro_assignment
+        self.batch["current"] = (layer, button)
+        panel.batch_keep_open = remaining > 0 or self.batch["layers"]
+        panel.macro_choice.blockSignals(True)
+        self.show_panel_macro(draft)
+        panel.macro_choice.blockSignals(False)
+        panel.set_context(button, layer, software=False, slot=self.slots.currentData(), allowed=True)
+        entry = self.library_entry(draft["library"])
+        number = len(self.batch["done"]) + 1
+        name = CONTROL_NAMES[button - 13] if button > 12 else f"button {button}"
+        self.status.setText(f"Saving macro {number} of {self.batch['total']}: “{entry['name']}” on "
+                            f"{'Hypershift' if layer else 'Normal'} {name}…")
+        panel.save()
+        if not panel.busy:
+            # The panel refused before reading (for example, the helper stopped).
+            self.abort_batch(panel.status.text())
+
+    def batch_draft(self, layer, button):
+        buttons = (self.profile["plates"]["12"] + self.profile.get("controls", [])) if layer == 0 else self.profile["hypershift"]
+        return buttons[button - 1]
+
+    def batch_summary(self):
+        done = len(self.batch["done"]) if self.batch else 0
+        return (f"{done} macro{'s' if done != 1 else ''} saved to the mouse before this; "
+                "their recovery journals are in backups/macros. ") if done else ""
+
+    def abort_batch(self, reason):
+        summary = self.batch_summary()
+        self.batch = None
+        self.macro_assignment.batch_keep_open = False
+        self.select_button(self.selected, commit=False)
+        self.status.setText(summary + str(reason))
+
+    def finish_batch(self):
+        done = len(self.batch["done"])
+        self.batch = None
+        self.macro_assignment.batch_keep_open = False
+        self.hardware_saved = self.snapshot["active"] if self.snapshot else None
+        self.backend.shutdown()
+        self.select_button(self.selected, commit=False)
+        self.status.setText(f"Saved {done} macro{'s' if done != 1 else ''} to the mouse · no other bindings changed · helper stopped.")
 
     def stop_remapping(self):
         if self.active_editor is not None or self.hardware_busy:

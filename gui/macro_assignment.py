@@ -18,6 +18,7 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
         self.expected_slot = None
         self.allowed = False
         self.links = None
+        self.batch_keep_open = False
         self.upload_entry = None
         super().__init__(profile_path, parent, backend=backend, shared=True)
         self.setWindowFlags(Qt.WindowType.Widget)
@@ -182,6 +183,8 @@ class MacroAssignmentPanel(OnboardMacrosDialog):
             self.undo_button.setVisible(not self.software)
             self.inventory_button.setChecked(not self.software)
             self.save_button.setText('Use macro' if self.software else 'Save macro to mouse')
+            # Mouse-memory assignments are drafts saved by the main Save bindings action.
+            self.save_button.setVisible(self.software)
             self.save_button.setEnabled(not busy and self.allowed and self.macro_choice.count() > 0)
         if was_busy != busy:
             self.busyChanged.emit(busy)

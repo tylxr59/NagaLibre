@@ -17,7 +17,27 @@ checks; test a newly saved timeline in its intended application.
 3. Enter a name, use **Add step** to enter keys, shortcuts and delays, then **Save macro**. **Location** shows the macro’s folder. Right-click a macro and choose **Move to folder…**, then save to keep the move. Search, rename through Name, duplicate or delete local macros from this view.
 4. Connect a wired Naga V2 Pro with its twelve-button plate. Select and activate the intended slot in Onboard memory.
 5. Open **Buttons**, choose the Normal or Hypershift layer and select a grid button or supported extra control. Choose **Macro** as its action, then select a saved macro (its steps are previewed below the picker) and playback. Repeat count appears for counted playback only.
-6. Choose **Save macro to mouse** in that button’s pane. The app reads macro storage, prepares a fresh upload, saves the backup and assigns it to that button in the active slot. It reuses the connected helper.
+6. The choice is part of your draft, like any other binding; the keycap shows the macro and playback. Assign macros to as many buttons as you like, edit other bindings too, then choose **Save bindings to mouse** once.
+
+## How a save with macros works
+
+**Save bindings to mouse** first uploads each pending macro, one at a time, using
+the same journaled transaction as before. For each one the app reads macro
+storage, prepares a fresh upload, saves its backup and recovery journal, then
+uploads and binds it in the active slot and verifies the result. That button's
+draft then becomes **Keep stored binding** and the draft is saved, so the upload
+is never repeated. After the last macro, if any other binding differs from the
+mouse, the app reads both layers again and runs the ordinary paired save with
+its own backup. The helper exits when the whole save has finished.
+
+The steps share one helper session and one authentication prompt, but they are
+separate transactions, not one atomic save. The first failure stops the save
+before any later step. Earlier uploads stay on the mouse, each with its own
+recovery journal under `backups/macros/`; the status line says how many were
+saved, and **Restore macro backup…** can undo any of them. Uploads always use the
+saved library version, never unsaved editor changes. Saving several macros, or a
+macro together with other changes, needs a rebuilt engine (it advertises
+`macro_batch`); an older engine can still save one macro on its own.
 
 After saving a library macro, **Assign to mouse…** opens Buttons with that
 saved sequence selected for the current button. Review the selected button and
@@ -96,8 +116,8 @@ has automated coverage but has not yet been separately tested on a live mouse.
 
 Library navigation does not start or stop the helper. Device operations share the
 main window's authenticated helper; software remapping stops when storage is read.
-Successful uploads and undo still end the helper session.
-In Software mode, the same Macro action selects a saved sequence with **Use macro**; **Apply bindings** runs it once per press through the helper. The ordinary **Save bindings to mouse** action does not upload macro drafts.
+A finished save, macro backup restore or deletion ends the helper session.
+In Software mode, the same Macro action selects a saved sequence with **Use macro**; **Apply bindings** runs it once per press through the helper.
 Primary clicks are never available as mapping targets. This editor does not yet
 provide event recording or import/export.
 

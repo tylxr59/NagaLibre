@@ -22,6 +22,15 @@ pub fn emit(value: Value) {
     let _ = out.flush();
 }
 
+/// Successful macro writes end the helper unless a save batch asks to continue.
+fn ends_session(command: &Command) -> bool {
+    match command {
+        Command::MacroCommit { keep_open, .. } => !keep_open,
+        Command::MacroRecover { .. } | Command::MacroDeleteCommit { .. } => true,
+        _ => false,
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 enum Command {
@@ -33,6 +42,10 @@ enum Command {
     MacroCommit {
         token: String,
         journal: std::path::PathBuf,
+        /// Keep the session for the next step of a GUI save batch. Every later
+        /// write still needs its own fresh read, backup and acknowledgement.
+        #[serde(default)]
+        keep_open: bool,
     },
     MacroRecover {
         journal: std::path::PathBuf,
@@ -235,6 +248,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         "haptic_settings":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "onboard_macros":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "macro_deletion":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
+        "macro_batch":selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
         "device_error":selection.as_ref().err().map(|e| format!("{e:#}"))}),
     );
     let mut active: Option<Worker> = None;
@@ -302,12 +316,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
             haptic_prepared = None;
             snapshot = None;
             layer_snapshot = None;
-            let finishes = matches!(
-                command,
-                Command::MacroCommit { .. }
-                    | Command::MacroRecover { .. }
-                    | Command::MacroDeleteCommit { .. }
-            );
+            let finishes = ends_session(&command);
             let result = (|| -> Result<()> {
                 ensure!(
                     selection.as_ref().is_ok_and(|d| d[0].product == 0xa7),
@@ -339,7 +348,7 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
                         emit(json!({"type":"macro_prepared","token":token,"backup":plan.backup()}));
                         macro_prepared = Some((token, plan));
                     }
-                    Command::MacroCommit { token, journal } => {
+                    Command::MacroCommit { token, journal, .. } => {
                         macro_delete_prepared = None;
                         let (expected, plan) =
                             macro_prepared.take().context("No prepared macro upload")?;
@@ -811,4 +820,42 @@ pub fn run(running: Arc<AtomicBool>) -> Result<()> {
         worker.stop();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(text: &str) -> Command {
+        serde_json::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn macro_commit_ends_session_unless_batch_keeps_it_open() {
+        let plain = parse(r#"{"command":"macro_commit","token":"1","journal":"/j"}"#);
+        assert!(matches!(
+            plain,
+            Command::MacroCommit {
+                keep_open: false,
+                ..
+            }
+        ));
+        assert!(ends_session(&plain));
+        let batch =
+            parse(r#"{"command":"macro_commit","token":"1","journal":"/j","keep_open":true}"#);
+        assert!(!ends_session(&batch));
+        assert!(ends_session(&parse(
+            r#"{"command":"macro_recover","journal":"/j"}"#
+        )));
+        assert!(ends_session(&parse(
+            r#"{"command":"macro_delete_commit","token":"1","journal":"/j"}"#
+        )));
+        assert!(!ends_session(&parse(r#"{"command":"macro_read"}"#)));
+        assert!(
+            serde_json::from_str::<Command>(
+                r#"{"command":"macro_commit","token":"1","journal":"/j","keep":true}"#
+            )
+            .is_err()
+        );
+    }
 }

@@ -8,10 +8,11 @@ from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QFormLayout, QMessageBox, QProxyStyle, QStyle
 from app import Window
 from test_macro_storage import APP, snapshot, backup
-from test_gui_hypershift import paired_state
+from test_gui_hypershift import paired_state, paired_backup
 from test_haptic import snapshot as wheel_snapshot
 from test_macro_bindings import bindings_snapshot
 import copy
+import json
 import uuid
 
 
@@ -310,7 +311,9 @@ class EmbeddedWorkspaceTests(unittest.TestCase):
             self.assertTrue(panel.operation_timer.isActive())
             self.assertTrue(window.macro_progress.isVisible())
             self.assertFalse(panel.status.isVisible())
-            self.assertGreaterEqual(panel.save_button.y(), panel.fields.geometry().bottom())
+            # Mouse-memory macros are drafts saved by the footer action.
+            self.assertFalse(panel.save_button.isVisible())
+            self.assertTrue(window.apply_button.isVisible())
             self.assertIn('Reading mouse', window.status.text())
             self.assertIn('in progress', window.stored_binding.text())
             window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': self.macro_snapshot()})
@@ -418,6 +421,140 @@ class EmbeddedWorkspaceTests(unittest.TestCase):
             window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': self.macro_snapshot()})
             self.assertEqual(send.call_args.args[0]['command'], 'macro_prepare')
             self.assertIn('Library link not recorded', window.macro_assignment.log.toPlainText())
+
+    def batch_fixture(self):
+        window = self.window
+        view = self.save_macro()
+        first = view.identity
+        second = view.library.put('Second', [{'tap': 'KEY_C'}])
+        view.refresh_library()
+        self.connect_fixture()
+        window.backend.macro_batch = True
+        window.select_button(0)
+        window.mode.setCurrentIndex(window.mode.findData('macro'))
+        panel = window.macro_assignment
+        panel.macro_choice.setCurrentIndex(panel.macro_choice.findData(first))
+        panel.playback.setCurrentIndex(panel.playback.findData('counted'))
+        panel.count.setValue(3)
+        window.layer.setCurrentIndex(1)
+        window.select_button(15)
+        window.mode.setCurrentIndex(window.mode.findData('macro'))
+        panel.macro_choice.setCurrentIndex(panel.macro_choice.findData(second))
+        panel.playback.setCurrentIndex(panel.playback.findData('toggle'))
+        window.layer.setCurrentIndex(0)
+        return first, second
+
+    def upload(self, send, binding):
+        """Answer one macro read/prepare/commit cycle; returns the commit message."""
+        window = self.window
+        self.assertEqual(send.call_args.args[0]['command'], 'macro_read')
+        window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': self.macro_snapshot()})
+        prepare = send.call_args.args[0]
+        self.assertEqual(prepare['command'], 'macro_prepare')
+        window.backend.event.emit({'type': 'macro_prepared', 'token': str(len(send.call_args_list)), 'backup': backup()})
+        commit = send.call_args.args[0]
+        self.assertEqual(commit['command'], 'macro_commit')
+        final = self.macro_snapshot()
+        layer, button, data = binding
+        bank = final['mappings'][0]['hypershift' if layer else 'normal']
+        (bank['buttons'] + bank['controls'])[button - 1].update(category=3, data=data)
+        window.backend.event.emit({'type': 'macro_saved', 'snapshot': final, 'journal': commit['journal']})
+        APP.processEvents()
+        return prepare, commit
+
+    def test_save_batch_uploads_macro_drafts_then_bindings_in_one_helper_session(self):
+        window = self.window
+        first, second = self.batch_fixture()
+        window.select_button(1)
+        window.mode.setCurrentIndex(window.mode.findData('key'))
+        window.key_value.setText('B')
+        self.assertEqual(window.buttons()[0]['library'], first)
+        self.assertEqual(window.buttons()[0]['playback'], {'mode': 'counted', 'count': 3})
+        self.assertIn('“Saved sequence” · 3×', window.tiles[0].text())
+        with patch.object(window.backend, 'send') as send, patch.object(window.backend, 'shutdown') as shutdown:
+            window.apply()
+            self.assertIsNotNone(window.batch)
+            prepare, commit = self.upload(send, (0, 1, [0, 1, 3]))
+            self.assertEqual((prepare['request']['button'], prepare['request']['layer']), (1, 0))
+            self.assertEqual(prepare['request']['playback'], {'mode': 'counted', 'count': 3})
+            self.assertTrue(commit['keep_open'])
+            shutdown.assert_not_called()
+            self.assertEqual(window.buttons()[0]['mode'], 'keep')
+            self.assertNotIn('library', window.buttons()[0])
+            saved = json.loads((Path(self.root.name) / 'profiles.json').read_text())
+            self.assertEqual(saved['plates']['12'][0]['mode'], 'keep')
+            self.assertEqual(saved['hypershift'][15]['mode'], 'macro')
+            prepare, commit = self.upload(send, (1, 16, [0, 2]))
+            self.assertEqual((prepare['request']['button'], prepare['request']['layer']), (16, 1))
+            self.assertEqual(prepare['request']['playback'], {'mode': 'toggle'})
+            self.assertTrue(commit['keep_open'])  # The key edit still needs the binding save.
+            self.assertEqual(window.profile['hypershift'][15]['mode'], 'keep')
+            self.assertEqual(send.call_args.args[0]['command'], 'onboard_layers_read')
+            window.on_event({'type': 'onboard_layers_snapshot', 'snapshot': paired_state()})
+            layers = send.call_args.args[0]
+            self.assertEqual(layers['command'], 'onboard_layers_prepare')
+            buttons = {(e['layer'], e['action']['button']) for e in layers['edits']}
+            self.assertIn((0, 2), buttons)
+            self.assertNotIn((0, 1), buttons)
+            self.assertNotIn((1, 16), buttons)
+            shutdown.assert_not_called()
+            window.on_event({'type': 'onboard_layers_prepared', 'token': '9', 'backup': paired_backup(paired_state())})
+            self.assertEqual(send.call_args.args[0]['command'], 'onboard_commit')
+            window.on_event({'type': 'onboard_layers_saved', 'snapshot': paired_state()})
+            shutdown.assert_called_once()
+            self.assertIsNone(window.batch)
+            commands = [c.args[0]['command'] for c in send.call_args_list]
+            self.assertEqual(commands, ['faceplate', 'macro_read', 'macro_prepare', 'macro_commit'] * 2
+                             + ['onboard_layers_read', 'onboard_layers_prepare', 'onboard_commit'])
+
+    def test_single_macro_without_other_changes_ends_helper_after_commit(self):
+        window = self.window
+        self.save_macro()
+        self.connect_fixture()
+        window.backend.macro_batch = False
+        # Button 3 holds an unknown stored action; keep it so nothing else changes.
+        window.profile['plates']['12'][2].update(mode='keep')
+        window.select_button(4)
+        window.mode.setCurrentIndex(window.mode.findData('macro'))
+        with patch.object(window.backend, 'send') as send, patch.object(window.backend, 'shutdown') as shutdown:
+            window.apply()
+            _, commit = self.upload(send, (0, 5, [0, 1, 1]))
+            self.assertNotIn('keep_open', commit)
+            shutdown.assert_called_once()
+            self.assertIsNone(window.batch)
+            self.assertEqual(window.buttons()[4]['mode'], 'keep')
+            self.assertIn('Saved 1 macro', window.status.text())
+            self.assertNotIn('onboard_layers_prepare', [c.args[0]['command'] for c in send.call_args_list])
+
+    def test_batch_failure_stops_before_bindings_and_reports_saved_uploads(self):
+        window = self.window
+        self.batch_fixture()
+        with patch.object(window.backend, 'send') as send, patch.object(window.backend, 'shutdown'):
+            window.apply()
+            self.upload(send, (0, 1, [0, 1, 3]))
+            window.backend.event.emit({'type': 'macro_snapshot', 'snapshot': self.macro_snapshot()})
+            window.backend.event.emit({'type': 'macro_error', 'message': 'Getter failed'})
+            APP.processEvents()
+            self.assertIsNone(window.batch)
+            self.assertIsNone(window.active_editor)
+            self.assertFalse(window.hardware_busy)
+            self.assertIn('1 macro saved', window.status.text())
+            self.assertIn('Getter failed', window.status.text())
+            self.assertEqual(window.buttons()[0]['mode'], 'keep')
+            self.assertEqual(window.profile['hypershift'][15]['mode'], 'macro')
+            commands = [c.args[0]['command'] for c in send.call_args_list]
+            self.assertNotIn('onboard_layers_prepare', commands)
+            self.assertEqual(commands.count('macro_commit'), 1)
+
+    def test_several_macros_need_batch_capable_helper_before_any_request(self):
+        window = self.window
+        self.batch_fixture()
+        window.backend.macro_batch = False
+        with patch.object(window.backend, 'send') as send:
+            window.apply()
+            send.assert_not_called()
+            self.assertIsNone(window.batch)
+            self.assertIn('Rebuild the engine', window.status.text())
 
     def test_slot_change_aborts_assignment_before_preparation(self):
         window = self.window

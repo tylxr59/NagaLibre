@@ -115,6 +115,12 @@ QComboBox { padding-right: 32px; }
 QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right;
     width: 28px; border: 0; background: transparent; }
 QComboBox::down-arrow { image: url("@ARROW"); width: 10px; height: 6px; }
+QSpinBox { padding-right: 26px; }
+QSpinBox::up-button, QSpinBox::down-button { subcontrol-origin: border; width: 22px; border: 0; background: transparent; }
+QSpinBox::up-button { subcontrol-position: top right; }
+QSpinBox::down-button { subcontrol-position: bottom right; }
+QSpinBox::up-arrow { image: url("@UP_ARROW"); width: 10px; height: 6px; }
+QSpinBox::down-arrow { image: url("@ARROW"); width: 10px; height: 6px; }
 QComboBox:disabled, QLineEdit:disabled { color: @FAINT; border-color: @BORDER; background: #0f1113; }
 QComboBox QAbstractItemView { color: @TEXT; background: @RAISED; border: 1px solid @BORDER_STRONG;
     padding: 4px; outline: 0; selection-background-color: #2a4a23; }
@@ -164,7 +170,8 @@ for _name, _value in sorted(dict(
         BG=BG, SIDEBAR=SIDEBAR, SURFACE=SURFACE, RAISED=RAISED, INSET=INSET, BORDER_STRONG=BORDER_STRONG,
         BORDER=BORDER, TEXT=TEXT, MUTED=MUTED, FAINT=FAINT, ACCENT_TEXT=ACCENT_TEXT, ACCENT_SOFT=ACCENT_SOFT,
         ACCENT_LINE=ACCENT_LINE, ACCENT=ACCENT, WARN=WARN, DANGER=DANGER,
-        ARROW=(ASSETS / "chevron-down.svg").as_posix()).items(), key=lambda item: -len(item[0])):
+        ARROW=(ASSETS / "chevron-down.svg").as_posix(),
+        UP_ARROW=(ASSETS / "chevron-up.svg").as_posix()).items(), key=lambda item: -len(item[0])):
     STYLE = STYLE.replace("@" + _name, _value)
 
 

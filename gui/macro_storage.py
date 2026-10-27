@@ -471,7 +471,10 @@ class OnboardMacrosDialog(QDialog):
                 path, journal = writer(self.profile_path, message["backup"], message["token"])
                 self.last_journal = str(journal)
                 self.log.appendPlainText(f"Private backup: {path}\nRecovery journal: {journal}")
-                self.backend.send({"command": 'macro_delete_commit' if deleting else "macro_commit", "token": message["token"], "journal": str(journal)})
+                commit = {"command": 'macro_delete_commit' if deleting else "macro_commit", "token": message["token"], "journal": str(journal)}
+                if not deleting and getattr(self, "batch_keep_open", False):
+                    commit["keep_open"] = True
+                self.backend.send(commit)
                 self.set_operation_status('Deleting macro and verifying mouse state…' if deleting else "Saving macro and verifying mouse state…")
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.backend.shutdown()

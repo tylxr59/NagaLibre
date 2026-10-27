@@ -98,6 +98,7 @@ class Backend(QObject):
         self.haptic_settings = False
         self.onboard_macros = False
         self.macro_deletion = False
+        self.macro_batch = False
         self.device = None
 
     def start(self):
@@ -151,6 +152,7 @@ class Backend(QObject):
                 self.haptic_settings = self.protocol >= 4 and message.get("haptic_settings") is True
                 self.onboard_macros = self.protocol >= 4 and message.get("onboard_macros") is True
                 self.macro_deletion = self.onboard_macros and message.get("macro_deletion") is True
+                self.macro_batch = self.onboard_macros and message.get("macro_batch") is True
                 self.device = message.get("device")
                 self.ready = True
                 self.connected.emit(True)

@@ -3,6 +3,52 @@
 Read [AGENTS.md](AGENTS.md) for standing instructions. User setup is in
 [README.md](README.md); CLI usage is in [docs/CLI.md](docs/CLI.md).
 
+## Macro assignments as drafts; chained save (2026-10-26)
+
+Phase 2 of the macro UX rework. Choosing Macro on a wired V2 Pro button (either
+layer, grid 1–12 or controls 13–16) now records a draft `{mode: "macro",
+library, playback, steps}` instead of offering a separate per-button save. The
+footer **Save bindings to mouse** runs a GUI save batch:
+
+1. Each pending macro, normal layer first, goes through the unchanged
+   macro_read → macro_prepare → durable GUI backup → macro_commit transaction.
+   Its draft then becomes keep and the profile is saved before continuing.
+2. If any other layer edit differs from the pre-save paired readback
+   (`edits_change_mouse`; unknown counts as a change), the batch re-reads both
+   layers and runs the unchanged paired save, which ends the helper.
+3. Otherwise the last macro commit ends the helper as before.
+
+Design choice: no combined Rust write planner. The only engine change is an
+opt-in `keep_open` field on `macro_commit` (default false keeps the old exit)
+and a `macro_batch` hello capability, so the batch shares one helper session and
+one pkexec prompt. Every write keeps its own fresh read, stale checks, backup
+before acknowledgement, scoped rollback and verification; macro commits clear
+the session's macro and layer snapshots, so no step can reuse earlier readback.
+The batch is not atomic. The first failure stops it before later steps and the
+status reports completed uploads, each recoverable with its journal. Drafts are
+frozen while a batch runs. A single macro with no other changes sends no
+`keep_open` and works with an older helper; several macros, or macros plus other
+edits, are refused before any request unless the helper advertises `macro_batch`.
+Hypershift drafts may now hold library-referencing macros; profile validation
+checks the playback encoding. Keep drafts on stored macros now display as Keep
+stored binding rather than as Macro, so reselecting a button never re-uploads.
+
+Not hardware-verified: in-session continuation after a successful macro commit
+(earlier physical trials always exited), multi-macro batches, Hypershift or
+control targets through the batch, and batch failure/recovery. Suggested first
+physical checks with all-slot backups: one macro alone (old path); two macros
+plus one key edit (expect one auth prompt, two journals, one paired backup,
+helper exit, then physical playback of all three); a deliberately disconnected
+second upload to confirm the first remains recoverable via its journal.
+
+Validation: 191 Rust tests (new session parsing/exit-decision test) and 246
+Python/Qt tests passed (new: batch order and single helper stop, keep_open only
+when continuing, legacy single-macro path, mid-batch failure summary with no
+binding write, capability refusal before any request, draft validation and
+round-trip, macro exclusion from layer edits, change detection). fmt, Clippy
+with warnings denied, debug/release builds, example check and whitespace passed.
+No mouse requests occurred in this session.
+
 ## Macro workspace consolidation (2026-10-26)
 
 Phase 1 of a macro UX rework at the user's request; GUI only, with no Rust,

@@ -152,8 +152,8 @@ and sequence editor (no connection is needed to author sequences) and an **On
 mouse** view of stored macros and their assignments. **Diagnostics** contains
 connection logs and the device support form.
 **Save draft** saves local binding edits; apply/save-to-mouse activates them.
-For native macro assignments, use **Save macro to mouse** in the selected button's
-pane. **Stop remapping** and Esc remain available outside an in-flight transaction.
+Macro assignments are drafts too: **Save bindings to mouse** uploads them and then
+saves your other bindings. **Stop remapping** and Esc remain available outside an in-flight transaction.
 
 1. Connect the mouse by USB and choose **Mouse memory** as the draft destination.
 2. Click **Connect mouse**, then select an existing slot. Use **Onboard memory → Read slots** to refresh it.
@@ -171,7 +171,7 @@ The app saves a backup before writing and reads the result back to check it.
 After a successful save, it stops the helper. Saved bindings then work without
 NagaLibre running.
 
-Create reusable local sequences directly in **Macros** without connecting the mouse. Save the macro, then select a button in **Buttons**, choose **Macro**, select the sequence and playback, and use **Save macro to mouse** for a journaled upload. Representative wired uploads, playback and desktop undo have passed physical
+Create reusable local sequences directly in **Macros** without connecting the mouse. Save the macro, then select a button in **Buttons**, choose **Macro**, select the sequence and playback, and use **Save bindings to mouse**; each macro is uploaded through its own journaled transaction before the other bindings are saved. Representative wired uploads, playback and desktop undo have passed physical
 tests for the wired twelve-button scope; broader combinations remain experimental. See [the macro guide](docs/MACROS.md)
 for supported steps, storage limits and recovery.
 

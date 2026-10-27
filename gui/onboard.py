@@ -1,9 +1,10 @@
 """Translate editable side-button actions into the Naga's keyboard records."""
+import copy
 import os
 from pathlib import Path
 import re
 
-from model import DEVICE_MODELS, key_code, shortcut, save_profile
+from model import DEVICE_MODELS, key_code, keep_binding, shortcut, save_profile
 from native_actions import native_action, native_id, researched_label
 
 MODIFIERS = dict(zip(
@@ -71,7 +72,7 @@ def hardware_buttons(profile):
         elif mode == "shortcut":
             action = keyboard_action(shortcut(button["value"]))
         else:
-            raise ValueError(f"Button {i+1} is a sequence. Choose Macro in Customize for a journaled upload, or software mode for helper playback.")
+            raise ValueError(f"Button {i+1} is a macro. Mouse-memory macros need the wired Naga V2 Pro; use software mode for helper playback.")
         result.append({"button": i+1, **action})
     return result
 
@@ -98,7 +99,7 @@ def hardware_controls(profile):
         elif mode == "shortcut":
             action = keyboard_action(shortcut(button["value"]))
         else:
-            raise ValueError("Choose Macro on the control in Customize to upload a saved sequence.")
+            raise ValueError("Mouse-memory macros on wheel and DPI controls need the wired Naga V2 Pro.")
         result.append({"button": definitions[index]["button"], **action})
     return result
 
@@ -198,6 +199,37 @@ def layer_edits(profile):
                 raise ValueError("Layers support keys, shortcuts, media/scrolling, disabled actions and a normal-layer Hypershift trigger; use the Macro panel for native macros.")
             result.append({"layer": layer, "action": {"button": index+1, **action}})
     return result
+
+
+def onboard_macro_jobs(profile):
+    """Pending mouse-memory macro uploads as (layer, button 1-16, draft), normal layer first."""
+    if profile.get("device", "naga_v2_pro") != "naga_v2_pro" or profile["plate"] != "12":
+        return []
+    layers = (profile["plates"]["12"] + profile.get("controls", []), profile.get("hypershift", []))
+    return [(layer, index + 1, button) for layer, buttons in enumerate(layers)
+            for index, button in enumerate(buttons) if button["mode"] == "macro" and button.get("library")]
+
+
+def without_macros(profile):
+    """The draft with pending macro uploads preserved as stored; uploads bind them separately."""
+    result = copy.deepcopy(profile)
+    for layer, button, _ in onboard_macro_jobs(profile):
+        buttons = (result["plates"]["12"] + result.get("controls", [])) if layer == 0 else result["hypershift"]
+        buttons[button - 1].clear()
+        buttons[button - 1].update(keep_binding())
+    return result
+
+
+def edits_change_mouse(edits, paired):
+    """Whether any layer edit differs from the last paired readback (unknown counts as a change)."""
+    banks = (paired["normal"], paired["hypershift"])
+    for edit in edits:
+        action = edit["action"]
+        bank = banks[edit["layer"]]
+        record = next((r for r in bank["buttons"] + bank.get("controls", []) if r["button"] == action["button"]), None)
+        if record is None or record.get("category") != action["category"] or list(record.get("data", [])) != action["data"]:
+            return True
+    return False
 
 
 def draft_from_record(record, secondary=False):

@@ -104,6 +104,8 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
                 native_action(button.get("value"))
             if button["mode"] == "hypershift" and (device != "naga_v2_pro" or plate != "12"):
                 raise ValueError("Hypershift triggers require the Naga V2 Pro twelve-button plate.")
+            if button["mode"] == "macro":
+                check_onboard_macro(button)
             if not isinstance(button["trigger"], str) or not isinstance(button["value"], str) or not isinstance(button["steps"], list):
                 raise ValueError("Invalid button data.")
             for step in button["steps"]:
@@ -122,6 +124,8 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
             raise ValueError("Invalid wheel control binding.")
         if control["mode"] == "native":
             native_action(control.get("value"))
+        if control["mode"] == "macro":
+            check_onboard_macro(control)
         if not isinstance(control.get("trigger"), str) or not isinstance(control.get("value"), str) or not isinstance(control.get("steps"), list):
             raise ValueError("Invalid wheel control data.")
     if controls:
@@ -133,10 +137,15 @@ def load_profile(path: Path, device="naga_v2_pro") -> dict:
         if not isinstance(secondary, list) or len(secondary) != 16:
             raise ValueError("Invalid Hypershift draft.")
         for button in secondary:
-            if (not isinstance(button, dict) or button.get("mode") not in ("keep", "key", "shortcut", "disabled", "native")
+            if (not isinstance(button, dict) or button.get("mode") not in ("keep", "key", "shortcut", "disabled", "native", "macro")
                     or not isinstance(button.get("trigger"), str) or not isinstance(button.get("value"), str)
                     or not isinstance(button.get("steps"), list)):
-                raise ValueError("Invalid Hypershift binding; nested triggers and macros are unsupported.")
+                raise ValueError("Invalid Hypershift binding; nested triggers are unsupported.")
+            if button["mode"] == "macro":
+                # Hypershift macros exist only as mouse-memory uploads.
+                if "library" not in button:
+                    raise ValueError("Hypershift macros must reference a library macro.")
+                check_onboard_macro(button)
             if button["mode"] == "native":
                 native_action(button.get("value"))
         if not value.get("controls"):
@@ -218,6 +227,31 @@ def reset_plate(profile: dict, plate: str) -> None:
             after["trigger"] = before["trigger"] if before["trigger"] not in PROTECTED_INPUTS else ""
 
 
+PLAYBACK_MODES = ("once", "counted", "while_held", "toggle", "sequence")
+
+
+def playback_label(playback):
+    playback = playback or {"mode": "once"}
+    if playback["mode"] == "counted":
+        return f"{playback['count']}×"
+    return {"once": "once", "while_held": "while held", "toggle": "toggle", "sequence": "sequence"}[playback["mode"]]
+
+
+def check_onboard_macro(button):
+    """A mouse-memory macro draft: a library reference plus native playback."""
+    if "library" not in button:
+        return
+    playback = button.get("playback")
+    if (not isinstance(button["library"], str) or not button["library"] or not isinstance(playback, dict)
+            or playback.get("mode") not in PLAYBACK_MODES):
+        raise ValueError("Invalid mouse-memory macro draft.")
+    if playback["mode"] == "counted":
+        if type(playback.get("count")) is not int or not 1 <= playback["count"] <= 255 or set(playback) != {"mode", "count"}:
+            raise ValueError("Invalid macro repeat count.")
+    elif set(playback) != {"mode"}:
+        raise ValueError("Invalid macro playback.")
+
+
 def binding_label(button: dict) -> str:
     if button["mode"] == "native":
         return BY_ID.get(button["value"], {}).get("label", "Unknown native action")
@@ -232,5 +266,7 @@ def binding_label(button: dict) -> str:
     if button["mode"] == "default":
         return display_key(button["trigger"]) if button["trigger"] else "Default"
     if button["mode"] == "macro":
+        if button.get("library"):
+            return f"Macro · {len(button['steps'])} steps · {playback_label(button.get('playback'))}"
         return f"Macro · {len(button['steps'])} steps"
     return button["value"] or "Unassigned"
