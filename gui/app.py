@@ -10,9 +10,9 @@ import subprocess
 import sys
 import tempfile
 
-from PySide6.QtCore import Qt, QTimer, QLockFile, QPointF, QRectF, QStandardPaths, QUrl
-from PySide6.QtGui import (QAction, QColor, QFont, QFontMetrics, QIcon, QLinearGradient, QPainter, QPen,
-                           QPixmap, QDesktopServices)
+from PySide6.QtCore import Qt, QTimer, QLockFile, QPointF, QRectF, QSize, QStandardPaths, QUrl
+from PySide6.QtGui import (QAction, QColor, QFont, QFontMetrics, QIcon, QPainter, QPen,
+                           QDesktopServices)
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
@@ -28,7 +28,7 @@ from backend import Backend, DeviceInventory, backend_path
 from native_actions import NATIVE_ACTIONS
 from support import device_issue_url
 from workspace import (Workspace, SegmentedControl, StatusDot, card, divider, label as text_label, repolish,
-                       ACCENT, BORDER, BORDER_STRONG, FAINT, MUTED, TEXT, WARN, ACCENT_TEXT)
+                       ACCENT, ASSETS, BORDER, BORDER_STRONG, FAINT, MUTED, TEXT, WARN, ACCENT_TEXT)
 from macro_editor import MacroEditor
 from macro_library_view import MacroLibraryWidget
 from macro_bindings import MacroBindingsWidget
@@ -43,29 +43,10 @@ from model import (
 
 
 def app_icon() -> QIcon:
-    pix = QPixmap(128, 128)
-    pix.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pix)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    gradient = QLinearGradient(0, 0, 128, 128)
-    gradient.setColorAt(0, QColor("#5fe549"))
-    gradient.setColorAt(1, QColor("#25a313"))
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(gradient)
-    painter.drawRoundedRect(8, 8, 112, 112, 30, 30)
-    # Three-by-two dot grid: a nod to the side plate.
-    painter.setBrush(QColor(8, 26, 4, 70))
-    for column in range(3):
-        for row in range(2):
-            painter.drawEllipse(QPointF(44 + column * 20, 90 + row * 13), 4.2, 4.2)
-    painter.setPen(QColor("#0b1a07"))
-    font = painter.font()
-    font.setPixelSize(64)
-    font.setWeight(QFont.Weight.Black)
-    painter.setFont(font)
-    painter.drawText(QRectF(0, 4, 128, 84), Qt.AlignmentFlag.AlignCenter, "N")
-    painter.end()
-    return QIcon(pix)
+    icon = QIcon()
+    for size in (32, 64, 256):
+        icon.addFile(str(ASSETS / f"icon-{size}.png"), QSize(size, size))
+    return icon
 
 
 class MacroDialog(QDialog):
