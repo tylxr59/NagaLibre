@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/nagalibre-hero.png" alt="NagaLibre project artwork" width="280">
+  <img src="assets/logo.png" alt="NagaLibre logo" width="112" height="112">
 </p>
 
 <h1 align="center">NagaLibre</h1>
