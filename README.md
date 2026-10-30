@@ -45,7 +45,7 @@ supports macro sequences and experimental models.
 
 ## 🎯 Features
 
-|                               |                                                                                        |
+| Feature                       | What it does                                                                           |
 | ----------------------------- | -------------------------------------------------------------------------------------- |
 | 🖱️ **Side-plate bindings**    | Bind the 12-, 6-, and 2-button plates to keys, shortcuts, and mouse buttons.           |
 | 💾 **Onboard memory**         | Save bindings to the Naga V2 Pro so they keep working after you close the app.         |
