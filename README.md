@@ -12,7 +12,7 @@
   <a href="https://github.com/tylxr59/NagaLibre/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/tylxr59/NagaLibre?display_name=tag&sort=semver"></a>
   <a href="#-requirements"><img alt="Linux" src="https://img.shields.io/badge/platform-Linux-2ea44f?logo=linux&logoColor=white"></a>
   <a href="#-development"><img alt="Rust and Qt" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Qt-dea584?logo=rust&logoColor=white"></a>
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/tylxr59/NagaLibre"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-97ca00"></a>
 </p>
 
 <p align="center">
@@ -23,8 +23,6 @@
 </p>
 
 ---
-
-## 🦸 NagaLibre
 
 NagaLibre is a free and open-source reimplementation of the Razer Naga side-button
 system for Linux. It lets you bind the thumb buttons to keys, shortcuts, and
