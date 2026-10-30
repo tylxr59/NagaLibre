@@ -1,10 +1,30 @@
-# NagaLibre
-
 <p align="center">
-  <img src="assets/nagalibre-hero.png" alt="Naga Libre project artwork" width="420">
+  <img src="assets/nagalibre-hero.png" alt="NagaLibre project artwork" width="280">
 </p>
 
-**Your Naga. Your buttons. Linux native.**
+<h1 align="center">NagaLibre</h1>
+
+<p align="center">
+  <strong>Your Naga. Your buttons. Linux native.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/tylxr59/NagaLibre/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/tylxr59/NagaLibre?display_name=tag&sort=semver"></a>
+  <a href="#-requirements"><img alt="Linux" src="https://img.shields.io/badge/platform-Linux-2ea44f?logo=linux&logoColor=white"></a>
+  <a href="#-development"><img alt="Rust and Qt" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Qt-dea584?logo=rust&logoColor=white"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/tylxr59/NagaLibre"></a>
+</p>
+
+<p align="center">
+  <a href="#-features">Features</a> ·
+  <a href="#-quick-start">Quick start</a> ·
+  <a href="#-set-up-your-buttons">Set up your buttons</a> ·
+  <a href="#-troubleshooting">Troubleshooting</a>
+</p>
+
+---
+
+## 🦸 NagaLibre
 
 NagaLibre is a free and open-source reimplementation of the Razer Naga side-button
 system for Linux. It lets you bind the thumb buttons to keys, shortcuts, and
@@ -14,29 +34,48 @@ The verified target is the **Razer Naga V2 Pro**. Experimental software support
 also recognizes the Naga Pro, Trinity, X, Left-Handed, Chroma, V2 HyperSpeed,
 and Viper V2 Pro. On the V2 Pro, you can save supported bindings to the mouse’s
 onboard memory so they keep working after you close the app. Software mode
-supports macro sequences and experimental models. NagaLibre works independently of Synapse and
-OpenRazer. It is an independent project, unaffiliated with Razer.
+supports macro sequences and experimental models.
 
-## What works today
+<p align="center">
+  <img src="assets/screenshot.png" alt="NagaLibre button assignment screen" width="800">
+</p>
+
+> [!NOTE]
+> NagaLibre works independently of Synapse and OpenRazer. It is an independent project, unaffiliated with Razer.
+
+## 🎯 Features
+
+| Feature                       | What it does                                                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
+| 🖱️ **Side-plate bindings**    | Bind the 12-, 6-, and 2-button plates to keys, shortcuts, and mouse buttons.           |
+| 💾 **Onboard memory**         | Save bindings to the Naga V2 Pro so they keep working after you close the app.         |
+| ⌨️ **Software macros**        | Run multi-step sequences with delays while the background helper runs.                 |
+| 🔀 **Hypershift layers**      | Edit a second layer of assignments and save it to the mouse.                           |
+| 🛞 **Wheel and DPI controls** | Rebind the wheel tilts, scroll-mode and DPI buttons, and pick HyperScroll presets.     |
+| 🔌 **Plate detection**        | Detects faceplate swaps and switches to that plate's draft.                            |
+| 🛡️ **Careful writes**         | Backs up before every save and reads the result back to check it.                      |
+| 🔐 **Unprivileged app**       | The Qt app never runs as root. A polkit prompt grants mouse access to the Rust helper. |
+
+### Support status
 
 Hardware verification below refers to the Naga V2 Pro.
 
-| Feature | Support |
-| --- | --- |
-| 12-button plate | Main development and testing target |
-| Onboard key bindings | USB save, app exit/reconnect persistence, and exact backup restore tested on one mouse and slot |
-| Onboard shortcuts and mouse-button outputs | Ctrl+A, modifier release and right-click output physically tested over USB and receiver, with exact backup restore |
-| Software keys, shortcuts, and macro sequences | Available while the background helper runs |
-| Automatic faceplate detection | USB detection verified for 12-, 6-, and 2-button plates, including swaps |
-| 6- and 2-button bindings | Input learning in software mode; remapping still needs physical testing |
-| 2.4 GHz receiver | Twelve-button onboard save, physical shortcut/mouse outputs, power/reconnect persistence and exact restore tested |
-| Bluetooth onboard programming | Unsupported |
-| New onboard slots | Wired Naga V2 Pro, 12-button plate |
-| Standard wheel modes | Five HyperScroll presets, active selection and cycle order over USB; preset feels/cycling physically tested, desktop flow covered by automated tests; Custom editing deferred |
-| DPI stage values and RGB settings | Not implemented |
-| Multi-step macros stored on the mouse | Not implemented; use software mode |
-| Hypershift assignments | Normal/Hypershift GUI drafts and paired backups; wired twelve-button GUI save, hold/release, reconnect and exact restore verified |
-| Media and scrolling assignments | Seven media actions and four scroll directions in the wired twelve-button editor; automated transaction/recovery coverage, physical output unverified |
+| Feature                                       | Support                                                                                                                                                                       |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 12-button plate                               | Main development and testing target                                                                                                                                           |
+| Onboard key bindings                          | USB save, app exit/reconnect persistence, and exact backup restore tested on one mouse and slot                                                                               |
+| Onboard shortcuts and mouse-button outputs    | Ctrl+A, modifier release and right-click output physically tested over USB and receiver, with exact backup restore                                                            |
+| Software keys, shortcuts, and macro sequences | Available while the background helper runs                                                                                                                                    |
+| Automatic faceplate detection                 | USB detection verified for 12-, 6-, and 2-button plates, including swaps                                                                                                      |
+| 6- and 2-button bindings                      | Input learning in software mode; remapping still needs physical testing                                                                                                       |
+| 2.4 GHz receiver                              | Twelve-button onboard save, physical shortcut/mouse outputs, power/reconnect persistence and exact restore tested                                                             |
+| Bluetooth onboard programming                 | Unsupported                                                                                                                                                                   |
+| New onboard slots                             | Wired Naga V2 Pro, 12-button plate                                                                                                                                            |
+| Standard wheel modes                          | Five HyperScroll presets, active selection and cycle order over USB; preset feels/cycling physically tested, desktop flow covered by automated tests; Custom editing deferred |
+| DPI stage values and RGB settings             | Not implemented                                                                                                                                                               |
+| Multi-step macros stored on the mouse         | Not implemented; use software mode                                                                                                                                            |
+| Hypershift assignments                        | Normal/Hypershift GUI drafts and paired backups; wired twelve-button GUI save, hold/release, reconnect and exact restore verified                                             |
+| Media and scrolling assignments               | Seven media actions and four scroll directions in the wired twelve-button editor; automated transaction/recovery coverage, physical output unverified                         |
 
 See [the Hypershift desktop guide](docs/HYPERSHIFT.md) for layer editing, migration,
 backups and the verification procedure. The [standard wheel guide](docs/WHEEL.md)
@@ -49,7 +88,7 @@ This is a project under active development. Start with the USB cable and the
 
 See [TODO.md](TODO.md) for the prioritized roadmap and remaining Synapse features.
 
-## Experimental mouse models
+### Experimental mouse models
 
 The additional models are identified from Razer's device packages and have not
 been tested on physical hardware. Connect one supported mouse and choose
@@ -68,7 +107,7 @@ Run `./target/release/naga-macros models` to see the exact identities and
 capabilities. The [model research notes](inspection/MODELS.md) record package
 sources, USB IDs and evidence limits.
 
-## Required software
+## 📋 Requirements
 
 - Linux with evdev, hidraw, and uinput support.
 - A current stable Rust toolchain, including Cargo, and a C linker/compiler.
@@ -108,7 +147,7 @@ python3 -m venv .venv
 The launcher automatically uses `.venv` when present. Your desktop also needs
 the Qt platform libraries for its Wayland or X11 session.
 
-## Build and launch
+## 🚀 Quick start
 
 ```sh
 git clone https://github.com/tylxr59/NagaLibre.git
@@ -135,7 +174,7 @@ cargo build --release --locked
 ./nagalibre
 ```
 
-## Set up your buttons
+## 🖱️ Set up your buttons
 
 The sidebar lists **Buttons**, **Scrolling**, **Onboard memory**, **Macros** and
 **Diagnostics**, with the connected mouse and **Connect mouse** above them. The
@@ -240,7 +279,7 @@ onboard bindings in place.
 Drafts and backups normally live in `~/.config/NagaLibre/`, or under
 `$XDG_CONFIG_HOME/NagaLibre/` if configured.
 
-## Request device support
+## 🙋 Request device support
 
 Have an unrecognized mouse, a faceplate detection problem, or an experimental
 model to test? Open the [device support issue form](https://github.com/tylxr59/NagaLibre/issues/new?template=device-support.yml).
@@ -260,7 +299,7 @@ metadata without sending vendor commands or capturing button presses. The app
 does not upload it automatically. See the [diagnostics guide](docs/DEVICE_SUPPORT.md)
 for optional faceplate and input checks and what information to include.
 
-## Troubleshooting
+## 🩺 Troubleshooting
 
 - **No password prompt:** check that `pkexec` is installed and your desktop's
   polkit authentication agent is running. Run the GUI without sudo.
@@ -283,10 +322,35 @@ sudo ./target/release/naga-macros onboard-probe --slot 1
 Diagnostic output and backups can contain your mouse serial number. Remove it
 before posting output publicly.
 
-The [command-line guide](docs/CLI.md) covers software macro configuration and
-monitoring. Bugs and contributions are welcome through
-[GitHub issues](https://github.com/tylxr59/NagaLibre/issues) and pull requests.
+## 👋 Development
 
-## License
+Build the engine and run the GUI from your checkout as described in [Quick start](#-quick-start). Before sending a change, run the same checks as the maintainers:
 
-NagaLibre's source is available under the [MIT license](LICENSE).
+```sh
+cargo fmt --check
+cargo test --locked
+cargo clippy --all-targets --locked -- -D warnings
+cargo build --locked
+QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s gui -p 'test_*.py' -v
+```
+
+GUI tests use the debug engine for config and session checks and mock hardware for interactions, so no mouse is needed.
+
+| Guide                                         | Covers                                                        |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| [CLI](docs/CLI.md)                            | Software macro configuration and monitoring from the terminal |
+| [Macros](docs/MACROS.md)                      | Supported steps, storage limits, and recovery                 |
+| [Hypershift](docs/HYPERSHIFT.md)              | Layer editing, migration, backups, and verification           |
+| [Wheel](docs/WHEEL.md)                        | Preset selection, cycle order, and wheel-stage backups        |
+| [Media and scrolling](docs/NATIVE_ACTIONS.md) | Experimental native assignments and their limits              |
+| [Device support](docs/DEVICE_SUPPORT.md)      | Diagnostics and what to include in a report                   |
+
+See [TODO.md](TODO.md) for the roadmap. Bugs and contributions are welcome through [GitHub Issues](https://github.com/tylxr59/NagaLibre/issues) and pull requests.
+
+## 📦 Releases
+
+Bump the version in `Cargo.toml`, then push a matching `v<version>` tag. The [release workflow](.github/workflows/release.yml) runs the tests, builds the `naga-macros` engine, and publishes it with a checksum to [GitHub Releases](https://github.com/tylxr59/NagaLibre/releases) with generated release notes. Building from source remains the recommended install.
+
+## 📃 License
+
+NagaLibre is available under the [MIT License](LICENSE).
