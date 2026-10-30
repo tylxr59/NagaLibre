@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v* tag to build and publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Check tag matches Cargo.toml version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -er '.packages[0].version')
+          if [ "$RELEASE_TAG" != "v${version}" ]; then
+            echo "::error::Tag $RELEASE_TAG does not match Cargo.toml version ${version}"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Build engine
+        run: |
+          cargo build --release --locked
+          tar -C target/release -czf naga-macros-linux-x86_64.tar.gz naga-macros
+          sha256sum naga-macros-linux-x86_64.tar.gz > naga-macros-linux-x86_64.tar.gz.sha256
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            naga-macros-linux-x86_64.tar.gz naga-macros-linux-x86_64.tar.gz.sha256 \
+            --title "NagaLibre ${RELEASE_TAG#v}" \
+            --verify-tag \
+            --generate-notes
